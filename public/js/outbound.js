@@ -29,9 +29,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let allProducts = [];
     let allCustomers = [];
     let allWarehouseLocations = [];
-    let warehouseLocationsMap = new Map(); // For faster lookups
+    let warehouseLocationsMap = new Map();
     let productInventoryDetails = [];
     let ordersTable = null;
+    let currentOrderItems = []; // To hold items of the selected order
 
     const currentWarehouseRole = localStorage.getItem('current_warehouse_role');
     const currentWarehouseId = localStorage.getItem('current_warehouse_id');
@@ -230,6 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
         printStickersBtn.classList.add('d-none');
         orderItemsTableBody.innerHTML = `<tr><td colspan="9" class="text-center p-4">Loading items...</td></tr>`;
         trackingNumberDisplay.innerHTML = '';
+        currentOrderItems = []; // Reset current order items
 
         try {
             const response = await fetchData(`api/outbound_api.php?order_id=${orderId}`);
@@ -237,6 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (response?.success && response.data) {
                 const order = response.data;
+                currentOrderItems = order.items || []; // Store items for validation
                 const canManage = ['operator', 'manager'].includes(currentWarehouseRole);
                 const isOrderFinalized = ['Shipped', 'Delivered', 'Cancelled', 'Out for Delivery'].includes(order.status);
                 
@@ -451,8 +454,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const product = allProducts.find(p => p.barcode === productBarcode || p.sku === productBarcode);
         if (!product) {
-            Swal.fire('Error', 'Product not found in this warehouse.', 'error');
+            Swal.fire('Error', 'Product not found in system.', 'error');
             return;
+        }
+
+        // FIX: Check if the product is on the current order before proceeding
+        const isOnOrder = currentOrderItems.some(item => item.product_id == product.product_id);
+        if (!isOnOrder) {
+            Swal.fire('Error', 'This product is not on the selected order.', 'error');
+            return; // Stop execution if the item is not on the order
         }
 
         $(pickLocationSelect).empty().append(new Option('Loading locations...', '')).trigger('change');
