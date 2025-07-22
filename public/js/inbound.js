@@ -514,6 +514,7 @@ $(document).ready(function() {
                 tableHtml += `<tr class="fw-bold">
                     <td>${item.sku}</td>
                     <td>${item.product_name}</td>
+                    <td>${item.barcode || 'N/A'}</td>
                     <td>${item.batch_number || 'N/A'}</td>
                     <td>${item.received_quantity}</td>
                     <td>(${item.putaway_quantity})</td>
@@ -524,7 +525,7 @@ $(document).ready(function() {
                 if (item.putaways && item.putaways.length > 0) {
                     item.putaways.forEach(putaway => {
                         tableHtml += `<tr class="table-light">
-                            <td colspan="2" class="text-end fst-italic py-1">
+                            <td colspan="3" class="text-end fst-italic py-1">
                                 ↳ Putaway to <strong>${putaway.location_code}</strong>
                             </td>
                             <td class="py-1">${putaway.batch_number}</td>
@@ -540,7 +541,7 @@ $(document).ready(function() {
                 }
             });
         } else {
-            tableHtml = '<tr><td colspan="6" class="text-center">No items have been processed for this receipt yet.</td></tr>';
+            tableHtml = '<tr><td colspan="7" class="text-center">No items have been processed for this receipt yet.</td></tr>';
         }
 
         const modalHtml = `<div class="text-start">
@@ -556,6 +557,7 @@ $(document).ready(function() {
                         <tr>
                             <th>SKU</th>
                             <th>Product Name</th>
+                            <th>Barcode</th>
                             <th>Batch Number</th>
                             <th>Received Qty</th>
                             <th>Putaway Qty</th>

@@ -735,6 +735,7 @@ function handleCancelReceipt($conn, $warehouse_id) {
         sendJsonResponse(['success' => false, 'message' => 'Invalid Receipt ID provided.'], 400);
         return;
     }
+
     $conn->begin_transaction();
     try {
         $stmt_check = $conn->prepare("SELECT status FROM inbound_receipts WHERE receipt_id = ? AND warehouse_id = ?");
