@@ -71,6 +71,10 @@ switch ($method) {
             handlePutawayItem($conn, $current_warehouse_id);
         } elseif ($action === 'cancelReceipt') {
             handleCancelReceipt($conn, $current_warehouse_id);
+        } elseif ($action === 'updateReceivedItem') { // NEW ACTION
+            handleUpdateReceivedItem($conn, $current_warehouse_id);
+        } elseif ($action === 'deleteReceivedItem') { // NEW ACTION
+            handleDeleteReceivedItem($conn, $current_warehouse_id);
         } else {
             sendJsonResponse(['success' => false, 'message' => 'Invalid POST action'], 400);
         }
@@ -79,6 +83,102 @@ switch ($method) {
         sendJsonResponse(['success' => false, 'message' => 'Method Not Allowed'], 405);
         break;
 }
+
+// --- NEW FUNCTION ---
+function handleDeleteReceivedItem($conn, $warehouse_id) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $inbound_item_id = filter_var($input['inbound_item_id'] ?? null, FILTER_VALIDATE_INT);
+
+    if (!$inbound_item_id) {
+        sendJsonResponse(['success' => false, 'message' => 'Invalid item ID.'], 400);
+        return;
+    }
+
+    $conn->begin_transaction();
+    try {
+        $stmt_check = $conn->prepare("SELECT putaway_quantity, receipt_id FROM inbound_items WHERE inbound_item_id = ?");
+        $stmt_check->bind_param("i", $inbound_item_id);
+        $stmt_check->execute();
+        $item = $stmt_check->get_result()->fetch_assoc();
+        $stmt_check->close();
+
+        if (!$item) {
+            throw new Exception("Item not found.", 404);
+        }
+
+        if ($item['putaway_quantity'] > 0) {
+            throw new Exception("Cannot delete item that has already been partially or fully put away.", 409);
+        }
+
+        $stmt_delete = $conn->prepare("DELETE FROM inbound_items WHERE inbound_item_id = ?");
+        $stmt_delete->bind_param("i", $inbound_item_id);
+        if (!$stmt_delete->execute()) {
+            throw new Exception("Failed to delete the item record.");
+        }
+        $stmt_delete->close();
+
+        updateReceiptStatus($conn, $item['receipt_id']);
+        $conn->commit();
+        sendJsonResponse(['success' => true, 'message' => 'Received item deleted successfully.']);
+
+    } catch (Exception $e) {
+        $conn->rollback();
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], $e->getCode() ?: 500);
+    }
+}
+
+// --- NEW FUNCTION ---
+function handleUpdateReceivedItem($conn, $warehouse_id) {
+    $input = json_decode(file_get_contents('php://input'), true);
+
+    $inbound_item_id = filter_var($input['inbound_item_id'] ?? null, FILTER_VALIDATE_INT);
+    $quantity = filter_var($input['quantity'] ?? null, FILTER_VALIDATE_INT);
+    $dot_code = sanitize_input($input['dot_code'] ?? '');
+
+    if (!$inbound_item_id || !$quantity || $quantity <= 0 || empty($dot_code)) {
+        sendJsonResponse(['success' => false, 'message' => 'Valid Item ID, Quantity, and DOT code are required.'], 400);
+        return;
+    }
+
+    $conn->begin_transaction();
+    try {
+        $stmt_check = $conn->prepare("SELECT ii.putaway_quantity, ii.receipt_id, p.expiry_years FROM inbound_items ii JOIN products p ON ii.product_id = p.product_id WHERE ii.inbound_item_id = ?");
+        $stmt_check->bind_param("i", $inbound_item_id);
+        $stmt_check->execute();
+        $item = $stmt_check->get_result()->fetch_assoc();
+        $stmt_check->close();
+
+        if (!$item) {
+            throw new Exception("Item not found.", 404);
+        }
+
+        if ($item['putaway_quantity'] > 0) {
+            throw new Exception("Cannot edit an item that has already been partially or fully put away.", 409);
+        }
+
+        $expiry_date = convertDotToDate($dot_code, $item['expiry_years']);
+        if ($expiry_date === null) {
+            throw new Exception("Invalid DOT format provided.");
+        }
+
+        $stmt_update = $conn->prepare("UPDATE inbound_items SET received_quantity = ?, expected_quantity = ?, dot_code = ?, expiry_date = ? WHERE inbound_item_id = ?");
+        $stmt_update->bind_param("iissi", $quantity, $quantity, $dot_code, $expiry_date, $inbound_item_id);
+        
+        if (!$stmt_update->execute()) {
+            throw new Exception("Failed to update item record.");
+        }
+        $stmt_update->close();
+
+        updateReceiptStatus($conn, $item['receipt_id']);
+        $conn->commit();
+        sendJsonResponse(['success' => true, 'message' => 'Received item updated successfully.']);
+
+    } catch (Exception $e) {
+        $conn->rollback();
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], $e->getCode() ?: 500);
+    }
+}
+
 
 function handleGetPutawayHistory($conn, $warehouse_id) {
     $receipt_id = filter_input(INPUT_GET, 'receipt_id', FILTER_VALIDATE_INT);
@@ -343,7 +443,6 @@ function handleGetAvailableLocations($conn, $warehouse_id) {
 }
 
 
-// --- MODIFIED FUNCTION ---
 function handleGetInbound($conn, $warehouse_id) {
     if (isset($_GET['receipt_id'])) {
         $receipt_id = filter_var($_GET['receipt_id'], FILTER_VALIDATE_INT);
@@ -369,7 +468,6 @@ function handleGetInbound($conn, $warehouse_id) {
             return;
         }
 
-        // MODIFIED: Added p.barcode
         $stmt_items = $conn->prepare("
             SELECT 
                 ii.*, p.sku, p.product_name, p.barcode
@@ -473,7 +571,6 @@ function handleReceiveItem($conn, $warehouse_id) {
     $receipt_id = (int)$input['receipt_id'];
     $barcode = trim($input['barcode']);
     $received_quantity = (int)$input['received_quantity'];
-    $batch_number = trim($input['batch_number'] ?? '');
     $dot_code = trim($input['dot_code']);
     $unit_cost = isset($input['unit_cost']) && is_numeric($input['unit_cost']) ? (float)$input['unit_cost'] : null;
 
@@ -496,10 +593,6 @@ function handleReceiveItem($conn, $warehouse_id) {
             throw new Exception("Invalid DOT format. Please use WWYY.");
         }
 
-        if (empty($batch_number)) {
-            $batch_number = 'BCH-' . date('ym') . '-' . strtoupper(bin2hex(random_bytes(4)));
-        }
-
         $stmt_check_arrival = $conn->prepare("SELECT actual_arrival_date FROM inbound_receipts WHERE receipt_id = ?");
         $stmt_check_arrival->bind_param("i", $receipt_id);
         $stmt_check_arrival->execute();
@@ -513,34 +606,51 @@ function handleReceiveItem($conn, $warehouse_id) {
             $stmt_set_arrival->close();
         }
 
-        $received_location_id = null;
-        $stmt_rec_loc = $conn->prepare("SELECT location_id FROM warehouse_locations WHERE warehouse_id = ? AND location_type_id = (SELECT type_id FROM location_types WHERE type_name = 'receiving_bay' LIMIT 1) LIMIT 1");
-        $stmt_rec_loc->bind_param("i", $warehouse_id);
-        $stmt_rec_loc->execute();
-        $rec_loc_data = $stmt_rec_loc->get_result()->fetch_assoc();
-        if ($rec_loc_data) {
-            $received_location_id = $rec_loc_data['location_id'];
-        }
-        $stmt_rec_loc->close();
+        $stmt_find = $conn->prepare("SELECT inbound_item_id FROM inbound_items WHERE receipt_id = ? AND product_id = ? AND dot_code = ?");
+        $stmt_find->bind_param("iis", $receipt_id, $product_id, $dot_code);
+        $stmt_find->execute();
+        $existing_item = $stmt_find->get_result()->fetch_assoc();
+        $stmt_find->close();
 
-        $status = 'Received';
-        $stmt_insert = $conn->prepare("
-            INSERT INTO inbound_items (
-                receipt_id, product_id, expected_quantity, received_quantity,
-                batch_number, expiry_date, dot_code, unit_cost, status, received_location_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ");
-        $stmt_insert->bind_param(
-            "iiissssdsi", 
-            $receipt_id, $product_id, $received_quantity, $received_quantity, 
-            $batch_number, $expiry_date, $dot_code, $unit_cost, $status, $received_location_id
-        );
-        
-        if (!$stmt_insert->execute()) {
-            throw new Exception("Failed to create new item record: " . $stmt_insert->error);
+        if ($existing_item) {
+            $stmt_update = $conn->prepare("UPDATE inbound_items SET received_quantity = received_quantity + ?, expected_quantity = expected_quantity + ? WHERE inbound_item_id = ?");
+            $stmt_update->bind_param("iii", $received_quantity, $received_quantity, $existing_item['inbound_item_id']);
+            if (!$stmt_update->execute()) {
+                throw new Exception("Failed to update existing item record: " . $stmt_update->error);
+            }
+            $stmt_update->close();
+            $user_message = "Updated existing batch with quantity.";
+        } else {
+            $batch_number = 'BCH-' . date('ym') . '-' . strtoupper(bin2hex(random_bytes(4)));
+            $received_location_id = null;
+            $stmt_rec_loc = $conn->prepare("SELECT location_id FROM warehouse_locations WHERE warehouse_id = ? AND location_type_id = (SELECT type_id FROM location_types WHERE type_name = 'receiving_bay' LIMIT 1) LIMIT 1");
+            $stmt_rec_loc->bind_param("i", $warehouse_id);
+            $stmt_rec_loc->execute();
+            $rec_loc_data = $stmt_rec_loc->get_result()->fetch_assoc();
+            if ($rec_loc_data) {
+                $received_location_id = $rec_loc_data['location_id'];
+            }
+            $stmt_rec_loc->close();
+
+            $status = 'Received';
+            $stmt_insert = $conn->prepare("
+                INSERT INTO inbound_items (
+                    receipt_id, product_id, expected_quantity, received_quantity,
+                    batch_number, expiry_date, dot_code, unit_cost, status, received_location_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $stmt_insert->bind_param(
+                "iiissssdsi", 
+                $receipt_id, $product_id, $received_quantity, $received_quantity, 
+                $batch_number, $expiry_date, $dot_code, $unit_cost, $status, $received_location_id
+            );
+            
+            if (!$stmt_insert->execute()) {
+                throw new Exception("Failed to create new item record: " . $stmt_insert->error);
+            }
+            $stmt_insert->close();
+            $user_message = "Item received successfully with new batch: $batch_number";
         }
-        $stmt_insert->close();
-        $user_message = "Item received successfully with batch: $batch_number";
 
         updateReceiptStatus($conn, $receipt_id);
         $conn->commit();
@@ -632,38 +742,55 @@ function handlePutawayItem($conn, $warehouse_id) {
             $final_location_id = $location_data['location_id'];
         }
 
-        $stmt = $conn->prepare("UPDATE inbound_items SET putaway_quantity = putaway_quantity + ?, final_location_id = ? WHERE inbound_item_id = ?");
-        $stmt->bind_param("iii", $putaway_quantity, $final_location_id, $item['inbound_item_id']);
+        $stmt = $conn->prepare("UPDATE inbound_items SET putaway_quantity = putaway_quantity + ? WHERE inbound_item_id = ?");
+        $stmt->bind_param("ii", $putaway_quantity, $inbound_item_id);
         if (!$stmt->execute()) {
             throw new Exception("Failed to update source item record: " . $stmt->error);
         }
         $stmt->close();
         
-        $new_batch_number = 'BCH-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(4)));
+        $stmt_check_inv = $conn->prepare("SELECT inventory_id FROM inventory WHERE source_inbound_item_id = ? AND location_id = ?");
+        $stmt_check_inv->bind_param("ii", $inbound_item_id, $final_location_id);
+        $stmt_check_inv->execute();
+        $existing_inv = $stmt_check_inv->get_result()->fetch_assoc();
+        $stmt_check_inv->close();
 
-        $stmt = $conn->prepare("
-            INSERT INTO inventory (
-                warehouse_id, product_id, receipt_id, source_inbound_item_id, location_id, quantity, 
-                batch_number, expiry_date, dot_code, unit_cost
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ");
-        $stmt->bind_param("iiiisissds", 
-            $warehouse_id, 
-            $product_id, 
-            $receipt_id,
-            $inbound_item_id,
-            $final_location_id,
-            $putaway_quantity, 
-            $new_batch_number,
-            $item['expiry_date'],
-            $item['dot_code'],
-            $item['unit_cost']
-        );
-        if (!$stmt->execute()) {
-            throw new Exception("Failed to update inventory: " . $conn->error);
+        $new_inventory_id = null;
+
+        if ($existing_inv) {
+            $new_inventory_id = $existing_inv['inventory_id'];
+            $stmt_update_inv = $conn->prepare("UPDATE inventory SET quantity = quantity + ? WHERE inventory_id = ?");
+            $stmt_update_inv->bind_param("ii", $putaway_quantity, $new_inventory_id);
+            if (!$stmt_update_inv->execute()) {
+                throw new Exception("Failed to update inventory quantity: " . $stmt_update_inv->error);
+            }
+            $stmt_update_inv->close();
+        } else {
+            $new_batch_number = 'BCH-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(4)));
+            $stmt_insert_inv = $conn->prepare("
+                INSERT INTO inventory (
+                    warehouse_id, product_id, receipt_id, source_inbound_item_id, location_id, quantity, 
+                    batch_number, expiry_date, dot_code, unit_cost
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $stmt_insert_inv->bind_param("iiiisissds", 
+                $warehouse_id, 
+                $product_id, 
+                $receipt_id,
+                $inbound_item_id,
+                $final_location_id,
+                $putaway_quantity, 
+                $new_batch_number,
+                $item['expiry_date'],
+                $item['dot_code'],
+                $item['unit_cost']
+            );
+            if (!$stmt_insert_inv->execute()) {
+                throw new Exception("Failed to insert new inventory record: " . $stmt_insert_inv->error);
+            }
+            $new_inventory_id = $stmt_insert_inv->insert_id;
+            $stmt_insert_inv->close();
         }
-        $new_inventory_id = $stmt->insert_id;
-        $stmt->close();
 
         $stmt_sticker = $conn->prepare("INSERT INTO inbound_putaway_stickers (inventory_id, receipt_id, unique_barcode) VALUES (?, ?, ?)");
         for ($i = 0; $i < $putaway_quantity; $i++) {

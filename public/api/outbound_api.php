@@ -244,7 +244,8 @@ function handlePickItem($conn, $warehouse_id, $user_id) {
             $i_part = str_pad($i, 2, '0', STR_PAD_LEFT);
             $sticker_code = $pick_part . $timestamp_part . $i_part;
             if (strlen($sticker_code) > 12) $sticker_code = substr($sticker_code, 0, 12);
-            $stmt_sticker->bind_param("is", $sticker_code);
+            // FIX: Corrected the bind_param call to include both variables
+            $stmt_sticker->bind_param("is", $pick_id, $sticker_code);
             $stmt_sticker->execute();
         }
         $stmt_sticker->close();

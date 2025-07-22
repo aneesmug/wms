@@ -231,7 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
         printStickersBtn.classList.add('d-none');
         orderItemsTableBody.innerHTML = `<tr><td colspan="9" class="text-center p-4">Loading items...</td></tr>`;
         trackingNumberDisplay.innerHTML = '';
-        currentOrderItems = []; // Reset current order items
+        currentOrderItems = []; 
 
         try {
             const response = await fetchData(`api/outbound_api.php?order_id=${orderId}`);
@@ -239,7 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (response?.success && response.data) {
                 const order = response.data;
-                currentOrderItems = order.items || []; // Store items for validation
+                currentOrderItems = order.items || []; 
                 const canManage = ['operator', 'manager'].includes(currentWarehouseRole);
                 const isOrderFinalized = ['Shipped', 'Delivered', 'Cancelled', 'Out for Delivery'].includes(order.status);
                 
@@ -420,7 +420,14 @@ document.addEventListener('DOMContentLoaded', () => {
             didOpen: () => {
                 const $select = $('#modalProductSelect');
                 $select.html('<option value=""></option>');
-                if (allProducts.length > 0) { allProducts.forEach(product => { const optionText = `${product.sku} - ${product.product_name}`; const newOption = new Option(optionText, product.barcode, false, false); if (parseInt(product.total_quantity, 10) <= 0) newOption.disabled = true; $select.append(newOption); }); }
+                if (allProducts.length > 0) { 
+                    allProducts.forEach(product => { 
+                        const optionText = `${product.sku} - ${product.product_name} - ${product.barcode}`; 
+                        const newOption = new Option(optionText, product.barcode, false, false); 
+                        if (parseInt(product.total_quantity, 10) <= 0) newOption.disabled = true; 
+                        $select.append(newOption); 
+                    }); 
+                }
                 $select.select2({ placeholder: 'Search by Name, SKU, or Barcode...', theme: 'bootstrap-5', dropdownParent: $('.swal2-container') });
             },
             preConfirm: () => {
@@ -458,11 +465,10 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // FIX: Check if the product is on the current order before proceeding
         const isOnOrder = currentOrderItems.some(item => item.product_id == product.product_id);
         if (!isOnOrder) {
             Swal.fire('Error', 'This product is not on the selected order.', 'error');
-            return; // Stop execution if the item is not on the order
+            return;
         }
 
         $(pickLocationSelect).empty().append(new Option('Loading locations...', '')).trigger('change');
@@ -607,16 +613,22 @@ document.addEventListener('DOMContentLoaded', () => {
             return; 
         }
         
-        const result = await fetchData('api/outbound_api.php?action=pickItem', 'POST', data);
+        try {
+            const result = await fetchData('api/outbound_api.php?action=pickItem', 'POST', data);
+            if (result?.success) {
+                Swal.fire('Success!', result.message, 'success');
+                
+                pickItemNumberInput.value = ''; 
+                pickQuantityInput.value = '1';
+                $(pickLocationSelect).empty().append(new Option('Enter item number first', '')).trigger('change');
+                $(pickBatchNumberSelect).empty().append(new Option('Select location first', '')).prop('disabled', true);
+                $(pickDotCodeSelect).empty().append(new Option('Select batch first', '')).prop('disabled', true).trigger('change');
 
-        if (result?.success) {
-            Toast.fire({ icon: 'success', title: result.message });
-            const pickedBarcode = pickItemNumberInput.value.trim();
-            pickItemNumberInput.value = ''; 
-            pickQuantityInput.value = '1';
-            await Promise.all([ loadOrderItems(selectedOrderId), loadOutboundOrders(), filterPickLocationsByProduct(pickedBarcode) ]);
-        } else {
-            Swal.fire('Picking Error', result?.message || 'An unknown error occurred.', 'error');
+                await loadOrderItems(selectedOrderId);
+                await loadOutboundOrders();
+            }
+        } catch (error) {
+            Swal.fire('Picking Error', error.message || 'An unknown error occurred.', 'error');
         }
     }
 
@@ -730,7 +742,6 @@ document.addEventListener('DOMContentLoaded', () => {
                                         </p>
                                         <div class="barcode-and-counter" style="text-align: center; margin-top: 10px;">${mainBarcodeHtml}</div>
                                     </div>
-                                    <div class="main-qr-code-block">${qrImgTag}</div>
                                 </div>
                             </div>
                             <div class="sticker-side-content"><div class="side-barcode-block">${sideBarcodeHtml}</div></div>

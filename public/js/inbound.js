@@ -22,6 +22,7 @@ $(document).ready(function() {
     let supplierOptionsHtml = '';
     let availableLocationsData = [];
     let table;
+    let dotCodeOptions = []; // Store generated DOT options
 
     // --- Initialize Page & Event Listeners ---
     initializePage();
@@ -57,6 +58,20 @@ $(document).ready(function() {
         handleCancelReceipt(receiptId);
     });
 
+    // --- NEW Event Listeners for Edit/Delete ---
+    putawayCandidatesList.on('click', '.edit-received-btn', function(e) {
+        e.stopPropagation(); // Prevent the main item click event
+        const itemData = $(this).closest('.list-group-item').data('item');
+        handleEditReceivedItemClick(itemData);
+    });
+
+    putawayCandidatesList.on('click', '.delete-received-btn', function(e) {
+        e.stopPropagation(); // Prevent the main item click event
+        const itemData = $(this).closest('.list-group-item').data('item');
+        handleDeleteReceivedItemClick(itemData);
+    });
+
+
     // --- Core Functions ---
 
     async function initializePage() {
@@ -82,7 +97,6 @@ $(document).ready(function() {
     }
     
     function populateDotCodeDropdown() {
-        const options = [];
         const now = new Date();
         const currentYear = now.getFullYear();
         const currentYearShort = parseInt(currentYear.toString().slice(-2));
@@ -99,14 +113,14 @@ $(document).ready(function() {
                 const yearStr = String(y).padStart(2, '0');
                 const value = `${weekStr}${yearStr}`;
                 const text = `Week ${weekStr} / 20${yearStr}`;
-                options.push({ id: value, text: text });
+                dotCodeOptions.push({ id: value, text: text });
             }
         }
         
         inboundDotCodeSelect.select2({
             placeholder: 'Select a DOT code...',
             theme: "bootstrap-5",
-            data: options
+            data: dotCodeOptions
         });
         inboundDotCodeSelect.val(null).trigger('change');
     }
@@ -123,6 +137,7 @@ $(document).ready(function() {
         receiveItemBtn.prop('disabled', false);
     }
 
+    // --- MODIFIED FUNCTION ---
     async function loadPutawayCandidates(receiptId) {
         if (!putawayCandidatesList) return;
         
@@ -137,18 +152,24 @@ $(document).ready(function() {
             if (candidates.length > 0) {
                 candidates.forEach(item => {
                     const availableQty = (parseInt(item.received_quantity) || 0) - (parseInt(item.putaway_quantity) || 0);
-                    const button = $('<button type="button" class="list-group-item list-group-item-action"></button>');
                     
-                    let detailsHtml = ` | DOT: ${item.dot_code || 'N/A'}`;
-                    if (item.is_expired) {
-                        detailsHtml += ` <span class="badge bg-danger">Expired</span>`;
-                        button.addClass('border-danger');
-                    }
-
-                    button.html(`<strong>${item.product_name}</strong> (${item.sku})<br><small>Batch: ${item.batch_number} | Qty: ${availableQty}${detailsHtml}</small>`);
+                    const itemHtml = $(`
+                        <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                            <div class="item-details">
+                                <strong>${item.product_name}</strong> (${item.sku})<br>
+                                <small>Batch: ${item.batch_number} | Qty: ${availableQty} | DOT: ${item.dot_code}</small>
+                            </div>
+                            <div class="item-actions">
+                                <button class="btn btn-sm btn-outline-primary edit-received-btn" title="Edit Item"><i class="bi bi-pencil"></i></button>
+                                <button class="btn btn-sm btn-outline-danger delete-received-btn ms-2" title="Delete Item"><i class="bi bi-trash"></i></button>
+                            </div>
+                        </div>
+                    `);
                     
-                    button.on('click', () => handleCandidateSelection(item, availableQty));
-                    putawayCandidatesList.append(button);
+                    itemHtml.data('item', item); // Attach full item data
+                    itemHtml.find('.item-details').on('click', () => handleCandidateSelection(item, availableQty));
+                    
+                    putawayCandidatesList.append(itemHtml);
                 });
             } else {
                 putawayCandidatesList.html('<div class="list-group-item">No items are currently awaiting putaway for this receipt.</div>');
@@ -157,6 +178,10 @@ $(document).ready(function() {
             putawayCandidatesList.html('<div class="list-group-item text-danger">Could not load items.</div>');
         }
     }
+
+    // --- All other functions like handleCandidateSelection, handleReceiveItem, etc., remain here ---
+    // ...
+    // The following functions are included for completeness.
 
     function handleCandidateSelection(item, availableQty) {
         resetProcessingForm();
@@ -496,7 +521,6 @@ $(document).ready(function() {
         });
     }
 
-    // --- MODIFIED FUNCTION ---
     async function handleViewDetails(receiptId) {
         const response = await fetchData(`api/inbound_api.php?receipt_id=${receiptId}`);
 
@@ -510,7 +534,6 @@ $(document).ready(function() {
 
         if (receipt.items && receipt.items.length > 0) {
             receipt.items.forEach(item => {
-                // Main Row
                 tableHtml += `<tr class="fw-bold">
                     <td>${item.sku}</td>
                     <td>${item.product_name}</td>
@@ -521,7 +544,6 @@ $(document).ready(function() {
                     <td></td>
                 </tr>`;
 
-                // Sub-rows for each putaway action
                 if (item.putaways && item.putaways.length > 0) {
                     item.putaways.forEach(putaway => {
                         tableHtml += `<tr class="table-light">
@@ -588,6 +610,82 @@ $(document).ready(function() {
         });
     }
 
+    // --- NEW FUNCTION ---
+    function handleEditReceivedItemClick(item) {
+        const dotOptionsHtml = dotCodeOptions.map(opt => `<option value="${opt.id}">${opt.text}</option>`).join('');
+        
+        Swal.fire({
+            title: 'Edit Received Item',
+            html: `
+                <form id="swal-editForm" class="text-start">
+                    <div class="mb-3">
+                        <label for="swal-quantity" class="form-label">Quantity</label>
+                        <input type="number" id="swal-quantity" class="form-control" value="${item.received_quantity}" min="1">
+                    </div>
+                    <div class="mb-3">
+                        <label for="swal-dot" class="form-label">DOT Code</label>
+                        <select id="swal-dot" class="form-select">${dotOptionsHtml}</select>
+                    </div>
+                </form>
+            `,
+            confirmButtonText: 'Update',
+            didOpen: () => {
+                const dotSelect = $('#swal-dot');
+                dotSelect.select2({
+                    theme: 'bootstrap-5',
+                    dropdownParent: $('.swal2-popup')
+                });
+                dotSelect.val(item.dot_code).trigger('change');
+            },
+            preConfirm: () => {
+                const quantity = $('#swal-quantity').val();
+                const dot_code = $('#swal-dot').val();
+                if (!quantity || quantity <= 0 || !dot_code) {
+                    Swal.showValidationMessage('Please enter a valid quantity and select a DOT code.');
+                    return false;
+                }
+                return {
+                    inbound_item_id: item.inbound_item_id,
+                    quantity: parseInt(quantity, 10),
+                    dot_code: dot_code
+                };
+            }
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                const response = await fetchData('api/inbound_api.php?action=updateReceivedItem', 'POST', result.value);
+                if (response.success) {
+                    Swal.fire('Success!', response.message, 'success');
+                    await loadPutawayCandidates(currentReceiptId);
+                    await loadInboundReceipts();
+                } else {
+                    Swal.fire('Error!', response.message, 'error');
+                }
+            }
+        });
+    }
+
+    // --- NEW FUNCTION ---
+    function handleDeleteReceivedItemClick(item) {
+        Swal.fire({
+            title: 'Are you sure?',
+            text: `You are about to delete the received quantity of ${item.received_quantity} for batch ${item.batch_number}. This cannot be undone.`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            confirmButtonText: 'Yes, delete it!'
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                const response = await fetchData('api/inbound_api.php?action=deleteReceivedItem', 'POST', { inbound_item_id: item.inbound_item_id });
+                if (response.success) {
+                    Swal.fire('Deleted!', response.message, 'success');
+                    await loadPutawayCandidates(currentReceiptId);
+                    await loadInboundReceipts();
+                } else {
+                    Swal.fire('Error!', response.message, 'error');
+                }
+            }
+        });
+    }
 
     async function handleCancelReceipt(receiptId) {
         Swal.fire({
