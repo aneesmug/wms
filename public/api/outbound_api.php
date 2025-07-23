@@ -140,13 +140,14 @@ function handleGetPickStickers($conn, $warehouse_id) {
     if (!$stmt_verify->get_result()->fetch_assoc()) { sendJsonResponse(['success' => false, 'message' => 'Order not found in this warehouse.'], 404); return; }
     $stmt_verify->close();
     
+    // MODIFICATION: Added p.expiry_years to the SELECT statement
     $stmt = $conn->prepare("
         SELECT 
             s.sticker_code, 
             p.product_name, 
             p.sku,
             p.barcode,
-            oip.batch_number,
+            p.expiry_years,
             oip.dot_code,
             oo.order_number,
             oo.tracking_number,
@@ -244,7 +245,6 @@ function handlePickItem($conn, $warehouse_id, $user_id) {
             $i_part = str_pad($i, 2, '0', STR_PAD_LEFT);
             $sticker_code = $pick_part . $timestamp_part . $i_part;
             if (strlen($sticker_code) > 12) $sticker_code = substr($sticker_code, 0, 12);
-            // FIX: Corrected the bind_param call to include both variables
             $stmt_sticker->bind_param("is", $pick_id, $sticker_code);
             $stmt_sticker->execute();
         }

@@ -47,13 +47,11 @@ function handleLogin($conn) {
     $stmt->close();
 
     if ($user && password_verify($password, $user['password_hash'])) {
-        // Authentication successful
         $_SESSION['user_id'] = $user['user_id'];
         $_SESSION['username'] = $user['username'];
         $_SESSION['full_name'] = $user['full_name'];
         $_SESSION['is_global_admin'] = (bool)$user['is_global_admin'];
         
-        // Fetch all assigned warehouse roles for the user
         $stmt = $conn->prepare("
             SELECT uwr.warehouse_id, w.warehouse_name, uwr.role 
             FROM user_warehouse_roles uwr
@@ -108,10 +106,8 @@ function handleGetUserWarehouses($conn) {
     }
 
     if ($_SESSION['is_global_admin']) {
-        // Global admins can access all active warehouses
         $stmt = $conn->prepare("SELECT warehouse_id, warehouse_name FROM warehouses WHERE is_active = 1 ORDER BY warehouse_name");
     } else {
-        // Non-admins see only their assigned warehouses
         $stmt = $conn->prepare("
             SELECT w.warehouse_id, w.warehouse_name 
             FROM warehouses w
@@ -157,7 +153,6 @@ function handleSetWarehouse($conn) {
         $warehouse_name = $stmt->get_result()->fetch_assoc()['warehouse_name'] ?? null;
         $stmt->close();
     } else {
-        // Find the specific role from the session data
         foreach ($_SESSION['assigned_warehouses'] as $wh) {
             if ($wh['warehouse_id'] == $warehouse_id) {
                 $user_role_for_warehouse = $wh['role'];
@@ -180,4 +175,3 @@ function handleSetWarehouse($conn) {
         'role' => $user_role_for_warehouse
     ]);
 }
-?>

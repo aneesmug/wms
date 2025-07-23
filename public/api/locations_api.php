@@ -4,30 +4,35 @@
 require_once __DIR__ . '/../config/config.php';
 
 $conn = getDbConnection();
-
 ob_start();
 
 authenticate_user(true, null); 
 
-$current_warehouse_id = get_current_warehouse_id();
+// MODIFICATION: Allow fetching locations for a specified warehouse, not just the current one.
+$target_warehouse_id = filter_input(INPUT_GET, 'warehouse_id', FILTER_VALIDATE_INT);
+if (!$target_warehouse_id) {
+    $target_warehouse_id = get_current_warehouse_id();
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
 
 switch ($method) {
     case 'GET':
-        authorize_user_role(['viewer', 'operator', 'manager']);
-        handleGetRequest($conn, $current_warehouse_id);
+        // User must have at least 'viewer' role for the target warehouse to see its locations
+        authorize_user_role(['viewer', 'operator', 'manager'], $target_warehouse_id);
+        handleGetRequest($conn, $target_warehouse_id);
         break;
     case 'POST':
-        authorize_user_role(['operator', 'manager']);
-        handleCreateLocation($conn, $current_warehouse_id);
+        authorize_user_role(['operator', 'manager'], $target_warehouse_id);
+        handleCreateLocation($conn, $target_warehouse_id);
         break;
     case 'PUT':
-        authorize_user_role(['operator', 'manager']);
-        handleUpdateLocation($conn, $current_warehouse_id);
+        authorize_user_role(['operator', 'manager'], $target_warehouse_id);
+        handleUpdateLocation($conn, $target_warehouse_id);
         break;
     case 'DELETE':
-        authorize_user_role(['manager']);
-        handleDeleteLocation($conn, $current_warehouse_id);
+        authorize_user_role(['manager'], $target_warehouse_id);
+        handleDeleteLocation($conn, $target_warehouse_id);
         break;
     default:
         sendJsonResponse(['success' => false, 'message' => 'Method Not Allowed'], 405);
@@ -36,7 +41,6 @@ switch ($method) {
 
 function handleGetRequest($conn, $warehouse_id) {
     if (isset($_GET['action']) && $_GET['action'] == 'get_types') {
-        // Fetches all active location types from the new dedicated table
         $stmt = $conn->prepare("SELECT type_id, type_name FROM location_types WHERE is_active = 1 ORDER BY type_name ASC");
         $stmt->execute();
         $result = $stmt->get_result();
@@ -44,10 +48,8 @@ function handleGetRequest($conn, $warehouse_id) {
         $stmt->close();
         sendJsonResponse(['success' => true, 'data' => $types]);
     } elseif (isset($_GET['id'])) {
-        // Gets a single location, joining to get the type name
         getLocationById($conn, $warehouse_id, $_GET['id']);
     } else {
-        // Gets all locations for the warehouse, joining to get the type name
         getAllLocations($conn, $warehouse_id);
     }
 }
@@ -60,7 +62,7 @@ function getAllLocations($conn, $warehouse_id) {
             wl.is_active, COALESCE(SUM(i.quantity), 0) AS occupied_capacity
         FROM warehouse_locations wl
         LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
-        LEFT JOIN inventory i ON wl.location_id = i.location_id AND wl.warehouse_id = i.warehouse_id
+        LEFT JOIN inventory i ON wl.location_id = i.location_id AND i.warehouse_id = wl.warehouse_id
         WHERE wl.warehouse_id = ? 
         GROUP BY wl.location_id, lt.type_name
         ORDER BY wl.location_code ASC
@@ -91,7 +93,7 @@ function getLocationById($conn, $warehouse_id, $location_id) {
             wl.*, lt.type_name as location_type, COALESCE(SUM(i.quantity), 0) AS occupied_capacity
         FROM warehouse_locations wl
         LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
-        LEFT JOIN inventory i ON wl.location_id = i.location_id AND wl.warehouse_id = i.warehouse_id
+        LEFT JOIN inventory i ON wl.location_id = i.location_id AND i.warehouse_id = wl.warehouse_id
         WHERE wl.location_id = ? AND wl.warehouse_id = ?
         GROUP BY wl.location_id, lt.type_name
     ");
@@ -118,7 +120,6 @@ function handleCreateLocation($conn, $warehouse_id) {
         sendJsonResponse(['success' => false, 'message' => 'Location Code is required'], 400);
     }
     
-    // Now using location_type_id
     $location_type_id = filter_var($input['location_type_id'], FILTER_VALIDATE_INT);
     if (!$location_type_id) {
         sendJsonResponse(['success' => false, 'message' => 'A valid Location Type is required.'], 400);
@@ -233,4 +234,3 @@ function handleDeleteLocation($conn, $warehouse_id) {
     }
     $stmt->close();
 }
-

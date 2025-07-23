@@ -36,6 +36,19 @@
                                 </ul>
                             </div>
                         </div>
+
+                        <!-- MODIFICATION: Added section for scanned items -->
+                        <div class="card shadow-sm mt-4">
+                            <div class="card-header bg-light">
+                                <h5 class="card-title mb-0"><i class="bi bi-check-all"></i> Recently Scanned Items</h5>
+                            </div>
+                            <div class="card-body p-0">
+                                <ul id="scannedItemList" class="list-group list-group-flush">
+                                    <li class="list-group-item text-muted">No items scanned yet.</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <!-- END MODIFICATION -->
                     </div>
                     <div class="col-lg-6">
                         <div class="card shadow-sm">
@@ -51,7 +64,6 @@
                                         <label for="sourceSelect" class="form-label">Select Camera:</label>
                                         <select id="sourceSelect" class="form-select"></select>
                                     </div>
-                                    <!-- MODIFICATION: Added a button to toggle the flash/torch -->
                                     <div>
                                         <label class="form-label">&nbsp;</label>
                                         <button id="torchButton" class="btn btn-outline-secondary w-100" style="display: none;"><i class="bi bi-flashlight"></i></button>

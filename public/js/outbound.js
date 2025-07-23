@@ -618,14 +618,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (result?.success) {
                 Swal.fire('Success!', result.message, 'success');
                 
+                const pickedBarcode = pickItemNumberInput.value.trim();
                 pickItemNumberInput.value = ''; 
                 pickQuantityInput.value = '1';
-                $(pickLocationSelect).empty().append(new Option('Enter item number first', '')).trigger('change');
-                $(pickBatchNumberSelect).empty().append(new Option('Select location first', '')).prop('disabled', true);
-                $(pickDotCodeSelect).empty().append(new Option('Select batch first', '')).prop('disabled', true).trigger('change');
-
+                
                 await loadOrderItems(selectedOrderId);
                 await loadOutboundOrders();
+                // After reloading order items, re-filter locations for the *same* product
+                await filterPickLocationsByProduct(pickedBarcode);
             }
         } catch (error) {
             Swal.fire('Picking Error', error.message || 'An unknown error occurred.', 'error');
@@ -709,8 +709,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     generatorContainer.appendChild(mainBarcodeSvg);
                     generatorContainer.appendChild(sideBarcodeSvg);
 
-                    JsBarcode(mainBarcodeSvg, sticker.sticker_code, { format: "CODE128", width: 2, height: 90, fontSize: 14, displayValue: true });
-                    JsBarcode(sideBarcodeSvg, sticker.tracking_number || sticker.order_number, { format: "CODE128", width: 1.5, height: 70, fontSize: 12, displayValue: false });
+                    // Calculate Shelf Life
+                    let shelfLife = 'N/A';
+                    if (sticker.dot_code && sticker.expiry_years) {
+                        const week = sticker.dot_code.substring(0, 2);
+                        const year = parseInt(sticker.dot_code.substring(2), 10);
+                        const expiry = parseInt(sticker.expiry_years, 10);
+                        if (!isNaN(year) && !isNaN(expiry)) {
+                            shelfLife = `${week}/${year + expiry}`;
+                        }
+                    }
+
+                    JsBarcode(mainBarcodeSvg, sticker.sticker_code, { format: "EAN13", height: 30, displayValue: true, fontSize: 14 });
+                    JsBarcode(sideBarcodeSvg, sticker.tracking_number || sticker.order_number, { format: "CODE128", width: 1.5, height: 70, fontSize: 12, displayValue: true });
 
                     const mainBarcodeHtml = mainBarcodeSvg.outerHTML;
                     const sideBarcodeHtml = sideBarcodeSvg.outerHTML;
@@ -718,14 +729,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     const from_address = [sticker.warehouse_name, sticker.warehouse_address, sticker.warehouse_city].filter(Boolean).join('<br>');
                     const to_address = [sticker.address_line1, sticker.address_line2, `${sticker.city || ''} ${sticker.state || ''}`, sticker.zip_code, sticker.country].filter(Boolean).join('<br>');
                     
-                    let qrImgTag = '';
-                    try {
-                        const qr = qrcode(4, 'L');
-                        qr.addData('http://wms.almutlak.com/scan.php?id=' + sticker.tracking_number);
-                        qr.make();
-                        qrImgTag = qr.createImgTag(3, 4);
-                    } catch (e) { console.error("QR Code generation failed", e); }
-
                     stickerSheetHtml += `
                         <div class="sticker">
                             <div class="sticker-main-content">
@@ -733,25 +736,42 @@ document.addEventListener('DOMContentLoaded', () => {
                                     <div class="address-from"><strong>From:</strong><br>${from_address}</div>
                                     <div class="address-to"><strong>To: ${sticker.customer_name}</strong><br>${to_address}</div>
                                 </div>
-                                <div class="product-info-container">
-                                    <div class="product-block">
-                                        <p>Order: ${sticker.order_number} | Batch: ${sticker.batch_number || 'N/A'} | DOT: ${sticker.dot_code || 'N/A'}</p>
-                                        <p class="product-name">${sticker.product_name}</p>
-                                        <p style="font-weight: bold; font-size: 12pt; margin-top: 4px;">
-                                            ${sticker.barcode} &nbsp;&nbsp;&nbsp; ${sticker.item_sequence} / ${sticker.item_total}
-                                        </p>
-                                        <div class="barcode-and-counter" style="text-align: center; margin-top: 10px;">${mainBarcodeHtml}</div>
-                                    </div>
+                                <div class="product-block">
+                                    <p>Order: ${sticker.order_number} <br /> Shelf Life: ${shelfLife}</p>
+                                    <p class="product-name">${sticker.product_name}</p>
+                                    <p class="product-sku">${sticker.barcode} &nbsp;&nbsp;&nbsp; ${sticker.item_sequence} / ${sticker.item_total}</p>
+                                </div>
+                                <div class="barcode-block">
+                                    ${mainBarcodeHtml}
                                 </div>
                             </div>
-                            <div class="sticker-side-content"><div class="side-barcode-block">${sideBarcodeHtml}</div></div>
+                            <div class="sticker-side-content">
+                                <div class="side-barcode-block">${sideBarcodeHtml}</div>
+                            </div>
                         </div>`;
                 }
 
                 document.body.removeChild(generatorContainer);
                 const printWindow = window.open('', 'PRINT', 'height=800,width=1000');
                 printWindow.document.write('<html><head><title>Print Stickers</title>');
-                printWindow.document.write(`<style>@media print{@page{size: 15cm 10cm;margin: 0;}body{margin: 0;font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;}.sticker{display: flex;width: 14.5cm;height: 9.5cm;padding: 0.25cm;box-sizing: border-box;page-break-after: always;border: 1px dashed #ccc;margin: 0.25cm;}.sticker:last-child{page-break-after: auto;}.sticker-main-content{flex: 4;display: flex;flex-direction: column;padding-right: 5px;}.sticker-side-content{flex: 1;display: flex;flex-direction: column;justify-content: flex-end;align-items: center;border-left: 2px solid #000;padding-left: 5px;padding-bottom: 0.5cm;}.address-block{display: flex;font-size: 9pt;border-bottom: 1px solid #ccc;padding-bottom: 5px;margin-bottom: 5px;}.address-from, .address-to{flex: 1;}.address-to{padding-left: 10px;}.product-info-container{display: flex;flex-grow: 1;align-items: center;}.product-block{flex: 3;text-align: left;font-size: 10pt;display: flex;flex-direction: column;}.product-name{font-size: 14pt;font-weight: bold;margin-top: 5px;flex-grow: 1;}.main-qr-code-block{flex: 1;display: flex;align-items: center;justify-content: center;padding-left: 10px;}.main-qr-code-block img{max-width: 100%;height: auto;}.side-barcode-block{transform: rotate(-90deg);}}</style>`);
+                printWindow.document.write(`<style>
+                    @media print {
+                        @page { size: 15cm 10cm; margin: 0; }
+                        body { margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+                        .sticker { display: flex; width: 14.5cm; height: 9.5cm; padding: 0.25cm; box-sizing: border-box; page-break-after: always; border: 1px dashed #ccc; margin: 0.25cm; }
+                        .sticker:last-child { page-break-after: auto; }
+                        .sticker-main-content { flex: 4; display: flex; flex-direction: column; padding-right: 5px; }
+                        .sticker-side-content { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; border-left: 2px solid #000; padding-left: 5px; }
+                        .address-block { display: flex; font-size: 9pt; border-bottom: 1px solid #ccc; padding-bottom: 5px; margin-bottom: 5px; flex-shrink: 0; }
+                        .address-from, .address-to { flex: 1; }
+                        .address-to { padding-left: 10px; }
+                        .product-block { flex-grow: 1; text-align: left; font-size: 10pt; }
+                        .product-name { font-size: 12pt; font-weight: bold; margin-top: 5px; }
+                        .product-sku { font-weight: bold; font-size: 10pt; margin-top: 4px; }
+                        .barcode-block { flex-shrink: 0; text-align: center; padding-top: 5px; }
+                        .side-barcode-block { transform: rotate(-90deg); }
+                    }
+                </style>`);
                 printWindow.document.write('</head><body>' + stickerSheetHtml + '</body></html>');
                 printWindow.document.close();
                 printWindow.focus();

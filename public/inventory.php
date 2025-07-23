@@ -74,7 +74,8 @@
                                             <th>Barcode</th>
                                             <th>Location</th>
                                             <th>Quantity</th>
-                                            <th>Batch/Expiry</th>
+                                            <!-- MODIFICATION: Changed header for clarity -->
+                                            <th>Batch/DOT/Expiry</th>
                                             <th>Last Moved</th>
                                             <th>Actions</th>
                                         </tr>

@@ -14,14 +14,15 @@ function getDbConnection() {
     // Check connection
     if ($conn->connect_error) {
         error_log("Connection failed: " . $conn->connect_error);
-        sendJsonResponse(['message' => 'Database connection failed. Please try again later.', 'error' => true], 500);
+        // Use a generic message for the user
+        sendJsonResponse(['message' => 'Database connection failed. Please contact support.', 'error' => true], 500);
     }
 
     $conn->set_charset("utf8mb4");
     return $conn;
 }
 
-// Set up error reporting for development (disable for production)
+// Set up error reporting for development (should be disabled for production)
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
@@ -30,7 +31,9 @@ error_reporting(E_ALL);
 date_default_timezone_set('Asia/Riyadh');
 
 // Start session for user authentication
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 // Function to validate and sanitize input
 function sanitize_input($data) {
@@ -42,6 +45,7 @@ function sanitize_input($data) {
 
 // Function for sending JSON responses
 function sendJsonResponse($data, $statusCode = 200) {
+    // Clear any previously buffered output to prevent JSON errors
     if (ob_get_level() > 0) {
         ob_clean();
     }
@@ -72,6 +76,10 @@ function get_current_warehouse_name() {
  * @return string|null
  */
 function get_current_warehouse_role() {
+    // If user is global admin, their role is always 'manager'
+    if (isset($_SESSION['is_global_admin']) && $_SESSION['is_global_admin']) {
+        return 'manager';
+    }
     return $_SESSION['current_warehouse_role'] ?? null;
 }
 
@@ -141,4 +149,33 @@ function authenticate_user($require_warehouse = true, array $allowed_roles = nul
     if ($require_warehouse && $allowed_roles !== null) {
         authorize_user_role($allowed_roles);
     }
+}
+
+/**
+ * Checks if a user has a specific role for a given warehouse based on session data.
+ * This is a critical security function.
+ *
+ * @param mysqli $conn The database connection.
+ * @param int $user_id The ID of the user.
+ * @param int $warehouse_id The ID of the warehouse.
+ * @param array $allowed_roles An array of strings representing the roles to check for (e.g., ['operator', 'manager']).
+ * @return bool True if the user has one of the allowed roles, false otherwise.
+ */
+function check_user_role_for_warehouse($conn, $user_id, $warehouse_id, $allowed_roles) {
+    // Global admins have all permissions for all warehouses.
+    if (isset($_SESSION['is_global_admin']) && $_SESSION['is_global_admin']) {
+        return true;
+    }
+
+    // Check against the roles stored in the session during login.
+    $roles_in_session = $_SESSION['assigned_warehouses'] ?? [];
+    foreach ($roles_in_session as $assignment) {
+        if ($assignment['warehouse_id'] == $warehouse_id) {
+            // Found the role for the target warehouse, check if it's in the allowed list.
+            return in_array($assignment['role'], $allowed_roles);
+        }
+    }
+    
+    // If the loop finishes, the user is not assigned to the target warehouse or has no valid role.
+    return false;
 }

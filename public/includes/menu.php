@@ -12,7 +12,8 @@ $permissions = [
     'manager' => [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
         'locations.php', 'products.php', 'customers.php', 'suppliers.php', 
-        'reports.php', 'inbound_report.php', 'batch_search.php', 'users.php'
+        'reports.php', 'inbound_report.php', 'batch_search.php', 'users.php',
+        'warehouses.php' // MODIFICATION: Added warehouses page permission for managers
     ],
     'operator' => [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
@@ -73,6 +74,8 @@ $menu_items = [
     'master_data' => [
         'label' => 'Master Data', 'icon' => 'bi-database', 'submenu' => [
             ['label' => 'Products', 'url' => 'products.php', 'icon' => 'bi-tag'],
+            // MODIFICATION: Added Warehouses link
+            ['label' => 'Warehouses', 'url' => 'warehouses.php', 'icon' => 'bi-buildings'],
             ['label' => 'Customers', 'url' => 'customers.php', 'icon' => 'bi-people'],
             ['label' => 'Suppliers', 'url' => 'suppliers.php', 'icon' => 'bi-truck']
         ]
@@ -159,7 +162,6 @@ function is_submenu_active($submenu_items, $current_page) {
         <ul class="nav nav-pills flex-column mb-auto">
             <?php foreach ($menu_items as $key => $item): ?>
                 <?php
-                // **FIX:** Applying the same permission logic to the mobile menu
                 if (isset($item['submenu'])) {
                     $canShowDropdown = false;
                     foreach ($item['submenu'] as $sub_item) {

@@ -4,6 +4,10 @@
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../helpers/auth_helper.php';
 
+// Note: The helper functions sendJsonResponse() and sanitize_input() 
+// are assumed to be declared in the required files above (e.g., auth_helper.php).
+// They have been removed from this file to prevent redeclaration errors.
+
 $conn = getDbConnection();
 ob_start();
 
@@ -74,58 +78,121 @@ function handleGetOrderDetailsForScan($conn, $driver_id) {
     $order['items'] = $stmt_items->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt_items->close();
 
+    // Get the detailed log of items already scanned
+    $stmt_scans = $conn->prepare("
+        SELECT 
+            ods.scan_id, ods.scanned_at, p.sku, p.product_name, ops.sticker_code 
+        FROM outbound_driver_scans ods
+        JOIN products p ON ods.product_id = p.product_id
+        LEFT JOIN outbound_pick_stickers ops ON ods.sticker_id = ops.sticker_id
+        WHERE ods.order_id = ? AND ods.scanned_by_driver_id = ?
+        ORDER BY ods.scanned_at DESC
+    ");
+    $stmt_scans->bind_param("ii", $order_id, $driver_id);
+    $stmt_scans->execute();
+    $order['scanned_items_log'] = $stmt_scans->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt_scans->close();
+
+
     sendJsonResponse(['success' => true, 'data' => $order]);
 }
 
 function handleScanOrderItem($conn, $driver_id) {
     $input = json_decode(file_get_contents('php://input'), true);
     $request_order_id = filter_var($input['order_id'] ?? 0, FILTER_VALIDATE_INT);
-    $sticker_code = sanitize_input($input['barcode'] ?? '');
+    $barcode_or_sticker_raw = sanitize_input($input['barcode'] ?? '');
 
-    if (!$request_order_id || !$sticker_code) {
-        sendJsonResponse(['success' => false, 'message' => 'Order ID and item sticker code are required.'], 400);
+    if (!$request_order_id || !$barcode_or_sticker_raw) {
+        sendJsonResponse(['success' => false, 'message' => 'Order ID and item barcode/sticker are required.'], 400);
         return;
+    }
+
+    // MODIFICATION: Handle EAN-13 check digit. If barcode is 13 digits, trim the last one.
+    $barcode_or_sticker = $barcode_or_sticker_raw;
+    if (strlen($barcode_or_sticker_raw) === 13 && is_numeric($barcode_or_sticker_raw)) {
+        $barcode_or_sticker = substr($barcode_or_sticker_raw, 0, 12);
     }
 
     $conn->begin_transaction();
     try {
-        // Step 1: Find the sticker and its associated product/order info
+        $product_id = null;
+        $sticker_id = null; // Can be null if scanning a generic EAN-13 barcode
+
+        // Step 1: Check if the scanned code is a unique sticker assigned to this order
         $stmt_sticker = $conn->prepare("
-            SELECT s.sticker_id, oi.product_id, oi.order_id, oi.ordered_quantity
+            SELECT s.sticker_id, oi.product_id
             FROM outbound_pick_stickers s
             JOIN outbound_item_picks oip ON s.pick_id = oip.pick_id
             JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id
-            WHERE s.sticker_code = ?
+            WHERE s.sticker_code = ? AND oi.order_id = ?
         ");
-        $stmt_sticker->bind_param("s", $sticker_code);
+        $stmt_sticker->bind_param("si", $barcode_or_sticker, $request_order_id);
         $stmt_sticker->execute();
         $sticker_info = $stmt_sticker->get_result()->fetch_assoc();
         $stmt_sticker->close();
 
-        if (!$sticker_info) {
-            throw new Exception("Invalid sticker code. Item not found.");
+        if ($sticker_info) {
+            // Found a unique sticker for this order
+            $product_id = $sticker_info['product_id'];
+            $sticker_id = $sticker_info['sticker_id'];
+            
+            // Verify this specific sticker hasn't been scanned before
+            $stmt_check_scan = $conn->prepare("SELECT scan_id FROM outbound_driver_scans WHERE sticker_id = ?");
+            $stmt_check_scan->bind_param("i", $sticker_id);
+            $stmt_check_scan->execute();
+            if ($stmt_check_scan->get_result()->fetch_assoc()) {
+                throw new Exception("This sticker has already been scanned.");
+            }
+            $stmt_check_scan->close();
+        } else {
+            // If not a sticker, check if it's a product barcode (EAN-13) on this order
+            $stmt_product = $conn->prepare("
+                SELECT oi.product_id
+                FROM outbound_items oi
+                JOIN products p ON oi.product_id = p.product_id
+                WHERE oi.order_id = ? AND p.barcode = ?
+                LIMIT 1
+            ");
+            $stmt_product->bind_param("is", $barcode_or_sticker, $request_order_id);
+            $stmt_product->execute();
+            $product_info = $stmt_product->get_result()->fetch_assoc();
+            $stmt_product->close();
+
+            if (!$product_info) {
+                // If still not found, try the original raw scan in case it was a 13-digit non-EAN code
+                if ($barcode_or_sticker !== $barcode_or_sticker_raw) {
+                     $stmt_product_raw = $conn->prepare("
+                        SELECT oi.product_id
+                        FROM outbound_items oi
+                        JOIN products p ON oi.product_id = p.product_id
+                        WHERE oi.order_id = ? AND p.barcode = ?
+                        LIMIT 1
+                    ");
+                    $stmt_product_raw->bind_param("is", $barcode_or_sticker_raw, $request_order_id);
+                    $stmt_product_raw->execute();
+                    $product_info = $stmt_product_raw->get_result()->fetch_assoc();
+                    $stmt_product_raw->close();
+                }
+
+                if (!$product_info) {
+                    throw new Exception("Invalid code. Item not found on this order.");
+                }
+            }
+            $product_id = $product_info['product_id'];
+            // sticker_id remains null
+        }
+        
+        // Step 2: Now that we have a product_id, check the ordered vs. scanned quantities
+        $stmt_quantities = $conn->prepare("SELECT ordered_quantity FROM outbound_items WHERE order_id = ? AND product_id = ?");
+        $stmt_quantities->bind_param("ii", $request_order_id, $product_id);
+        $stmt_quantities->execute();
+        $ordered_quantity = $stmt_quantities->get_result()->fetch_assoc()['ordered_quantity'] ?? 0;
+        $stmt_quantities->close();
+        
+        if ($ordered_quantity == 0) {
+            throw new Exception("Item is not on this order in sufficient quantity.");
         }
 
-        $sticker_id = $sticker_info['sticker_id'];
-        $product_id = $sticker_info['product_id'];
-        $actual_order_id = $sticker_info['order_id'];
-        $ordered_quantity = $sticker_info['ordered_quantity'];
-
-        // Step 2: Verify the sticker belongs to the order the driver is processing
-        if ($actual_order_id != $request_order_id) {
-            throw new Exception("This item does not belong to the current order.");
-        }
-
-        // Check if this specific sticker has already been scanned.
-        $stmt_check_scan = $conn->prepare("SELECT scan_id FROM outbound_driver_scans WHERE sticker_id = ?");
-        $stmt_check_scan->bind_param("i", $sticker_id);
-        $stmt_check_scan->execute();
-        if ($stmt_check_scan->get_result()->fetch_assoc()) {
-            throw new Exception("This sticker has already been scanned.");
-        }
-        $stmt_check_scan->close();
-
-        // Step 3: Check if all units for this product have been scanned
         $stmt_scanned = $conn->prepare("
             SELECT COUNT(scan_id) as total_scanned
             FROM outbound_driver_scans
@@ -140,9 +207,8 @@ function handleScanOrderItem($conn, $driver_id) {
             throw new Exception("All units of this product have already been scanned.");
         }
 
-        // Step 4: Log the scan, now including the unique sticker ID
+        // Step 3: Log the scan (sticker_id can be NULL)
         $stmt_log = $conn->prepare("INSERT INTO outbound_driver_scans (order_id, product_id, sticker_id, scanned_by_driver_id, quantity_scanned) VALUES (?, ?, ?, ?, 1)");
-        // CORRECTION: The number of type specifiers ('i') must match the number of variables being bound.
         $stmt_log->bind_param("iiii", $request_order_id, $product_id, $sticker_id, $driver_id);
         $stmt_log->execute();
         $stmt_log->close();
@@ -220,7 +286,6 @@ function handleVerifyDelivery($conn, $driver_id) {
     }
 }
 
-// MODIFICATION: Added the missing logOrderHistory function.
 function logOrderHistory($conn, $order_id, $status, $user_id, $notes = '') {
     $stmt = $conn->prepare("INSERT INTO order_history (order_id, status, updated_by_user_id, notes) VALUES (?, ?, ?, ?)");
     $stmt->bind_param("isis", $order_id, $status, $user_id, $notes);

@@ -6,13 +6,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchLocationSelect = document.getElementById('searchLocationSelect');
     const searchBtn = document.getElementById('searchBtn');
     const clearSearchBtn = document.getElementById('clearSearchBtn');
-    const logoutBtn = document.getElementById('logoutBtn');
 
     let allProducts = [];
-    let allLocationsData = [];
     let inventoryDataTable;
+    const currentWarehouseId = localStorage.getItem('current_warehouse_id');
+    const currentWarehouseRole = localStorage.getItem('current_warehouse_role');
 
-    // --- SweetAlert2 Toast Notification ---
     const Toast = Swal.mixin({
         toast: true,
         position: 'top-end',
@@ -25,10 +24,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // Initialize page
     initializePage();
 
-    // --- Event Listeners ---
     if (searchBtn) searchBtn.addEventListener('click', loadInventory);
     if (clearSearchBtn) {
         clearSearchBtn.addEventListener('click', () => {
@@ -38,15 +35,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     if (searchLocationSelect) searchLocationSelect.addEventListener('change', loadInventory);
-    if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
 
-
-    // --- Core Initialization Function ---
     async function initializePage() {
         initializeDataTable();
         if (currentWarehouseId) {
             await loadProductsForDropdown();
-            await loadAllLocationsData(currentWarehouseId);
             await loadLocationsForFilterDropdown(currentWarehouseId);
             await loadInventory();
         } else {
@@ -59,29 +52,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if ($.fn.DataTable.isDataTable('#inventoryTable')) {
             $('#inventoryTable').DataTable().destroy();
         }
-        
         inventoryDataTable = $('#inventoryTable').DataTable({
-            responsive: true,
-            searching: false,
-            lengthChange: true,
-            pageLength: 10,
-            order: [[1, 'asc']],
+            responsive: true, searching: false, lengthChange: true,
+            pageLength: 10, order: [[1, 'asc']],
             columns: [
-                { data: 'sku' },
-                { data: 'product_name' },
-                { data: 'barcode' },
-                { data: 'location' },
-                { data: 'quantity' },
-                { data: 'batch_expiry' },
-                { data: 'last_moved' },
-                { data: 'actions', orderable: false, searchable: false }
+                { data: 'sku' }, { data: 'product_name' }, { data: 'barcode' },
+                { data: 'location' }, { data: 'quantity' }, { data: 'batch_expiry' },
+                { data: 'last_moved' }, { data: 'actions', orderable: false, searchable: false }
             ],
-            processing: true, 
-            serverSide: false
+            processing: true, serverSide: false
         });
     }
 
-    // --- Data Loading Functions ---
     async function loadProductsForDropdown() {
         try {
             const productsResponse = await fetchData('api/products_api.php');
@@ -92,45 +74,34 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function loadAllLocationsData(warehouseId) {
-        if (!warehouseId) return;
-        try {
-            const locationsResponse = await fetchData(`api/locations_api.php?warehouse_id=${warehouseId}`);
-            allLocationsData = locationsResponse.data || [];
-        } catch (error) {
-            console.error('Error loading locations data:', error);
-            Toast.fire({ icon: 'error', title: 'Error loading location data.' });
-        }
-    }
-
     async function loadLocationsForFilterDropdown(warehouseId) {
         if (!searchLocationSelect || !warehouseId) return;
-        searchLocationSelect.innerHTML = '<option value="">All Locations</option>';
-
-        if (Array.isArray(allLocationsData)) {
-            allLocationsData
-                .filter(loc => loc.is_active)
-                .sort((a, b) => a.location_code.localeCompare(b.location_code))
-                .forEach(location => {
-                    const option = document.createElement('option');
-                    option.value = location.location_code;
-                    option.textContent = location.location_code;
-                    searchLocationSelect.appendChild(option);
-                });
+        try {
+            const response = await fetchData(`api/locations_api.php?warehouse_id=${warehouseId}`);
+            if (response.success && Array.isArray(response.data)) {
+                searchLocationSelect.innerHTML = '<option value="">All Locations</option>';
+                response.data
+                    .filter(loc => loc.is_active)
+                    .sort((a, b) => a.location_code.localeCompare(b.location_code))
+                    .forEach(location => {
+                        const option = document.createElement('option');
+                        option.value = location.location_code;
+                        option.textContent = location.location_code;
+                        searchLocationSelect.appendChild(option);
+                    });
+            }
+        } catch (error) {
+            console.error('Error loading locations:', error);
         }
     }
 
     async function loadInventory() {
         if (!currentWarehouseId) return;
-        
         $('.dataTables_processing', inventoryDataTable.table().container()).show();
-
         const product_search_barcode = searchProductInput.value.trim();
         const location_search_code = searchLocationSelect.value;
-
         let url = 'api/inventory_api.php?';
         const queryParams = [];
-
         if (product_search_barcode) {
             const product = allProducts.find(p => p.barcode === product_search_barcode || p.sku === product_search_barcode);
             if (product) {
@@ -145,9 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (location_search_code) {
             queryParams.push(`location_code=${encodeURIComponent(location_search_code)}`);
         }
-        
         url += queryParams.join('&');
-        
         try {
             const response = await fetchData(url);
             if (response.success && Array.isArray(response.data)) {
@@ -168,32 +137,44 @@ document.addEventListener('DOMContentLoaded', () => {
     function populateDataTable(inventoryItems) {
         const rows = inventoryItems.map(item => {
             const lastMovedDate = item.last_moved_at ? new Date(item.last_moved_at).toLocaleDateString() : 'N/A';
-            const batchExpiry = `${item.batch_number || 'N/A'}${item.expiry_date ? ` (${item.expiry_date})` : ''}`;
-            const canAdjust = currentWarehouseRole === 'operator' || currentWarehouseRole === 'manager';
-
+            const canAdjust = currentWarehouseRole === 'manager';
+            let expiryHtml = '';
+            if (item.dot_code) {
+                expiryHtml += `DOT: ${item.dot_code}`;
+                if (item.calculated_expiry_date) {
+                    const expiryDate = new Date(item.calculated_expiry_date);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    let badgeClass = 'bg-success';
+                    if (expiryDate < today) badgeClass = 'bg-danger';
+                    else {
+                        const oneMonthFromNow = new Date(today);
+                        oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
+                        if (expiryDate < oneMonthFromNow) badgeClass = 'bg-warning text-dark';
+                    }
+                    expiryHtml += ` <span class="badge ${badgeClass}">Expires: ${item.calculated_expiry_date}</span>`;
+                }
+            } else {
+                expiryHtml = 'N/A';
+            }
+            const batchExpiry = `<div>${item.batch_number || 'N/A'}</div><div>${expiryHtml}</div>`;
             return {
-                sku: item.sku,
-                product_name: item.product_name,
+                sku: item.sku || '<span class="text-danger">Missing Product</span>',
+                product_name: item.product_name || '<span class="text-danger">Missing Product</span>',
                 barcode: item.barcode || 'N/A',
-                location: item.location_code,
+                location: item.location_code || '<span class="text-danger">Missing Location</span>',
                 quantity: item.quantity,
                 batch_expiry: batchExpiry,
                 last_moved: lastMovedDate,
                 actions: canAdjust ? `<button class="btn btn-sm btn-info text-white adjust-btn" 
-                                data-product-id="${item.product_id}"
-                                data-product-barcode="${item.barcode}" 
-                                data-location-code="${item.location_code}"
-                                data-batch-number="${item.batch_number || ''}"
-                                data-expiry-date="${item.expiry_date || ''}"
-                                title="Adjust/Transfer">
-                                <i class="bi bi-gear"></i>
-                         </button>` : '<span class="text-muted">View Only</span>'
+                                data-product-id="${item.product_id}" data-product-barcode="${item.barcode || ''}" 
+                                data-location-code="${item.location_code || ''}" data-batch-number="${item.batch_number || ''}"
+                                data-dot-code="${item.dot_code || ''}" title="Adjust/Transfer">
+                                <i class="bi bi-gear"></i></button>` : '<span class="text-muted">View Only</span>'
             };
         });
-
         inventoryDataTable.clear();
         inventoryDataTable.rows.add(rows).draw();
-        
         $('#inventoryTable tbody').off('click', '.adjust-btn').on('click', '.adjust-btn', openAdjustmentModal);
     }
 
@@ -203,7 +184,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const productBarcode = button.dataset.productBarcode;
         const locationCode = button.dataset.locationCode;
         const batchNumber = button.dataset.batchNumber;
-        const expiryDate = button.dataset.expiryDate;
+        const dotCode = button.dataset.dotCode;
+
+        if (!locationCode) {
+            Swal.fire('Action Denied', 'Cannot adjust an item with a missing or invalid location.', 'error');
+            return;
+        }
 
         const { value: formValues } = await Swal.fire({
             title: 'Inventory Adjustment / Transfer',
@@ -211,10 +197,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 <form id="adjustForm" class="text-start">
                     <input type="hidden" id="swalProductId" value="${productId}">
                     <div class="mb-3">
-                        <label for="swalAdjustmentType" class="form-label">Adjustment Type</label>
+                        <label for="swalAdjustmentType" class="form-label">Action</label>
                         <select id="swalAdjustmentType" class="form-select">
                             <option value="adjust_quantity" selected>Adjust Quantity</option>
-                            <option value="transfer">Transfer Location</option>
+                            <option value="transfer">Transfer (Same Warehouse)</option>
+                            <option value="transfer_inter_warehouse">Transfer Warehouse</option>
                         </select>
                     </div>
                     <div class="mb-3">
@@ -222,76 +209,131 @@ document.addEventListener('DOMContentLoaded', () => {
                         <input type="text" id="swalAdjustProductBarcode" class="form-control" value="${productBarcode}" readonly>
                     </div>
                     <div class="mb-3">
-                        <label for="swalAdjustCurrentLocation" class="form-label">Current Location</label>
-                        <select id="swalAdjustCurrentLocation" class="form-select" style="width:100%;"></select>
+                        <label for="swalAdjustCurrentLocation" class="form-label">From Location</label>
+                        <input type="text" id="swalAdjustCurrentLocation" class="form-control" value="${locationCode}" readonly>
                     </div>
                     <div class="mb-3">
-                        <label for="swalAdjustQuantity" class="form-label">Quantity</label>
+                        <label for="swalAdjustQuantity" class="form-label">Quantity to Move</label>
                         <input type="number" id="swalAdjustQuantity" class="form-control" placeholder="e.g., 5 for add/transfer, -2 for remove" required>
                     </div>
-                     <div class="mb-3">
-                        <label for="swalAdjustBatchNumber" class="form-label">Batch Number</label>
-                        <input type="text" id="swalAdjustBatchNumber" class="form-control" value="${batchNumber}" readonly>
+                    <div class="row">
+                        <div class="col-md-6 mb-3"><label for="swalAdjustBatchNumber" class="form-label">Batch Number</label><input type="text" id="swalAdjustBatchNumber" class="form-control" value="${batchNumber}" readonly></div>
+                        <div class="col-md-6 mb-3"><label for="swalAdjustDotCode" class="form-label">DOT Code</label><input type="text" id="swalAdjustDotCode" value="${dotCode}" class="form-control" readonly></div>
                     </div>
-                    <div class="mb-3">
-                        <label for="swalAdjustExpiryDate" class="form-label">Expiry Date</label>
-                        <input type="date" id="swalAdjustExpiryDate" value="${expiryDate}" class="form-control" readonly>
-                    </div>
-                    <div id="swalNewLocationField" class="mb-3 d-none">
-                        <label for="swalAdjustNewLocation" class="form-label">New Location</label>
-                        <select id="swalAdjustNewLocation" class="form-select" style="width:100%;"></select>
+                    <div id="swalNewLocationContainer" class="d-none">
+                        <div id="swalDestWarehouseField" class="mb-3 d-none"><label for="swalDestWarehouse" class="form-label">To Warehouse</label><select id="swalDestWarehouse" class="form-select" style="width:100%;"></select></div>
+                        <div class="mb-3"><label for="swalAdjustNewLocation" class="form-label">To Location</label><select id="swalAdjustNewLocation" class="form-select" style="width:100%;"></select></div>
                     </div>
                 </form>`,
-            confirmButtonText: 'Submit',
-            showCancelButton: true,
-            focusConfirm: false,
+            confirmButtonText: 'Submit', showCancelButton: true, focusConfirm: false,
             didOpen: async () => {
                 const popup = Swal.getPopup();
                 const adjustmentTypeSelect = popup.querySelector('#swalAdjustmentType');
-                const newLocationField = popup.querySelector('#swalNewLocationField');
-                const currentLocationSelect = $('#swalAdjustCurrentLocation');
+                const newLocationContainer = popup.querySelector('#swalNewLocationContainer');
+                const destWarehouseField = popup.querySelector('#swalDestWarehouseField');
+                const quantityInput = popup.querySelector('#swalAdjustQuantity');
+                
                 const newLocationSelect = $('#swalAdjustNewLocation');
+                const destWarehouseSelect = $('#swalDestWarehouse');
 
-                const initializeSelect2 = (selector, placeholder) => {
-                    selector.select2({
-                        placeholder: placeholder,
+                const initializeSelect2 = (selector, placeholder) => selector.select2({ 
+                    placeholder, 
+                    dropdownParent: $('.swal2-popup'), 
+                    theme: 'bootstrap-5', 
+                    templateResult: formatLocation, 
+                    templateSelection: (loc) => loc.text,
+                    dropdownCssClass: 'select2-dropdown-above'
+                });
+                
+                initializeSelect2(newLocationSelect, 'Select destination location...');
+                initializeSelect2(destWarehouseSelect, 'Select destination warehouse...');
+
+                const updateLocationCapacity = () => {
+                    const quantity = parseInt(quantityInput.value, 10) || 0;
+                    
+                    newLocationSelect.find('option').each(function() {
+                        const option = $(this);
+                        if (!option.val()) return;
+                        const available = parseInt(option.data('available'), 10);
+                        
+                        if (quantity > 0 && !isNaN(available) && quantity > available) {
+                            option.prop('disabled', true);
+                        } else {
+                            option.prop('disabled', false);
+                        }
+                    });
+
+                    // MODIFICATION: Re-initialize Select2 with ALL correct options to reflect changes
+                    // and to fix the z-index issue. This is the main fix.
+                    newLocationSelect.select2({
+                        placeholder: 'Select destination location...',
                         dropdownParent: $('.swal2-popup'),
                         theme: 'bootstrap-5',
                         templateResult: formatLocation,
-                        templateSelection: formatLocationSelection,
-                        escapeMarkup: function(markup) { return markup; } // Allow HTML in results
+                        templateSelection: (loc) => loc.text,
+                        dropdownCssClass: 'select2-dropdown-above'
                     });
                 };
-                
-                initializeSelect2(currentLocationSelect, 'Select current location');
-                initializeSelect2(newLocationSelect, 'Select new location');
 
-                const locationStock = await fetchData(`api/inventory_api.php?action=location_stock&product_id=${productId}`);
-                
-                if(locationStock.success) {
-                    populateLocationSelect(currentLocationSelect, locationStock.data, locationCode);
-                    populateLocationSelect(newLocationSelect, locationStock.data, null);
-                }
+                quantityInput.addEventListener('input', updateLocationCapacity);
 
-                adjustmentTypeSelect.addEventListener('change', (e) => {
-                    if (e.target.value === 'transfer') {
-                        newLocationField.classList.remove('d-none');
-                    } else {
-                        newLocationField.classList.add('d-none');
+                const loadAndPopulateLocations = async (warehouseId, excludeLocCode, prodId) => {
+                    const locations = await fetchData(`api/inventory_api.php?action=location_stock&warehouse_id=${warehouseId}&product_id=${prodId}`);
+                    if (locations.success) {
+                        populateLocationSelect(newLocationSelect, locations.data, excludeLocCode);
+                    }
+                };
+
+                adjustmentTypeSelect.addEventListener('change', async (e) => {
+                    const action = e.target.value;
+                    newLocationContainer.classList.toggle('d-none', action === 'adjust_quantity');
+                    destWarehouseField.classList.toggle('d-none', action !== 'transfer_inter_warehouse');
+                    newLocationSelect.empty().trigger('change');
+                    destWarehouseSelect.empty().trigger('change');
+
+                    if (action === 'transfer') {
+                        await loadAndPopulateLocations(currentWarehouseId, locationCode, productId);
+                    } else if (action === 'transfer_inter_warehouse') {
+                        const warehouses = await fetchData('api/warehouses_api.php?action=get_transfer_targets');
+                        if (warehouses.success) populateWarehouseSelect(destWarehouseSelect, warehouses.data);
+                    }
+                });
+
+                destWarehouseSelect.on('change', async function() {
+                    const selectedWarehouseId = $(this).val();
+                    newLocationSelect.empty().trigger('change');
+                    if (selectedWarehouseId) {
+                        await loadAndPopulateLocations(selectedWarehouseId, null, productId);
                     }
                 });
             },
             preConfirm: () => {
                 const popup = Swal.getPopup();
+                const actionType = popup.querySelector('#swalAdjustmentType').value;
+                const quantity = popup.querySelector('#swalAdjustQuantity').value;
+
+                if (!quantity || (actionType !== 'adjust_quantity' && parseInt(quantity) <= 0)) {
+                    Swal.showValidationMessage('A positive quantity is required for transfers.');
+                    return false;
+                }
+                if (actionType.startsWith('transfer') && !$('#swalAdjustNewLocation').val()) {
+                    Swal.showValidationMessage('A destination location is required.');
+                    return false;
+                }
+                if (actionType === 'transfer_inter_warehouse' && !$('#swalDestWarehouse').val()) {
+                    Swal.showValidationMessage('A destination warehouse is required.');
+                    return false;
+                }
+
                 return {
-                    action_type: popup.querySelector('#swalAdjustmentType').value,
+                    action_type: actionType,
                     product_id: popup.querySelector('#swalProductId').value,
-                    product_barcode: popup.querySelector('#swalAdjustProductBarcode').value,
-                    current_location_barcode: $('#swalAdjustCurrentLocation').val(),
-                    quantity_change: popup.querySelector('#swalAdjustQuantity').value,
+                    current_location_barcode: popup.querySelector('#swalAdjustCurrentLocation').value,
+                    quantity_change: quantity,
                     new_location_barcode: $('#swalAdjustNewLocation').val(),
+                    to_warehouse_id: $('#swalDestWarehouse').val(),
                     batch_number: popup.querySelector('#swalAdjustBatchNumber').value,
-                    expiry_date: popup.querySelector('#swalAdjustExpiryDate').value,
+                    dot_code: popup.querySelector('#swalAdjustDotCode').value,
                 };
             }
         });
@@ -300,89 +342,47 @@ document.addEventListener('DOMContentLoaded', () => {
             handleInventoryAdjustment(formValues);
         }
     }
-
-    function populateLocationSelect(selectElement, locations, selectedValue) {
-        selectElement.empty();
-        selectElement.append(new Option('', '', false, false));
-
+    
+    function populateLocationSelect(selectElement, locations, excludeLocationCode) {
+        selectElement.empty().append(new Option('', '', true, true)).trigger('change');
         locations.forEach(loc => {
-            const option = new Option(loc.location_code, loc.location_code, false, false);
-            option.dataset.html = loc.availability_html;
-            option.dataset.available = loc.available_capacity;
-
-            if (loc.available_capacity !== null && loc.available_capacity <= 0 && loc.location_code !== selectedValue) {
-                option.disabled = true;
+            if (loc.location_code !== excludeLocationCode) {
+                const option = new Option(loc.location_code, loc.location_code, false, false);
+                $(option).data('available', loc.available_capacity);
+                $(option).data('html', loc.availability_html);
+                selectElement.append(option);
             }
+        });
+        selectElement.trigger('change');
+    }
 
+    function populateWarehouseSelect(selectElement, warehouses) {
+        selectElement.empty().append(new Option('', '', true, true)).trigger('change');
+        warehouses.forEach(wh => {
+            const option = new Option(wh.warehouse_name, wh.warehouse_id, false, false);
             selectElement.append(option);
         });
-
-        if (selectedValue) {
-            selectElement.val(selectedValue).trigger('change');
-        }
+        selectElement.trigger('change');
     }
 
     function formatLocation(location) {
-        if (!location.id) {
-            return location.text;
-        }
-        
-        const html = location.element.dataset.html;
-        return $(`<div class="d-flex justify-content-between"><span>${location.text}</span>${html}</div>`);
-    }
-
-    function formatLocationSelection(location) {
-        return location.id || location.text;
+        if (!location.id) return location.text;
+        const html = $(location.element).data('html');
+        return $(`<div class="d-flex justify-content-between"><span>${location.text}</span>${html || ''}</div>`);
     }
 
     async function handleInventoryAdjustment(data) {
-        const quantityChange = parseInt(data.quantity_change, 10);
-        if (isNaN(quantityChange) || quantityChange === 0) {
-            Toast.fire({ icon: 'error', title: 'Quantity must be a valid non-zero number.' });
-            return;
-        }
-        
-        if(data.action_type === 'transfer' && quantityChange <= 0) {
-             Toast.fire({ icon: 'error', title: 'Transfer quantity must be a positive number.' });
-            return;
-        }
-
         try {
-            // A properly implemented fetchData will throw an exception for non-2xx responses,
-            // which will be caught by the catch block below.
             const result = await fetchData('api/inventory_api.php', 'POST', data);
-            
-            // This block only executes for successful (2xx) responses from the server.
             if (result && result.success) {
                 Swal.fire('Success!', result.message, 'success');
                 await loadInventory();
-                await loadAllLocationsData(currentWarehouseId);
-                await loadLocationsForFilterDropdown(currentWarehouseId);
             } else {
-                 // This handles cases where the server returns 200 OK but with a logical failure.
                  Swal.fire('Error!', result ? result.message : 'An unknown error occurred.', 'error');
             }
         } catch (error) {
-            // This block catches network errors and HTTP errors (like 400, 500).
             console.error('Error during inventory adjustment:', error);
-            // The error.message should contain the detailed message from the server.
-            Swal.fire('API Error', error.message || 'Failed to perform adjustment. Please check the console.', 'error');
+            Swal.fire('API Error', error.message || 'Failed to perform adjustment.', 'error');
         }
-    }
-
-    async function handleLogout() {
-        Swal.fire({
-            title: 'Are you sure you want to logout?',
-            icon: 'question',
-            showCancelButton: true,
-            confirmButtonColor: '#d33',
-            cancelButtonColor: '#3085d6',
-            confirmButtonText: 'Yes, logout!'
-        }).then(async (result) => {
-            if (result.isConfirmed) {
-                await fetchData('api/auth.php?action=logout');
-                redirectToLogin();
-            }
-        });
     }
 });

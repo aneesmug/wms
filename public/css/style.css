@@ -265,3 +265,7 @@ button:active {
     font-size: 0.875rem;
     color: #adb5bd;
 }
+
+.select2-dropdown-above {
+    z-index: 9999 !important;
+}

@@ -1,6 +1,46 @@
 // public/js/driver_pickup.js
 
 document.addEventListener('DOMContentLoaded', () => {
+    // --- Helper function for API calls ---
+    async function fetchData(url, method = 'GET', data = null) {
+        try {
+            const options = {
+                method,
+                headers: { 'Content-Type': 'application/json' }
+            };
+            if (data) {
+                options.body = JSON.stringify(data);
+            }
+            const response = await fetch(url, options);
+            
+            // Get the raw response text first to handle non-JSON responses gracefully
+            const responseText = await response.text();
+
+            // Try to parse the text as JSON
+            let jsonResult;
+            try {
+                jsonResult = JSON.parse(responseText);
+            } catch (e) {
+                // If parsing fails, the response was not valid JSON. This is likely a server error.
+                console.error("Failed to parse JSON:", e);
+                console.error("Raw server response:", responseText); // Log the raw response for debugging
+                // Throw an error with the raw response to be displayed to the user
+                throw new Error("The server returned an invalid response. Check the developer console for more details.");
+            }
+
+            if (!response.ok) {
+                // Use the parsed JSON for the error message if available, otherwise provide a generic error.
+                throw new Error(jsonResult.message || `An error occurred. Status: ${response.status}`);
+            }
+
+            return jsonResult;
+        } catch (error) {
+            console.error('Fetch Error:', error);
+            Swal.fire('Error', error.message, 'error');
+            return null;
+        }
+    }
+
     // --- DOM Elements ---
     const orderNumberDisplay = document.getElementById('orderNumberDisplay');
     const itemList = document.getElementById('itemList');
@@ -8,21 +48,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const scanFeedback = document.getElementById('scanFeedback');
     const videoElement = document.getElementById('video');
     const sourceSelect = document.getElementById('sourceSelect');
-    // MODIFICATION: Get the new torch button
     const torchButton = document.getElementById('torchButton');
+    const scannedItemList = document.getElementById('scannedItemList'); // MODIFICATION: Get the new list element
 
     // --- State ---
     let orderId = null;
     let itemsToScan = [];
+    let scannedItemsLog = []; // MODIFICATION: State for the scanned items log
+
+    // MODIFICATION: Add EAN_13 to the list of scannable formats
+    const formats = [ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.EAN_13];
     const hints = new Map();
-    const formats = [ZXing.BarcodeFormat.CODE_128];
     hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
     const codeReader = new ZXing.BrowserMultiFormatReader(hints);
     
     let selectedDeviceId = null;
     let lastScannedBarcode = null;
     let lastScanTime = 0;
-    // MODIFICATION: State for torch control
     let torchSupported = false;
     let isTorchOn = false;
 
@@ -43,17 +85,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * Fetches the order details and items to be scanned from the server.
+     * Fetches the order details, items to scan, and scanned item log from the server.
      */
     async function loadOrderDetails() {
+        scanFeedback.innerHTML = ''; // Clear feedback on reload
         const result = await fetchData(`api/driver_api.php?action=getOrderDetailsForScan&order_id=${orderId}`);
         if (result && result.success) {
             const order = result.data;
             orderNumberDisplay.textContent = order.order_number;
             itemsToScan = order.items;
+            scannedItemsLog = order.scanned_items_log || []; // MODIFICATION: Store the log
             renderItemList();
+            renderScannedList(); // MODIFICATION: Render the new list
         } else {
-            itemList.innerHTML = '<li class="list-group-item">Could not load order details.</li>';
+            itemList.innerHTML = '<li class="list-group-item text-danger">Could not load order details.</li>';
+            scannedItemList.innerHTML = '<li class="list-group-item text-danger">Could not load scan history.</li>';
         }
     }
 
@@ -86,6 +132,36 @@ document.addEventListener('DOMContentLoaded', () => {
             itemList.appendChild(li);
         });
     }
+    
+    /**
+     * MODIFICATION: Renders the list of individually scanned items.
+     */
+    function renderScannedList() {
+        scannedItemList.innerHTML = '';
+        if (scannedItemsLog.length === 0) {
+            scannedItemList.innerHTML = '<li class="list-group-item text-muted">No items scanned yet.</li>';
+            return;
+        }
+
+        scannedItemsLog.forEach(scan => {
+            const li = document.createElement('li');
+            li.className = 'list-group-item';
+            // Use 'en-GB' for a 24-hour format that's widely understood
+            const scannedTime = new Date(scan.scanned_at).toLocaleTimeString('en-GB');
+
+            li.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <i class="bi bi-check-circle-fill text-success me-2"></i>
+                        <span><strong>${scan.sku}</strong> - ${scan.product_name}</span>
+                    </div>
+                    <small class="text-muted">${scannedTime}</small>
+                </div>
+                ${scan.sticker_code ? `<small class="d-block text-muted" style="margin-left: 26px;">Sticker: ${scan.sticker_code}</small>` : ''}
+            `;
+            scannedItemList.appendChild(li);
+        });
+    }
 
     /**
      * Initializes the ZXing barcode scanner.
@@ -94,26 +170,26 @@ document.addEventListener('DOMContentLoaded', () => {
         codeReader.listVideoInputDevices()
             .then((videoInputDevices) => {
                 if (videoInputDevices.length > 0) {
-                    selectedDeviceId = videoInputDevices[0].deviceId;
-                    if (videoInputDevices.length > 1) {
-                        const rearCamera = videoInputDevices.find(device => device.label.toLowerCase().includes('back') || device.label.toLowerCase().includes('environment'));
-                        if (rearCamera) {
-                            selectedDeviceId = rearCamera.deviceId;
+                    // Prefer the rear camera if available
+                    const rearCamera = videoInputDevices.find(device => device.label.toLowerCase().includes('back') || device.label.toLowerCase().includes('environment'));
+                    selectedDeviceId = rearCamera ? rearCamera.deviceId : videoInputDevices[0].deviceId;
+                    
+                    // Populate the camera select dropdown
+                    videoInputDevices.forEach((element) => {
+                        const sourceOption = document.createElement('option');
+                        sourceOption.text = element.label;
+                        sourceOption.value = element.deviceId;
+                        if(element.deviceId === selectedDeviceId){
+                            sourceOption.selected = true;
                         }
-                        videoInputDevices.forEach((element) => {
-                            const sourceOption = document.createElement('option');
-                            sourceOption.text = element.label;
-                            sourceOption.value = element.deviceId;
-                            if(element.deviceId === selectedDeviceId){
-                                sourceOption.selected = true;
-                            }
-                            sourceSelect.appendChild(sourceOption);
-                        });
-                        sourceSelect.onchange = () => {
-                            selectedDeviceId = sourceSelect.value;
-                            startScanning();
-                        };
-                    }
+                        sourceSelect.appendChild(sourceOption);
+                    });
+
+                    sourceSelect.onchange = () => {
+                        selectedDeviceId = sourceSelect.value;
+                        startScanning();
+                    };
+                    
                     startScanning();
                 } else {
                      scanFeedback.innerHTML = `<div class="alert alert-warning">No camera devices found.</div>`;
@@ -136,12 +212,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (result) {
                 const scannedBarcode = result.getText();
                 const now = Date.now();
+                // Debounce to prevent multiple scans of the same barcode in quick succession
                 if (scannedBarcode === lastScannedBarcode && (now - lastScanTime < 3000)) {
                     return;
                 }
                 lastScannedBarcode = scannedBarcode;
                 lastScanTime = now;
-                playBeep();
+                
                 verifyScannedItem(scannedBarcode);
             }
             if (err && !(err instanceof ZXing.NotFoundException)) {
@@ -149,7 +226,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // MODIFICATION: Check for and set up torch control
         setupTorchControl(controls);
     }
     
@@ -157,7 +233,12 @@ document.addEventListener('DOMContentLoaded', () => {
      * Checks if the camera track supports torch and sets up the button.
      */
     function setupTorchControl(controls) {
+        // Ensure stream and track exist before proceeding
+        if (!controls || !controls.stream || typeof controls.stream.getVideoTracks !== 'function') return;
+        
         const track = controls.stream.getVideoTracks()[0];
+        if (!track || typeof track.getCapabilities !== 'function') return;
+
         const capabilities = track.getCapabilities();
         
         if (capabilities.torch) {
@@ -170,6 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 torchButton.classList.toggle('btn-warning', isTorchOn);
                 torchButton.classList.toggle('btn-outline-secondary', !isTorchOn);
+                torchButton.innerHTML = isTorchOn ? '<i class="bi bi-flashlight-fill"></i>' : '<i class="bi bi-flashlight"></i>';
             };
         } else {
             torchSupported = false;
@@ -177,7 +259,6 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log("Torch not supported on this device/camera.");
         }
     }
-
 
     barcodeInput.addEventListener('change', () => {
         const barcode = barcodeInput.value.trim();
@@ -190,7 +271,7 @@ document.addEventListener('DOMContentLoaded', () => {
      * Sends the scanned barcode to the server for verification.
      */
     async function verifyScannedItem(barcode) {
-        scanFeedback.innerHTML = `<div class="alert alert-info">Verifying sticker: ${barcode}...</div>`;
+        scanFeedback.innerHTML = `<div class="alert alert-info">Verifying: ${barcode}...</div>`;
         
         const result = await fetchData('api/driver_api.php?action=scanOrderItem', 'POST', {
             order_id: orderId,
@@ -198,17 +279,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         if (result && result.success) {
+            playBeep();
             scanFeedback.innerHTML = `<div class="alert alert-success">${result.message}</div>`;
-            const item = itemsToScan.find(i => i.product_id == result.data.product_id);
-            if (item) {
-                item.scanned_quantity = result.data.new_scanned_quantity;
-            }
-            renderItemList();
+            // MODIFICATION: Reload all data to ensure both lists are in sync
+            await loadOrderDetails(); 
         } else {
+            // The global fetchData handles showing the Swal error alert
+            // We can still show a message in the feedback div if we want
             if (result) {
-                scanFeedback.innerHTML = `<div class="alert alert-danger">${result.message || 'Invalid sticker or item not on order.'}</div>`;
+                 scanFeedback.innerHTML = `<div class="alert alert-danger">${result.message || 'Invalid barcode or item not on order.'}</div>`;
             } else {
-                scanFeedback.innerHTML = `<div class="alert alert-danger">A network error occurred. Please check your connection and try again.</div>`;
+                 scanFeedback.innerHTML = `<div class="alert alert-danger">A network error occurred. Please try again.</div>`;
             }
         }
         barcodeInput.value = ''; 
