@@ -269,3 +269,8 @@ button:active {
 .select2-dropdown-above {
     z-index: 9999 !important;
 }
+
+#adjustForm input[readonly]{
+    font-weight: bold; 
+    background-color: #e9ecef;
+}

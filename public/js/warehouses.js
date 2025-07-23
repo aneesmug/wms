@@ -109,13 +109,13 @@ document.addEventListener('DOMContentLoaded', () => {
                             <input type="text" id="city" class="form-control" value="${warehouseData?.city || ''}">
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label for="country" class="form-label">Country</label>
-                            <input type="text" id="country" class="form-control" value="${warehouseData?.country || ''}">
+                            <label for="country" class="form-label">Country*</label>
+                            <input type="text" id="country" class="form-control" value="${warehouseData?.country || ''}" required>
                         </div>
                     </div>
                     <div class="mb-3">
-                        <label for="zip" class="form-label">ZIP Code</label>
-                        <input type="text" id="zip" class="form-control" value="${warehouseData?.zip || ''}">
+                        <label for="zip" class="form-label">ZIP Code*</label>
+                        <input type="text" id="zip" class="form-control" value="${warehouseData?.zip || ''}" required>
                     </div>
                     <div class="form-check form-switch">
                         <input class="form-check-input" type="checkbox" id="is_active" ${isEditing ? (warehouseData.is_active == 1 ? 'checked' : '') : 'checked'}>
@@ -125,34 +125,54 @@ document.addEventListener('DOMContentLoaded', () => {
             `,
             showCancelButton: true,
             confirmButtonText: isEditing ? 'Update' : 'Save',
-            preConfirm: () => {
-                const name = document.getElementById('warehouse_name').value;
-                if (!name) {
+            // MODIFICATION: Added client-side validation before the API call
+            preConfirm: async () => {
+                // 1. Get form elements and values
+                const nameInput = document.getElementById('warehouse_name');
+                const countryInput = document.getElementById('country');
+                const zipInput = document.getElementById('zip');
+
+                // 2. Perform field-by-field validation
+                if (!nameInput.value.trim()) {
                     Swal.showValidationMessage('Warehouse Name is required.');
                     return false;
                 }
-                return {
+                if (!countryInput.value.trim()) {
+                    Swal.showValidationMessage('Country is required.');
+                    return false;
+                }
+                if (!zipInput.value.trim()) {
+                    Swal.showValidationMessage('ZIP Code is required.');
+                    return false;
+                }
+
+                // 3. If front-end validation passes, create data object
+                const data = {
                     warehouse_id: document.getElementById('warehouse_id').value,
-                    warehouse_name: name,
+                    warehouse_name: nameInput.value,
                     address: document.getElementById('address').value,
                     city: document.getElementById('city').value,
-                    country: document.getElementById('country').value,
-                    zip: document.getElementById('zip').value,
+                    country: countryInput.value,
+                    zip: zipInput.value,
                     is_active: document.getElementById('is_active').checked
                 };
-            }
-        }).then(async (result) => {
-            if (result.isConfirmed) {
-                const data = result.value;
+
+                // 4. Make the API call
                 const method = isEditing ? 'PUT' : 'POST';
                 const response = await fetchData('api/warehouses_api.php', method, data);
 
-                if (response.success) {
-                    Toast.fire({ icon: 'success', title: response.message });
-                    warehousesDataTable.ajax.reload();
-                } else {
-                    Swal.fire('Error!', response.message || 'An unknown error occurred.', 'error');
+                // 5. Handle the API response (e.g., for duplicate names from the server)
+                if (!response.success) {
+                    Swal.showValidationMessage(response.message);
+                    return false;
                 }
+
+                return response;
+            }
+        }).then((result) => {
+            if (result.isConfirmed) {
+                Toast.fire({ icon: 'success', title: result.value.message });
+                warehousesDataTable.ajax.reload();
             }
         });
     }

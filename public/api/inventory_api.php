@@ -54,26 +54,26 @@ function calculateExpiryDate($dot_code, $expiry_years) {
 }
 
 function handleGetLocationStock($conn, $warehouse_id) {
+    // The product_id is required by the front-end to initiate the call, but is not used in the query
+    // to ensure we get the total capacity of the location, matching the location management page.
     $product_id = filter_input(INPUT_GET, 'product_id', FILTER_VALIDATE_INT);
     if (!$product_id) {
         sendJsonResponse(['success' => false, 'message' => 'Product ID is required to check location stock.'], 400);
         return;
     }
 
-    // MODIFICATION: The JOIN for inventory now includes product_id.
-    // This correctly calculates occupied space for ONLY the specified product.
+    // BUG FIX #2: This query now uses a subquery to get the total occupied capacity
+    // of ALL products in a location, which matches the location management screen logic.
     $sql = "
         SELECT 
             wl.location_id, wl.location_code, wl.max_capacity_units,
-            COALESCE(SUM(i.quantity), 0) AS occupied_capacity
+            (SELECT COALESCE(SUM(inv.quantity), 0) FROM inventory inv WHERE inv.location_id = wl.location_id) AS occupied_capacity
         FROM warehouse_locations wl
-        LEFT JOIN inventory i ON wl.location_id = i.location_id AND i.warehouse_id = wl.warehouse_id AND i.product_id = ?
         WHERE wl.warehouse_id = ? AND wl.is_active = 1
-        GROUP BY wl.location_id, wl.location_code, wl.max_capacity_units
         ORDER BY wl.location_code ASC
     ";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("ii", $product_id, $warehouse_id);
+    $stmt->bind_param("i", $warehouse_id);
     $stmt->execute();
     $locations = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
@@ -170,13 +170,13 @@ function adjustInventoryQuantity($conn, $input, $warehouse_id) {
     $location_id = $location_data['location_id'];
 
     if ($quantity_change > 0 && $location_data['max_capacity_units'] !== null) {
-        $stmt_total = $conn->prepare("SELECT COALESCE(SUM(quantity), 0) AS total FROM inventory WHERE location_id = ? AND product_id = ?");
-        $stmt_total->bind_param("ii", $location_id, $product_id);
+        $stmt_total = $conn->prepare("SELECT COALESCE(SUM(quantity), 0) AS total FROM inventory WHERE location_id = ?");
+        $stmt_total->bind_param("i", $location_id);
         $stmt_total->execute();
         $current_total_qty = $stmt_total->get_result()->fetch_assoc()['total'];
         $stmt_total->close();
         if (($current_total_qty + $quantity_change) > $location_data['max_capacity_units']) {
-            throw new Exception("Adding {$quantity_change} units to {$location_barcode} exceeds its capacity of {$location_data['max_capacity_units']}. Current stock: {$current_total_qty}.");
+            throw new Exception("Adding {$quantity_change} units to {$location_barcode} exceeds its total capacity of {$location_data['max_capacity_units']}. Current stock: {$current_total_qty}.");
         }
     }
 
@@ -253,7 +253,7 @@ function handleInterWarehouseTransfer($conn, $input, $from_warehouse_id) {
 
     $conn->begin_transaction();
     try {
-        // MODIFICATION: Create a separate input for the source to make the quantity negative.
+        // BUG FIX #1: Create a separate input for the source to make the quantity negative.
         $source_input = $input;
         $source_input['quantity_change'] = -$quantity; // This correctly subtracts from the source.
         adjustInventoryQuantity($conn, $source_input, $from_warehouse_id);

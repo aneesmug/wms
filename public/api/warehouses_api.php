@@ -11,20 +11,22 @@ authenticate_user(false); // Do not require a warehouse to be selected for this 
 $method = $_SERVER['REQUEST_METHOD'];
 $action = $_GET['action'] ?? null;
 
-// A global admin can perform any action. A regular user must have the 'manager' role.
-// The authorize_user_role() function checks this against the currently selected warehouse.
-// Since this page manages ALL warehouses, we do a manual check here.
+// A global admin can perform any action. 
 if (!isset($_SESSION['is_global_admin']) || !$_SESSION['is_global_admin']) {
-    if ($method !== 'GET') { // Allow GET for all authenticated users, but restrict CUD
+    // For other users, restrict CUD operations to managers
+    if ($method !== 'GET') { 
         sendJsonResponse(['success' => false, 'message' => 'You do not have permission to manage warehouses.'], 403);
         exit;
     }
 }
 
-
 switch ($method) {
     case 'GET':
-        handleGetWarehouses($conn);
+        if ($action === 'get_transfer_targets') {
+            handleGetTransferTargets($conn);
+        } else {
+            handleGetWarehouses($conn);
+        }
         break;
     case 'POST':
         handleCreateWarehouse($conn);
@@ -48,20 +50,70 @@ function handleGetWarehouses($conn) {
         return;
     }
     $warehouses = $result->fetch_all(MYSQLI_ASSOC);
-    // Return in DataTables format
+    sendJsonResponse(['success' => true, 'data' => $warehouses]);
+}
+
+function handleGetTransferTargets($conn) {
+    $user_id = $_SESSION['user_id'];
+    $is_global_admin = $_SESSION['is_global_admin'] ?? false;
+    $current_warehouse_id = get_current_warehouse_id();
+
+    if ($is_global_admin) {
+        $sql = "SELECT warehouse_id, warehouse_name FROM warehouses WHERE is_active = TRUE";
+        $params = [];
+        $types = "";
+        if ($current_warehouse_id) {
+            $sql .= " AND warehouse_id != ?";
+            $params[] = $current_warehouse_id;
+            $types .= "i";
+        }
+    } else {
+        $sql = "
+            SELECT DISTINCT w.warehouse_id, w.warehouse_name
+            FROM warehouses w
+            JOIN user_warehouse_roles uwr ON w.warehouse_id = uwr.warehouse_id
+            WHERE w.is_active = TRUE 
+            AND uwr.user_id = ? 
+            AND uwr.role IN ('operator', 'manager')
+        ";
+        $params = [$user_id];
+        $types = "i";
+
+        if ($current_warehouse_id) {
+            $sql .= " AND w.warehouse_id != ?";
+            $params[] = $current_warehouse_id;
+            $types .= "i";
+        }
+    }
+    
+    $sql .= " ORDER BY warehouse_name ASC";
+
+    $stmt = $conn->prepare($sql);
+    if (!empty($params)) {
+        $stmt->bind_param($types, ...$params);
+    }
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $warehouses = $result->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
     sendJsonResponse(['success' => true, 'data' => $warehouses]);
 }
 
 function handleCreateWarehouse($conn) {
     $input = json_decode(file_get_contents('php://input'), true);
 
-    // --- Validation ---
+    // MODIFICATION: Add validation for all required fields
     $name = sanitize_input($input['warehouse_name'] ?? '');
-    if (empty($name)) {
-        sendJsonResponse(['success' => false, 'message' => 'Warehouse Name is required.'], 400);
+    $country = sanitize_input($input['country'] ?? '');
+    $zip_input = $input['zip'] ?? ''; // Get as string to check if empty before filtering
+
+    if (empty($name) || empty($country) || $zip_input === '') {
+        sendJsonResponse(['success' => false, 'message' => 'Warehouse Name, Country, and ZIP Code are required fields.'], 400);
         return;
     }
-    // Add other validation as needed for address, city, etc.
+
+    $is_active = isset($input['is_active']) && $input['is_active'] === true ? 1 : 0;
+    $zip = filter_var($zip_input, FILTER_VALIDATE_INT);
 
     $stmt = $conn->prepare("INSERT INTO warehouses (warehouse_name, address, city, country, zip, is_active) VALUES (?, ?, ?, ?, ?, ?)");
     $stmt->bind_param(
@@ -69,9 +121,9 @@ function handleCreateWarehouse($conn) {
         $name,
         sanitize_input($input['address'] ?? null),
         sanitize_input($input['city'] ?? null),
-        sanitize_input($input['country'] ?? null),
-        filter_var($input['zip'] ?? null, FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE),
-        filter_var($input['is_active'] ?? 1, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)
+        $country,
+        $zip,
+        $is_active
     );
 
     if ($stmt->execute()) {
@@ -91,11 +143,18 @@ function handleUpdateWarehouse($conn) {
         return;
     }
     
+    // MODIFICATION: Add validation for all required fields
     $name = sanitize_input($input['warehouse_name'] ?? '');
-    if (empty($name)) {
-        sendJsonResponse(['success' => false, 'message' => 'Warehouse Name is required.'], 400);
+    $country = sanitize_input($input['country'] ?? '');
+    $zip_input = $input['zip'] ?? ''; // Get as string to check if empty before filtering
+
+    if (empty($name) || empty($country) || $zip_input === '') {
+        sendJsonResponse(['success' => false, 'message' => 'Warehouse Name, Country, and ZIP Code are required fields.'], 400);
         return;
     }
+
+    $is_active = isset($input['is_active']) && $input['is_active'] === true ? 1 : 0;
+    $zip = filter_var($zip_input, FILTER_VALIDATE_INT);
 
     $stmt = $conn->prepare("UPDATE warehouses SET warehouse_name = ?, address = ?, city = ?, country = ?, zip = ?, is_active = ? WHERE warehouse_id = ?");
     $stmt->bind_param(
@@ -103,9 +162,9 @@ function handleUpdateWarehouse($conn) {
         $name,
         sanitize_input($input['address'] ?? null),
         sanitize_input($input['city'] ?? null),
-        sanitize_input($input['country'] ?? null),
-        filter_var($input['zip'] ?? null, FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE),
-        filter_var($input['is_active'] ?? 1, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE),
+        $country,
+        $zip,
+        $is_active,
         $id
     );
 
@@ -126,7 +185,6 @@ function handleDeleteWarehouse($conn) {
         return;
     }
 
-    // --- Safety Check: Prevent deletion if locations or inventory exist ---
     $stmt_loc = $conn->prepare("SELECT COUNT(*) as count FROM warehouse_locations WHERE warehouse_id = ?");
     $stmt_loc->bind_param("i", $id);
     $stmt_loc->execute();
@@ -145,7 +203,6 @@ function handleDeleteWarehouse($conn) {
     }
     $stmt_inv->close();
     
-    // --- Deletion ---
     $stmt = $conn->prepare("DELETE FROM warehouses WHERE warehouse_id = ?");
     $stmt->bind_param("i", $id);
     if ($stmt->execute()) {

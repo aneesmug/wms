@@ -166,10 +166,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 quantity: item.quantity,
                 batch_expiry: batchExpiry,
                 last_moved: lastMovedDate,
+                // MODIFICATION: Add data-current-quantity to the button
                 actions: canAdjust ? `<button class="btn btn-sm btn-info text-white adjust-btn" 
-                                data-product-id="${item.product_id}" data-product-barcode="${item.barcode || ''}" 
-                                data-location-code="${item.location_code || ''}" data-batch-number="${item.batch_number || ''}"
-                                data-dot-code="${item.dot_code || ''}" title="Adjust/Transfer">
+                                data-product-id="${item.product_id}" 
+                                data-product-barcode="${item.barcode || ''}" 
+                                data-location-code="${item.location_code || ''}" 
+                                data-batch-number="${item.batch_number || ''}"
+                                data-dot-code="${item.dot_code || ''}"
+                                data-current-quantity="${item.quantity}"
+                                title="Adjust/Transfer">
                                 <i class="bi bi-gear"></i></button>` : '<span class="text-muted">View Only</span>'
             };
         });
@@ -185,6 +190,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const locationCode = button.dataset.locationCode;
         const batchNumber = button.dataset.batchNumber;
         const dotCode = button.dataset.dotCode;
+        // MODIFICATION: Get the current quantity from the button's data attribute
+        const currentQuantity = button.dataset.currentQuantity;
 
         if (!locationCode) {
             Swal.fire('Action Denied', 'Cannot adjust an item with a missing or invalid location.', 'error');
@@ -193,6 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const { value: formValues } = await Swal.fire({
             title: 'Inventory Adjustment / Transfer',
+            // MODIFICATION: Add a new read-only field to display the current quantity
             html: `
                 <form id="adjustForm" class="text-start">
                     <input type="hidden" id="swalProductId" value="${productId}">
@@ -208,9 +216,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         <label for="swalAdjustProductBarcode" class="form-label">Product Barcode</label>
                         <input type="text" id="swalAdjustProductBarcode" class="form-control" value="${productBarcode}" readonly>
                     </div>
-                    <div class="mb-3">
-                        <label for="swalAdjustCurrentLocation" class="form-label">From Location</label>
-                        <input type="text" id="swalAdjustCurrentLocation" class="form-control" value="${locationCode}" readonly>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="swalAdjustCurrentLocation" class="form-label">From Location</label>
+                            <input type="text" id="swalAdjustCurrentLocation" class="form-control" value="${locationCode}" readonly>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Current Qty at Location</label>
+                            <input type="text" class="form-control" value="${currentQuantity}" readonly>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label for="swalAdjustQuantity" class="form-label">Quantity to Move</label>
@@ -258,13 +272,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         
                         if (quantity > 0 && !isNaN(available) && quantity > available) {
                             option.prop('disabled', true);
+                            option.data('html', `<span class="badge bg-danger">No Space (Avail: ${available})</span>`);
                         } else {
                             option.prop('disabled', false);
+                            option.data('html', option.data('original-html'));
                         }
                     });
 
-                    // MODIFICATION: Re-initialize Select2 with ALL correct options to reflect changes
-                    // and to fix the z-index issue. This is the main fix.
                     newLocationSelect.select2({
                         placeholder: 'Select destination location...',
                         dropdownParent: $('.swal2-popup'),
@@ -350,6 +364,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const option = new Option(loc.location_code, loc.location_code, false, false);
                 $(option).data('available', loc.available_capacity);
                 $(option).data('html', loc.availability_html);
+                $(option).data('original-html', loc.availability_html);
                 selectElement.append(option);
             }
         });
