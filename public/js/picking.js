@@ -156,7 +156,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const isPickable = ['Pending Pick', 'Partially Picked'].includes(order.status);
                 const canUnpick = ['Pending Pick', 'Partially Picked', 'Picked'].includes(order.status);
-                const canStage = ['Picked', 'Partially Picked'].includes(order.status);
+                // MODIFICATION: Only allow staging if the order status is 'Picked'.
+                const canStage = order.status === 'Picked';
                 const canAssign = ['Ready for Pickup', 'Assigned'].includes(order.status);
 
                 if (isPickable) pickActionsArea.classList.remove('d-none');
@@ -571,7 +572,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                             <th>Qty</th>
                                             <th>Location</th>
                                             <th>Batch</th>
-                                            <th>DOT</th>\
+                                            <th>DOT</th>
                                         </tr>
                                     </thead>
                                     <tbody>

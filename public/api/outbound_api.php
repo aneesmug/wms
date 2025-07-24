@@ -24,7 +24,11 @@ switch ($method) {
         authorize_user_role(['viewer', 'operator', 'manager', 'picker']);
         if ($action === 'getOrderHistory') {
             handleGetOrderHistory($conn, $current_warehouse_id);
-        } else {
+        } 
+        elseif ($action === 'getPickReport') {
+            handleGetPickReport($conn, $current_warehouse_id);
+        }
+        else {
             handleGetOutbound($conn, $current_warehouse_id);
         }
         break;
@@ -55,6 +59,69 @@ switch ($method) {
         break;
 }
 
+function handleGetPickReport($conn, $warehouse_id) {
+    $order_id = filter_input(INPUT_GET, 'order_id', FILTER_VALIDATE_INT);
+    if (!$order_id) {
+        sendJsonResponse(['success' => false, 'message' => 'Invalid Order ID.'], 400);
+        return;
+    }
+
+    $stmt_order = $conn->prepare("
+        SELECT 
+            oo.order_number, oo.reference_number, oo.required_ship_date,
+            c.customer_name, c.address_line1, c.address_line2, c.city,
+            w.warehouse_name
+        FROM outbound_orders oo
+        JOIN customers c ON oo.customer_id = c.customer_id
+        JOIN warehouses w ON oo.warehouse_id = w.warehouse_id
+        WHERE oo.order_id = ? AND oo.warehouse_id = ?
+    ");
+    $stmt_order->bind_param("ii", $order_id, $warehouse_id);
+    $stmt_order->execute();
+    $order_details = $stmt_order->get_result()->fetch_assoc();
+    $stmt_order->close();
+
+    if (!$order_details) {
+        sendJsonResponse(['success' => false, 'message' => 'Order not found.'], 404);
+        return;
+    }
+
+    $stmt_items = $conn->prepare("
+        SELECT 
+            oi.product_id,
+            p.sku,
+            p.product_name,
+            p.barcode,
+            oi.ordered_quantity,
+            oi.picked_quantity,
+            (SELECT wl.location_code 
+             FROM inventory i 
+             JOIN warehouse_locations wl ON i.location_id = wl.location_id
+             WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0
+             ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC 
+             LIMIT 1) as location_code,
+            (SELECT i.batch_number 
+             FROM inventory i 
+             WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0
+             ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC 
+             LIMIT 1) as batch_number,
+            (SELECT i.dot_code 
+             FROM inventory i 
+             WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0
+             ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC 
+             LIMIT 1) as dot_code
+        FROM outbound_items oi
+        JOIN products p ON oi.product_id = p.product_id
+        WHERE oi.order_id = ?
+    ");
+    $stmt_items->bind_param("iiii", $warehouse_id, $warehouse_id, $warehouse_id, $order_id);
+    $stmt_items->execute();
+    $items = $stmt_items->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt_items->close();
+
+    sendJsonResponse(['success' => true, 'data' => ['order_details' => $order_details, 'items' => $items]]);
+}
+
 function handleGetOutbound($conn, $warehouse_id) {
     if (!$warehouse_id) {
         sendJsonResponse(['success' => true, 'data' => []]);
@@ -64,6 +131,8 @@ function handleGetOutbound($conn, $warehouse_id) {
         $order_id = filter_var($_GET['order_id'], FILTER_VALIDATE_INT);
         if(!$order_id) { sendJsonResponse(['success' => false, 'message' => 'Invalid Order ID.'], 400); return; }
         
+        // MODIFICATION: No change needed here as oo.* already includes the new column.
+        // This is just a confirmation.
         $stmt = $conn->prepare("
             SELECT oo.*, c.customer_name, sl.location_code as shipping_area_code 
             FROM outbound_orders oo 

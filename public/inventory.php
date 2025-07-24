@@ -45,13 +45,18 @@
                         </div>
                         <div class="card-body">
                             <div class="row g-3 align-items-end">
-                                <div class="col-md-5">
+                                <div class="col-md-4">
                                     <label for="searchProductInput" class="form-label">Product Barcode/SKU</label>
                                     <input type="text" id="searchProductInput" name="searchProductInput" placeholder="Scan or type product..." class="form-control">
                                 </div>
-                                <div class="col-md-5">
+                                <div class="col-md-3">
                                     <label for="searchLocationSelect" class="form-label">Location Filter</label>
                                     <select id="searchLocationSelect" name="searchLocationSelect" class="form-select"></select>
+                                </div>
+                                <!-- MODIFICATION: Added Tire Type Filter -->
+                                <div class="col-md-3">
+                                    <label for="searchTireTypeSelect" class="form-label">Tire Type Filter</label>
+                                    <select id="searchTireTypeSelect" name="searchTireTypeSelect" class="form-select"></select>
                                 </div>
                                 <div class="col-md-2 d-flex gap-2">
                                     <button id="searchBtn" class="btn btn-primary w-100">Search</button>
@@ -74,7 +79,6 @@
                                             <th>Barcode</th>
                                             <th>Location</th>
                                             <th>Quantity</th>
-                                            <!-- MODIFICATION: Changed header for clarity -->
                                             <th>Batch/DOT/Expiry</th>
                                             <th>Last Moved</th>
                                             <th>Actions</th>

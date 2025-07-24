@@ -13,7 +13,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 switch ($method) {
     case 'GET':
-        authorize_user_role(['picker', 'viewer', 'operator', 'manager']);
+        authorize_user_role(['picker','viewer', 'operator', 'manager']);
         $action = filter_input(INPUT_GET, 'action', FILTER_SANITIZE_STRING);
         if ($action === 'location_stock') {
             $warehouse_id_for_stock = filter_input(INPUT_GET, 'warehouse_id', FILTER_VALIDATE_INT) ?: $current_warehouse_id;
@@ -40,9 +40,7 @@ switch ($method) {
 }
 
 function calculateExpiryDate($dot_code, $expiry_years) {
-    if (empty($dot_code) || strlen($dot_code) !== 4 || !is_numeric($dot_code) || $expiry_years === null || !is_numeric($expiry_years)) {
-        return null;
-    }
+    if (empty($dot_code) || strlen($dot_code) !== 4 || !is_numeric($dot_code) || $expiry_years === null || !is_numeric($expiry_years)) { return null; }
     $week = (int)substr($dot_code, 0, 2);
     $year = (int)substr($dot_code, 2, 2);
     $full_year = 2000 + $year;
@@ -54,16 +52,11 @@ function calculateExpiryDate($dot_code, $expiry_years) {
 }
 
 function handleGetLocationStock($conn, $warehouse_id) {
-    // The product_id is required by the front-end to initiate the call, but is not used in the query
-    // to ensure we get the total capacity of the location, matching the location management page.
     $product_id = filter_input(INPUT_GET, 'product_id', FILTER_VALIDATE_INT);
     if (!$product_id) {
         sendJsonResponse(['success' => false, 'message' => 'Product ID is required to check location stock.'], 400);
         return;
     }
-
-    // BUG FIX #2: This query now uses a subquery to get the total occupied capacity
-    // of ALL products in a location, which matches the location management screen logic.
     $sql = "
         SELECT 
             wl.location_id, wl.location_code, wl.max_capacity_units,
@@ -77,13 +70,11 @@ function handleGetLocationStock($conn, $warehouse_id) {
     $stmt->execute();
     $locations = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
-
     foreach ($locations as &$location) {
         $max_cap = $location['max_capacity_units'];
         $occupied = $location['occupied_capacity'];
         $available_capacity = ($max_cap !== null) ? ($max_cap - $occupied) : null;
         $location['available_capacity'] = $available_capacity;
-
         if ($max_cap === null) {
             $location['availability_html'] = '<span class="badge bg-success">Available: &infin;</span>';
         } elseif ($available_capacity > 0) {
@@ -99,11 +90,14 @@ function handleGetLocationStock($conn, $warehouse_id) {
 function handleGetInventory($conn, $warehouse_id) {
     $product_id = filter_input(INPUT_GET, 'product_id', FILTER_VALIDATE_INT);
     $location_code = sanitize_input($_GET['location_code'] ?? '');
+    // MODIFICATION: Get the new tire_type_id parameter
+    $tire_type_id = filter_input(INPUT_GET, 'tire_type_id', FILTER_VALIDATE_INT);
+
     $sql = "
         SELECT
             i.inventory_id, i.quantity, i.batch_number, i.dot_code, i.last_moved_at,
             i.product_id, 
-            p.sku, p.product_name, p.barcode, p.expiry_years,
+            p.sku, p.product_name, p.barcode, p.expiry_years, p.tire_type_id,
             wl.location_id, wl.location_code, wl.location_type
         FROM inventory i
         LEFT JOIN products p ON i.product_id = p.product_id
@@ -112,9 +106,14 @@ function handleGetInventory($conn, $warehouse_id) {
     ";
     $params = [$warehouse_id];
     $types = "i";
+
     if ($product_id) { $sql .= " AND i.product_id = ?"; $params[] = $product_id; $types .= "i"; }
     if (!empty($location_code)) { $sql .= " AND wl.location_code = ?"; $params[] = $location_code; $types .= "s"; }
+    // MODIFICATION: Add the tire type filter to the query if it's provided
+    if ($tire_type_id) { $sql .= " AND p.tire_type_id = ?"; $params[] = $tire_type_id; $types .= "i"; }
+    
     $sql .= " ORDER BY p.product_name, wl.location_code";
+
     $stmt = $conn->prepare($sql);
     $stmt->bind_param($types, ...$params);
     $stmt->execute();
@@ -126,6 +125,9 @@ function handleGetInventory($conn, $warehouse_id) {
     unset($item);
     sendJsonResponse(['success' => true, 'data' => $inventory_data]);
 }
+
+// ... rest of the file remains the same (handleInventoryAdjustment, adjustInventoryQuantity, etc.)
+// ... I am omitting it for brevity but it should be included in the final file.
 
 function handleInventoryAdjustment($conn, $input, $warehouse_id) {
     $action_type = sanitize_input($input['action_type'] ?? '');
@@ -253,9 +255,8 @@ function handleInterWarehouseTransfer($conn, $input, $from_warehouse_id) {
 
     $conn->begin_transaction();
     try {
-        // BUG FIX #1: Create a separate input for the source to make the quantity negative.
         $source_input = $input;
-        $source_input['quantity_change'] = -$quantity; // This correctly subtracts from the source.
+        $source_input['quantity_change'] = -$quantity;
         adjustInventoryQuantity($conn, $source_input, $from_warehouse_id);
         
         $destination_input = $input;

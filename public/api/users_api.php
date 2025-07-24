@@ -10,13 +10,14 @@ require_global_admin();
 
 $conn = getDbConnection();
 
-// Start Output Buffering
+// Start Output Buffering to prevent any accidental output before sending JSON
 ob_start();
 
-// Sanitize action
+// Sanitize the action from the GET request
 $action = sanitize_input($_GET['action'] ?? '');
 
 try {
+    // Route the request to the appropriate handler based on the action
     switch ($action) {
         case 'get_users':
             handleGetUsers($conn);
@@ -47,13 +48,60 @@ try {
             break;
     }
 } catch (Exception $e) {
-    // Catch any unexpected errors
+    // Catch any unexpected errors during execution
     error_log("Error in users_api.php: " . $e->getMessage());
     sendJsonResponse(['success' => false, 'message' => 'An internal server error occurred.'], 500);
 } finally {
-    // Clean the output buffer and close the connection
+    // Clean the output buffer and close the database connection
     ob_end_flush();
     $conn->close();
+}
+
+/**
+ * Handles saving a Base64 encoded image to the server.
+ * @param string|null $base64Image The Base64 encoded image string.
+ * @return string|null The relative path to the saved image or null if no image was provided or an error occurred.
+ */
+function handleImageUpload(?string $base64Image): ?string {
+    if (empty($base64Image)) {
+        return null;
+    }
+
+    // Define the upload directory and create it if it doesn't exist
+    $uploadDir = __DIR__ . '/../uploads/users/';
+    if (!is_dir($uploadDir)) {
+        if (!mkdir($uploadDir, 0777, true) && !is_dir($uploadDir)) {
+             error_log('Failed to create user upload directory: ' . $uploadDir);
+             return null;
+        }
+    }
+
+    // Extract image data from Base64 string
+    if (strpos($base64Image, ';base64,') === false) {
+        return null; // Invalid Base64 string format
+    }
+    list($type, $data) = explode(';', $base64Image);
+    list(, $data)      = explode(',', $data);
+    $imageData = base64_decode($data);
+    
+    // Determine file extension and validate image type
+    $extension = strtolower(str_replace('data:image/', '', $type));
+    if (!in_array($extension, ['jpeg', 'jpg', 'png', 'gif'])) {
+        return null; // Invalid image type
+    }
+
+    // Generate a unique filename to prevent collisions
+    $filename = uniqid('user_', true) . '.' . $extension;
+    $filePath = $uploadDir . $filename;
+
+    // Save the file to the server
+    if (file_put_contents($filePath, $imageData)) {
+        // Return the relative path for web access
+        return 'uploads/users/' . $filename;
+    }
+
+    error_log('Failed to save user image to: ' . $filePath);
+    return null;
 }
 
 /**
@@ -65,11 +113,12 @@ function handleGetUsers($conn) {
             u.user_id, 
             u.username, 
             u.full_name, 
+            u.profile_image_url,
             u.is_global_admin,
             GROUP_CONCAT(CONCAT(w.warehouse_name, ':', uwr.role) SEPARATOR ';') as warehouse_roles
         FROM users u
         LEFT JOIN user_warehouse_roles uwr ON u.user_id = uwr.user_id
-        LEFT JOIN warehouses w ON uwr.warehouse_id = w.warehouse_id
+        LEFT JOIN warehouses w ON uwr.warehouse_id = w.warehouse_id AND w.is_active = 1
         GROUP BY u.user_id
         ORDER BY u.full_name;
     ";
@@ -89,7 +138,7 @@ function handleGetUserDetails($conn) {
     }
 
     // Get user base details
-    $stmt = $conn->prepare("SELECT user_id, username, full_name, is_global_admin FROM users WHERE user_id = ?");
+    $stmt = $conn->prepare("SELECT user_id, username, full_name, profile_image_url, is_global_admin FROM users WHERE user_id = ?");
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
     $user = $stmt->get_result()->fetch_assoc();
@@ -124,6 +173,7 @@ function handleCreateUser($conn) {
     $confirm_password = $input['confirm_password'] ?? '';
     $is_global_admin = !empty($input['is_global_admin']) ? 1 : 0;
     $warehouse_roles = $input['warehouse_roles'] ?? [];
+    $profile_image_base64 = $input['profile_image'] ?? null;
 
     if (empty($username) || empty($full_name) || empty($password)) {
         sendJsonResponse(['success' => false, 'message' => 'Username, Full Name, and Password are required.'], 400);
@@ -140,6 +190,7 @@ function handleCreateUser($conn) {
     $stmt->execute();
     if ($stmt->get_result()->num_rows > 0) {
         sendJsonResponse(['success' => false, 'message' => 'Username already exists.'], 409);
+        $stmt->close();
         return;
     }
     $stmt->close();
@@ -147,10 +198,12 @@ function handleCreateUser($conn) {
     // --- Database Operations ---
     $conn->begin_transaction();
     try {
+        $profile_image_url = handleImageUpload($profile_image_base64);
+
         // Insert into users table
         $password_hash = password_hash($password, PASSWORD_DEFAULT);
-        $stmt = $conn->prepare("INSERT INTO users (username, full_name, password_hash, is_global_admin) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("sssi", $username, $full_name, $password_hash, $is_global_admin);
+        $stmt = $conn->prepare("INSERT INTO users (username, full_name, profile_image_url, password_hash, is_global_admin) VALUES (?, ?, ?, ?, ?)");
+        $stmt->bind_param("ssssi", $username, $full_name, $profile_image_url, $password_hash, $is_global_admin);
         $stmt->execute();
         $user_id = $stmt->insert_id;
         $stmt->close();
@@ -174,7 +227,7 @@ function handleCreateUser($conn) {
     } catch (Exception $e) {
         $conn->rollback();
         error_log("User creation failed: " . $e->getMessage());
-        sendJsonResponse(['success' => false, 'message' => 'Failed to create user.'], 500);
+        sendJsonResponse(['success' => false, 'message' => 'Failed to create user due to a server error.'], 500);
     }
 }
 
@@ -195,6 +248,7 @@ function handleUpdateUser($conn) {
     $full_name = sanitize_input($input['full_name'] ?? '');
     $is_global_admin = !empty($input['is_global_admin']) ? 1 : 0;
     $warehouse_roles = $input['warehouse_roles'] ?? [];
+    $profile_image_base64 = $input['profile_image'] ?? null;
 
     if (empty($username) || empty($full_name)) {
         sendJsonResponse(['success' => false, 'message' => 'Username and Full Name are required.'], 400);
@@ -204,13 +258,20 @@ function handleUpdateUser($conn) {
     // --- Database Operations ---
     $conn->begin_transaction();
     try {
-        // Update users table (no password change here)
-        $stmt = $conn->prepare("UPDATE users SET username = ?, full_name = ?, is_global_admin = ? WHERE user_id = ?");
-        $stmt->bind_param("ssii", $username, $full_name, $is_global_admin, $user_id);
+        $profile_image_url = handleImageUpload($profile_image_base64);
+
+        // Build the update query dynamically based on whether a new image was provided
+        if ($profile_image_url) {
+            $stmt = $conn->prepare("UPDATE users SET username = ?, full_name = ?, profile_image_url = ?, is_global_admin = ? WHERE user_id = ?");
+            $stmt->bind_param("sssii", $username, $full_name, $profile_image_url, $is_global_admin, $user_id);
+        } else {
+            $stmt = $conn->prepare("UPDATE users SET username = ?, full_name = ?, is_global_admin = ? WHERE user_id = ?");
+            $stmt->bind_param("ssii", $username, $full_name, $is_global_admin, $user_id);
+        }
         $stmt->execute();
         $stmt->close();
 
-        // First, delete all existing roles for the user
+        // First, delete all existing roles for the user to ensure a clean slate
         $stmt = $conn->prepare("DELETE FROM user_warehouse_roles WHERE user_id = ?");
         $stmt->bind_param("i", $user_id);
         $stmt->execute();
@@ -235,7 +296,7 @@ function handleUpdateUser($conn) {
     } catch (Exception $e) {
         $conn->rollback();
         error_log("User update failed: " . $e->getMessage());
-        sendJsonResponse(['success' => false, 'message' => 'Failed to update user.'], 500);
+        sendJsonResponse(['success' => false, 'message' => 'Failed to update user due to a server error.'], 500);
     }
 }
 
@@ -249,16 +310,8 @@ function handleChangePassword($conn) {
     $password = $input['password'] ?? '';
     $confirm_password = $input['confirm_password'] ?? '';
 
-    if (!$user_id) {
-        sendJsonResponse(['success' => false, 'message' => 'Invalid User ID.'], 400);
-        return;
-    }
-    if (empty($password)) {
-        sendJsonResponse(['success' => false, 'message' => 'Password cannot be empty.'], 400);
-        return;
-    }
-    if ($password !== $confirm_password) {
-        sendJsonResponse(['success' => false, 'message' => 'Passwords do not match.'], 400);
+    if (!$user_id || empty($password) || $password !== $confirm_password) {
+        sendJsonResponse(['success' => false, 'message' => 'Invalid data provided. Please ensure passwords match.'], 400);
         return;
     }
 
@@ -269,6 +322,7 @@ function handleChangePassword($conn) {
     if ($stmt->execute()) {
         sendJsonResponse(['success' => true, 'message' => 'Password updated successfully.']);
     } else {
+        error_log("Password update failed: " . $stmt->error);
         sendJsonResponse(['success' => false, 'message' => 'Failed to update password.'], 500);
     }
     $stmt->close();
@@ -286,24 +340,21 @@ function handleDeleteUser($conn) {
         sendJsonResponse(['success' => false, 'message' => 'Invalid User ID.'], 400);
         return;
     }
-    
-    if ($user_id === 1) {
-        sendJsonResponse(['success' => false, 'message' => 'Cannot delete the primary admin account.'], 403);
-        return;
-    }
-    
-    if ($user_id === ($_SESSION['user_id'] ?? null)) {
-        sendJsonResponse(['success' => false, 'message' => 'You cannot delete your own account.'], 403);
+    // Protect primary admin and self-deletion
+    if ($user_id === 1 || $user_id === ($_SESSION['user_id'] ?? null)) {
+        sendJsonResponse(['success' => false, 'message' => 'This user account cannot be deleted.'], 403);
         return;
     }
 
     $conn->begin_transaction();
     try {
+        // Delete associated roles first
         $stmt = $conn->prepare("DELETE FROM user_warehouse_roles WHERE user_id = ?");
         $stmt->bind_param("i", $user_id);
         $stmt->execute();
         $stmt->close();
 
+        // Delete the user
         $stmt = $conn->prepare("DELETE FROM users WHERE user_id = ?");
         $stmt->bind_param("i", $user_id);
         $stmt->execute();
@@ -314,31 +365,23 @@ function handleDeleteUser($conn) {
     } catch (Exception $e) {
         $conn->rollback();
         error_log("User deletion failed: " . $e->getMessage());
-        sendJsonResponse(['success' => false, 'message' => 'Failed to delete user.'], 500);
+        sendJsonResponse(['success' => false, 'message' => 'Failed to delete user due to a server error.'], 500);
     }
 }
 
 /**
- * Fetches all active warehouses.
+ * Fetches all active warehouses for role assignment dropdowns.
  */
 function handleGetAllWarehouses($conn) {
     $result = $conn->query("SELECT warehouse_id, warehouse_name FROM warehouses WHERE is_active = 1 ORDER BY warehouse_name");
     $warehouses = $result->fetch_all(MYSQLI_ASSOC);
     sendJsonResponse(['success' => true, 'warehouses' => $warehouses]);
 }
+
 /**
  * Returns a hardcoded list of available roles.
- * **UPDATED** to include the new 'driver' role.
  */
 function handleGetAllRoles() {
-    $roles = [
-        'manager',
-        'operator',
-        'viewer',
-        'picker',
-        'driver' // New role added
-    ];
+    $roles = ['manager', 'operator', 'viewer', 'picker', 'driver'];
     sendJsonResponse(['success' => true, 'roles' => $roles]);
 }
-
-?>

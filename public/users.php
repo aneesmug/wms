@@ -13,6 +13,8 @@ if (session_status() === PHP_SESSION_NONE) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <!-- SweetAlert2 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Croppie CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/croppie/2.6.5/croppie.min.css">
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="bg-light">
@@ -51,7 +53,7 @@ if (session_status() === PHP_SESSION_NONE) {
                                     <table class="table table-hover align-middle">
                                         <thead class="table-light">
                                             <tr>
-                                                <th>Full Name</th>
+                                                <th>User</th>
                                                 <th>Username</th>
                                                 <th>Global Admin</th>
                                                 <th>Assigned Warehouses & Roles</th>
@@ -79,6 +81,16 @@ if (session_status() === PHP_SESSION_NONE) {
         <form id="userForm" class="text-start">
             <input type="hidden" id="userId" name="user_id">
             
+            <!-- Profile Image Section -->
+            <div class="mb-3 text-center">
+                <img id="profileImagePreview" src="assets/images/default-user.png" alt="Profile Preview" class="rounded-circle mb-2" style="width: 120px; height: 120px; object-fit: cover;">
+                <div id="croppieContainer" class="mt-2" style="display: none; width: 100%; height: 300px;"></div>
+                <label for="profileImage" class="btn btn-sm btn-outline-secondary mt-2">
+                    <i class="bi bi-upload"></i> Choose Image
+                </label>
+                <input type="file" id="profileImage" name="profile_image" class="d-none" accept="image/*">
+            </div>
+
             <div class="row">
                 <div class="col-md-6 mb-3">
                     <label for="fullName" class="form-label">Full Name</label>
@@ -161,6 +173,8 @@ if (session_status() === PHP_SESSION_NONE) {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <!-- SweetAlert2 -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- Croppie JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/croppie/2.6.5/croppie.min.js"></script>
     <!-- Load utility scripts first -->
     <script src="js/api.js"></script>
     <script src="js/main.js"></script>

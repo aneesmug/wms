@@ -25,10 +25,10 @@ document.addEventListener('DOMContentLoaded', () => {
         // Use the global fetchData utility from main.js
         const result = await fetchData('api/auth.php?action=login', 'POST', data);
 
-        // Check for a successful login and redirect
+        // After a successful login, always redirect to the dashboard.
+        // The dashboard's own logic (in main.js) will handle prompting for a warehouse if needed.
         if (result && result.success) {
-            showMessageBox('Login successful!', 'success');
-            // Redirect to the dashboard immediately on success.
+            showMessageBox('Login successful! Redirecting...', 'success');
             window.location.href = 'dashboard.php';
         } else if (result && result.message) {
             // Display the specific error message from the server

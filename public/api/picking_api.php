@@ -29,7 +29,6 @@ switch ($action) {
     case 'getPickStickers':
         handleGetPickStickers($conn, $current_warehouse_id);
         break;
-    // --- FIX: Added new action for the A4 Pick Report ---
     case 'getPickReport':
         handleGetPickReport($conn, $current_warehouse_id);
         break;
@@ -50,7 +49,6 @@ switch ($action) {
         break;
 }
 
-// --- FIX: Added new function to generate data for the A4 Pick Report ---
 function handleGetPickReport($conn, $warehouse_id) {
     $order_id = filter_input(INPUT_GET, 'order_id', FILTER_VALIDATE_INT);
     if (!$order_id) {
@@ -336,8 +334,24 @@ function handleStageOrder($conn, $warehouse_id, $user_id) {
         if (!$order) {
             throw new Exception("Order not found in this warehouse.");
         }
-        if (!in_array($order['status'], ['Picked', 'Partially Picked'])) {
-            throw new Exception("Order must be in 'Picked' or 'Partially Picked' status to be staged. Current status: " . $order['status']);
+        // MODIFICATION: Only allow staging for fully 'Picked' orders.
+        if ($order['status'] !== 'Picked') {
+            throw new Exception("Order must be in 'Picked' status to be staged. Current status: " . $order['status']);
+        }
+
+        // NEW: Verify all items are actually picked before staging.
+        $stmt_sums = $conn->prepare("
+            SELECT SUM(ordered_quantity) AS total_ordered, SUM(picked_quantity) AS total_picked 
+            FROM outbound_items 
+            WHERE order_id = ?
+        ");
+        $stmt_sums->bind_param("i", $order_id);
+        $stmt_sums->execute();
+        $sums = $stmt_sums->get_result()->fetch_assoc();
+        $stmt_sums->close();
+
+        if ((int)($sums['total_picked'] ?? 0) < (int)($sums['total_ordered'] ?? 0)) {
+            throw new Exception("Cannot stage order. Not all items have been fully picked.");
         }
 
         $stmt_check_loc = $conn->prepare("
@@ -353,9 +367,21 @@ function handleStageOrder($conn, $warehouse_id, $user_id) {
         }
         $stmt_check_loc->close();
 
+        // NEW: Generate tracking number and delivery code upon staging.
         $new_status = 'Ready for Pickup';
-        $stmt_update = $conn->prepare("UPDATE outbound_orders SET status = ?, shipping_area_location_id = ? WHERE order_id = ?");
-        $stmt_update->bind_param("sii", $new_status, $shipping_area_location_id, $order_id);
+        $tracking_number = 'TRK-' . $order_id . '-' . substr(str_shuffle('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 8);
+        $delivery_code = rand(100000, 999999);
+
+        // MODIFICATION: Update query to include tracking number and delivery code.
+        $stmt_update = $conn->prepare("
+            UPDATE outbound_orders 
+            SET status = ?, 
+                shipping_area_location_id = ?,
+                tracking_number = ?,
+                delivery_confirmation_code = ?
+            WHERE order_id = ?
+        ");
+        $stmt_update->bind_param("sissi", $new_status, $shipping_area_location_id, $tracking_number, $delivery_code, $order_id);
         $stmt_update->execute();
         $stmt_update->close();
 
@@ -365,7 +391,8 @@ function handleStageOrder($conn, $warehouse_id, $user_id) {
         $location_code = $stmt_loc_code->get_result()->fetch_assoc()['location_code'] ?? 'Unknown';
         $stmt_loc_code->close();
 
-        logOrderHistory($conn, $order_id, $new_status, $user_id, "Order staged at shipping area: {$location_code}.");
+        // MODIFICATION: Update log message to include the new tracking number.
+        logOrderHistory($conn, $order_id, $new_status, $user_id, "Order staged at shipping area: {$location_code}. Tracking #{$tracking_number} generated.");
 
         $conn->commit();
         sendJsonResponse(['success' => true, 'message' => "Order successfully staged at {$location_code}."]);

@@ -88,17 +88,20 @@
 
                     <div class="col-12">
                         <div id="orderProcessingArea" class="card shadow-sm d-none">
-                            <div class="card-header d-flex justify-content-between align-items-center">
+                            <div class="card-header d-flex justify-content-between align-items-center flex-wrap">
                                 <div>
                                     <h5 class="card-title mb-0">Process Order: <span id="selectedOrderNumberDisplay" class="text-primary fw-normal"></span></h5>
                                     <div id="shippingAreaDisplay" class="mt-1 text-muted small"></div>
                                     <div id="trackingNumberDisplay" class="mt-1 text-muted small"></div>
+                                    <!-- MODIFICATION: Added container for Proof of Delivery -->
+                                    <div id="proofOfDeliveryDisplay" class="mt-1 text-muted small"></div>
                                     <input type="hidden" id="currentOrderId">
                                 </div>
-                                <!-- FIX: Added Print Pick Report button -->
-                                <button id="printPickReportBtn" class="btn btn-sm btn-outline-secondary d-none">
-                                    <i class="bi bi-printer me-1"></i> Print Pick Report
-                                </button>
+                                <div class="btn-group">
+                                    <button id="printPickReportBtn" class="btn btn-sm btn-outline-secondary d-none">
+                                        <i class="bi bi-file-earmark-text me-1"></i> Print Pick Report
+                                    </button>
+                                </div>
                             </div>
                             <div class="card-body">
                                 <h6 class="card-subtitle mb-2 text-muted">Order Items</h6>

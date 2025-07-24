@@ -13,69 +13,60 @@ $action = $_GET['action'] ?? '';
 
 // --- Helper function to check and update order status after scan ---
 function checkAndUpdateOrderStatusAfterScan($conn, $order_id, $driver_id) {
-    // Check if the order status is 'Assigned' before proceeding
     $stmt_status = $conn->prepare("SELECT status FROM outbound_orders WHERE order_id = ?");
     $stmt_status->bind_param("i", $order_id);
     $stmt_status->execute();
     $current_status = $stmt_status->get_result()->fetch_assoc()['status'] ?? '';
     $stmt_status->close();
 
-    // Only proceed if the status is 'Assigned' to prevent multiple updates
     if ($current_status !== 'Assigned') {
         return ['updated' => false];
     }
 
-    // Get total ordered quantity
     $stmt_ordered = $conn->prepare("SELECT SUM(ordered_quantity) as total_ordered FROM outbound_items WHERE order_id = ?");
     $stmt_ordered->bind_param("i", $order_id);
     $stmt_ordered->execute();
     $total_ordered = (int)($stmt_ordered->get_result()->fetch_assoc()['total_ordered'] ?? 0);
     $stmt_ordered->close();
 
-    // Get total scanned quantity (counting all individual items, not just distinct products)
     $stmt_scanned = $conn->prepare("SELECT SUM(quantity_scanned) as total_scanned FROM outbound_driver_scans WHERE order_id = ? AND scanned_by_driver_id = ?");
     $stmt_scanned->bind_param("ii", $order_id, $driver_id);
     $stmt_scanned->execute();
     $total_scanned = (int)($stmt_scanned->get_result()->fetch_assoc()['total_scanned'] ?? 0);
     $stmt_scanned->close();
 
-    // Check if all items have been scanned
     if ($total_ordered > 0 && $total_scanned >= $total_ordered) {
-        // All items are scanned, update the order
         $new_status = 'Out for Delivery';
-        $tracking_number = 'TRK-' . $order_id . '-' . substr(str_shuffle('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 6);
-        $delivery_code = rand(100000, 999999);
-
+        
         $stmt_update = $conn->prepare("
             UPDATE outbound_orders 
             SET status = ?, 
                 out_for_delivery_date = NOW(),
                 actual_ship_date = NOW(),
-                shipped_by = ?,
-                tracking_number = ?,
-                delivery_confirmation_code = ?
+                shipped_by = ?
             WHERE order_id = ? AND status = 'Assigned'
         ");
-        // --- FIX: Corrected the type string from "sisssi" to "sissi" to match the 5 variables ---
-        $stmt_update->bind_param("sissi", $new_status, $driver_id, $tracking_number, $delivery_code, $order_id);
-        // --- FIX: Moved execute() before checking affected_rows ---
+        $stmt_update->bind_param("sii", $new_status, $driver_id, $order_id);
         $stmt_update->execute();
         $affected_rows = $stmt_update->affected_rows;
         $stmt_update->close();
 
         if ($affected_rows > 0) {
-            logOrderHistory($conn, $order_id, $new_status, $driver_id, "Driver has scanned all items. Order is now out for delivery. Tracking #{$tracking_number} generated.");
-            return ['updated' => true, 'new_status' => $new_status]; // Indicate status was updated
+            logOrderHistory($conn, $order_id, $new_status, $driver_id, "Driver has scanned all items. Order is now out for delivery.");
+            return ['updated' => true, 'new_status' => $new_status];
         }
     }
     
-    return ['updated' => false]; // Indicate status was not updated
+    return ['updated' => false];
 }
 
 
 switch ($action) {
     case 'getAssignedOrders':
         handleGetAssignedOrders($conn, $current_user_id);
+        break;
+    case 'getDeliveredOrders':
+        handleGetDeliveredOrders($conn, $current_user_id);
         break;
     case 'rejectOrder':
         handleRejectOrder($conn, $current_user_id);
@@ -98,6 +89,7 @@ function handleGetAssignedOrders($conn, $driver_id) {
     $stmt = $conn->prepare("
         SELECT 
             oo.order_id, oo.order_number, oo.status, oo.tracking_number, c.customer_name,
+            oo.delivery_photo_path,
             CONCAT_WS(', ', NULLIF(c.address_line1, ''), NULLIF(c.address_line2, ''), c.city) as full_address,
             (SELECT SUM(oi.ordered_quantity) FROM outbound_items oi WHERE oi.order_id = oo.order_id) as total_items,
             (SELECT SUM(ods.quantity_scanned) FROM outbound_driver_scans ods WHERE ods.order_id = oo.order_id AND ods.scanned_by_driver_id = ?) as scanned_items_count
@@ -113,6 +105,29 @@ function handleGetAssignedOrders($conn, $driver_id) {
     $stmt->close();
     sendJsonResponse(['success' => true, 'data' => $orders]);
 }
+
+function handleGetDeliveredOrders($conn, $driver_id) {
+    // MODIFICATION: Added customer phone and address fields to the query
+    $stmt = $conn->prepare("
+        SELECT 
+            oo.order_id, oo.order_number, oo.status, c.customer_name,
+            oo.delivery_photo_path, oo.delivered_to_name, oo.actual_delivery_date,
+            oo.delivered_to_phone as receiver_phone,
+            c.phone as customer_phone,
+            CONCAT_WS(', ', NULLIF(c.address_line1, ''), NULLIF(c.address_line2, ''), c.city) as full_address
+        FROM outbound_orders oo
+        JOIN outbound_order_assignments ooa ON oo.order_id = ooa.order_id
+        JOIN customers c ON oo.customer_id = c.customer_id
+        WHERE ooa.driver_user_id = ? AND oo.status = 'Delivered'
+        ORDER BY oo.actual_delivery_date DESC
+    ");
+    $stmt->bind_param("i", $driver_id);
+    $stmt->execute();
+    $orders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    sendJsonResponse(['success' => true, 'data' => $orders]);
+}
+
 
 function handleRejectOrder($conn, $driver_id) {
     $input = json_decode(file_get_contents('php://input'), true);
@@ -144,14 +159,12 @@ function handleRejectOrder($conn, $driver_id) {
             throw new Exception("This order cannot be rejected as it is not in 'Assigned' status.", 409);
         }
 
-        // Revert status to 'Ready for Pickup'
         $new_status = 'Ready for Pickup';
         $stmt_update = $conn->prepare("UPDATE outbound_orders SET status = ? WHERE order_id = ?");
         $stmt_update->bind_param("si", $new_status, $order_id);
         $stmt_update->execute();
         $stmt_update->close();
 
-        // Remove the driver assignment
         $stmt_delete = $conn->prepare("DELETE FROM outbound_order_assignments WHERE order_id = ? AND driver_user_id = ?");
         $stmt_delete->bind_param("ii", $order_id, $driver_id);
         $stmt_delete->execute();
@@ -168,14 +181,18 @@ function handleRejectOrder($conn, $driver_id) {
 }
 
 function handleVerifyDelivery($conn, $driver_id) {
-    $input = json_decode(file_get_contents('php://input'), true);
-    $order_id = filter_var($input['order_id'] ?? 0, FILTER_VALIDATE_INT);
-    $delivery_code = sanitize_input($input['delivery_code'] ?? '');
-    $receiver_name = sanitize_input($input['receiver_name'] ?? '');
-    $receiver_phone = sanitize_input($input['receiver_phone'] ?? '');
+    $order_id = filter_var($_POST['order_id'] ?? 0, FILTER_VALIDATE_INT);
+    $delivery_code = sanitize_input($_POST['delivery_code'] ?? '');
+    $receiver_name = sanitize_input($_POST['receiver_name'] ?? '');
+    $receiver_phone = sanitize_input($_POST['receiver_phone'] ?? '');
 
-    if (empty($order_id) || empty($delivery_code) || empty($receiver_name)) {
-        sendJsonResponse(['success' => false, 'message' => 'Order ID, Receiver Name, and Delivery Code are required.'], 400);
+    if (empty($order_id) || empty($receiver_name)) {
+        sendJsonResponse(['success' => false, 'message' => 'Order ID and Receiver Name are required.'], 400);
+        return;
+    }
+
+    if (!isset($_FILES['delivery_photo']) || $_FILES['delivery_photo']['error'] !== UPLOAD_ERR_OK) {
+        sendJsonResponse(['success' => false, 'message' => 'A proof of delivery photo is required and must be uploaded successfully.'], 400);
         return;
     }
 
@@ -201,18 +218,39 @@ function handleVerifyDelivery($conn, $driver_id) {
         if ($order['status'] === 'Delivered') {
             throw new Exception("This order has already been marked as delivered.", 409);
         }
-        if ($order['delivery_confirmation_code'] !== $delivery_code) {
+
+        if (!empty($delivery_code) && $order['delivery_confirmation_code'] !== $delivery_code) {
             logOrderHistory($conn, $order_id, 'Delivery Attempted', $driver_id, "Failed delivery attempt by driver. Incorrect confirmation code provided.");
-            $conn->commit();
+            $conn->commit(); 
             throw new Exception("Incorrect Delivery Code.", 403);
         }
 
-        $stmt = $conn->prepare("UPDATE outbound_orders SET status = 'Delivered', actual_delivery_date = NOW(), delivered_to_name = ?, delivered_to_phone = ? WHERE order_id = ?");
-        $stmt->bind_param("ssi", $receiver_name, $receiver_phone, $order_id);
+        $photo = $_FILES['delivery_photo'];
+        $upload_dir = __DIR__ . '/../uploads/delivery_proof/';
+        if (!is_dir($upload_dir)) {
+            if (!mkdir($upload_dir, 0775, true)) {
+                 throw new Exception("Failed to create upload directory.");
+            }
+        }
+        $file_ext = strtolower(pathinfo($photo['name'], PATHINFO_EXTENSION));
+        $allowed_exts = ['jpg', 'jpeg', 'png', 'gif'];
+        if (!in_array($file_ext, $allowed_exts)) {
+            throw new Exception("Invalid file type. Only JPG, PNG, and GIF are allowed.");
+        }
+        $file_name = "delivery_{$order_id}_" . time() . "." . $file_ext;
+        $file_path = $upload_dir . $file_name;
+        $db_path = "uploads/delivery_proof/" . $file_name;
+
+        if (!move_uploaded_file($photo['tmp_name'], $file_path)) {
+            throw new Exception("Failed to save delivery photo. Check directory permissions.");
+        }
+
+        $stmt = $conn->prepare("UPDATE outbound_orders SET status = 'Delivered', actual_delivery_date = NOW(), delivered_to_name = ?, delivered_to_phone = ?, delivery_photo_path = ? WHERE order_id = ?");
+        $stmt->bind_param("sssi", $receiver_name, $receiver_phone, $db_path, $order_id);
         $stmt->execute();
         $stmt->close();
 
-        logOrderHistory($conn, $order_id, 'Delivered', $driver_id, "Successfully delivered to {$receiver_name}.");
+        logOrderHistory($conn, $order_id, 'Delivered', $driver_id, "Successfully delivered to {$receiver_name}. Photo proof uploaded.");
         $conn->commit();
         sendJsonResponse(['success' => true, 'message' => 'Order successfully marked as delivered!']);
     } catch (Exception $e) {

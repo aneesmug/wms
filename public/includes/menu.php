@@ -7,20 +7,19 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 // --- Role-Based Access Control (RBAC) Map ---
-// This array defines which pages each role is allowed to see.
 $permissions = [
     'manager' => [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
         'locations.php', 'products.php', 'customers.php', 'suppliers.php', 
         'reports.php', 'inbound_report.php', 'batch_search.php', 'users.php',
-        'warehouses.php', 'picking.php' // MODIFICATION: Added picking page
+        'warehouses.php', 'picking.php'
     ],
     'operator' => [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
-        'locations.php', 'batch_search.php', 'picking.php' // MODIFICATION: Added picking page
+        'locations.php', 'batch_search.php', 'picking.php'
     ],
     'picker' => [
-        'dashboard.php', 'inventory.php', 'picking.php' // MODIFICATION: Changed outbound to picking
+        'dashboard.php', 'inventory.php', 'picking.php'
     ],
     'viewer' => [
         'dashboard.php', 'inventory.php', 'reports.php', 'inbound_report.php'
@@ -28,32 +27,18 @@ $permissions = [
     'driver' => [
         'delivery.php'
     ],
-    'guest' => [] // A 'guest' role with no permissions for safety.
+    'guest' => []
 ];
 
-// Get the current user's role for the selected warehouse from the session.
 $currentUserRole = $_SESSION['current_warehouse_role'] ?? 'guest';
-
-// IMPORTANT: If the user is a Global Admin, they get full 'manager' permissions.
 if (isset($_SESSION['is_global_admin']) && $_SESSION['is_global_admin'] === true) {
     $currentUserRole = 'manager';
 }
 
-/**
- * Checks if the current user has permission to access a specific page based on their role.
- * @param string $page The URL of the page to check.
- * @param array $permissionMap The RBAC permission map.
- * @param string $role The current user's role.
- * @return bool True if access is allowed, false otherwise.
- */
 function can_access($page, $permissionMap, $role) {
-    if (!isset($permissionMap[$role])) {
-        return false;
-    }
-    return in_array($page, $permissionMap[$role]);
+    return isset($permissionMap[$role]) && in_array($page, $permissionMap[$role]);
 }
 
-// --- Menu Definition & Rendering ---
 $current_page = basename($_SERVER['PHP_SELF']);
 
 $menu_items = [
@@ -63,7 +48,6 @@ $menu_items = [
         'label' => 'Operations', 'icon' => 'bi-arrows-angle-contract', 'submenu' => [
             ['label' => 'Inbound', 'url' => 'inbound.php', 'icon' => 'bi-box-arrow-in-down'],
             ['label' => 'Outbound', 'url' => 'outbound.php', 'icon' => 'bi-box-arrow-up-right'],
-            // MODIFICATION: Added Picking link
             ['label' => 'Picking', 'url' => 'picking.php', 'icon' => 'bi-box-seam']
         ]
     ],
@@ -93,9 +77,7 @@ $menu_items = [
 
 function is_submenu_active($submenu_items, $current_page) {
     foreach ($submenu_items as $item) {
-        if ($current_page == $item['url']) {
-            return true;
-        }
+        if ($current_page == $item['url']) return true;
     }
     return false;
 }
@@ -111,13 +93,9 @@ function is_submenu_active($submenu_items, $current_page) {
         <?php foreach ($menu_items as $key => $item): ?>
             <?php
             if (isset($item['submenu'])) {
-                $canShowDropdown = false;
-                foreach ($item['submenu'] as $sub_item) {
-                    if (can_access($sub_item['url'], $permissions, $currentUserRole)) {
-                        $canShowDropdown = true; break;
-                    }
-                }
-                if (!$canShowDropdown) continue;
+                $canShow = false;
+                foreach ($item['submenu'] as $sub_item) if (can_access($sub_item['url'], $permissions, $currentUserRole)) $canShow = true;
+                if (!$canShow) continue;
             } else {
                 if (!can_access($item['url'], $permissions, $currentUserRole)) continue;
             }
@@ -128,10 +106,10 @@ function is_submenu_active($submenu_items, $current_page) {
                         <i class="bi <?php echo $item['icon']; ?>"></i>
                     </a>
                     <ul class="dropdown-menu">
-                        <li><h6 class="dropdown-header d-flex justify-content-between"><?php echo $item['label']; ?> <i class="bi bi-arrow-right"></i></h6></li>
+                        <li><h6 class="dropdown-header"><?php echo $item['label']; ?></h6></li>
                         <?php foreach ($item['submenu'] as $sub_item): ?>
                             <?php if (can_access($sub_item['url'], $permissions, $currentUserRole)): ?>
-                                <li><a class="dropdown-item <?php echo $current_page == $sub_item['url'] ? 'active' : ''; ?>" href="<?php echo $sub_item['url']; ?>"><i class="bi <?php echo $sub_item['icon']; ?>"></i> <?php echo $sub_item['label']; ?></a></li>
+                                <li><a class="dropdown-item <?php echo $current_page == $sub_item['url'] ? 'active' : ''; ?>" href="<?php echo $sub_item['url']; ?>"><i class="bi <?php echo $sub_item['icon']; ?> me-2"></i> <?php echo $sub_item['label']; ?></a></li>
                             <?php endif; ?>
                         <?php endforeach; ?>
                     </ul>
@@ -146,31 +124,43 @@ function is_submenu_active($submenu_items, $current_page) {
         <?php endforeach; ?>
     </ul>
     <hr>
-    <div class="pb-3">
-         <a href="#" id="logoutBtnDesktop" class="nav-link text-white" title="Logout" data-bs-toggle="tooltip" data-bs-placement="right">
-            <i class="bi bi-box-arrow-left"></i>
+    <!-- User Info Dropdown (Desktop) -->
+    <div class="dropdown pb-3 text-center">
+        <a href="#" class="d-block link-light text-decoration-none dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="bi bi-person-circle fs-4"></i>
         </a>
+        <ul class="dropdown-menu dropdown-menu-dark text-small shadow" style="left: auto; right: 10px;">
+            <li><h6 id="userFullNameDesktop" class="dropdown-header">Loading...</h6></li>
+            <!-- MODIFICATION: Changed text-muted to text-white-50 for better contrast -->
+            <li><span id="userRoleDesktop" class="dropdown-item-text text-white-50 px-3">Loading...</span></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a id="logoutBtnDesktop" class="dropdown-item" href="#"><i class="bi bi-box-arrow-left me-2"></i>Logout</a></li>
+        </ul>
     </div>
 </div>
 
 <!-- Mobile Offcanvas Sidebar -->
 <div class="offcanvas offcanvas-start bg-dark text-white d-md-none" tabindex="-1" id="mobileSidebar" aria-labelledby="mobileSidebarLabel">
     <div class="offcanvas-header border-bottom border-secondary">
-        <h5 class="offcanvas-title" id="mobileSidebarLabel">WMS Menu</h5>
+        <h5 class="offcanvas-title" id="mobileSidebarLabel"><i class="bi bi-box-seam me-2"></i>WMS Menu</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
     </div>
-    <div class="offcanvas-body">
+    <div class="offcanvas-body d-flex flex-column">
+        <!-- User Info (Mobile) -->
+        <div class="d-flex align-items-center mb-3 p-2 border-bottom border-secondary">
+            <i class="bi bi-person-circle fs-2 me-3"></i>
+            <div>
+                <div id="userFullNameMobile" class="fw-bold">Loading...</div>
+                <div id="userRoleMobile" class="text-white-50 small">Loading...</div>
+            </div>
+        </div>
         <ul class="nav nav-pills flex-column mb-auto">
             <?php foreach ($menu_items as $key => $item): ?>
                 <?php
                 if (isset($item['submenu'])) {
-                    $canShowDropdown = false;
-                    foreach ($item['submenu'] as $sub_item) {
-                        if (can_access($sub_item['url'], $permissions, $currentUserRole)) {
-                            $canShowDropdown = true; break;
-                        }
-                    }
-                    if (!$canShowDropdown) continue;
+                    $canShow = false;
+                    foreach ($item['submenu'] as $sub_item) if (can_access($sub_item['url'], $permissions, $currentUserRole)) $canShow = true;
+                    if (!$canShow) continue;
                 } else {
                     if (!can_access($item['url'], $permissions, $currentUserRole)) continue;
                 }

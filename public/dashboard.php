@@ -126,41 +126,44 @@
                     </div>
 
                     <!-- Quick Actions -->
-                    <h3 class="h5 mb-3">Quick Actions</h3>
-                    <div class="row g-3">
-                        <div class="col-sm-6 col-lg-3">
-                            <a href="inbound.php" class="d-block card bg-primary text-white text-decoration-none shadow-sm hover-lift">
-                                <div class="card-body text-center py-4">
-                                    <i class="bi bi-box-arrow-in-down fs-1 mb-2"></i>
-                                    <p class="card-text fw-semibold">Receive Goods</p>
-                                </div>
-                            </a>
-                        </div>
-                        <div class="col-sm-6 col-lg-3">
-                            <a href="outbound.php" class="d-block card bg-success text-white text-decoration-none shadow-sm hover-lift">
-                                <div class="card-body text-center py-4">
-                                    <i class="bi bi-box-arrow-up-right fs-1 mb-2"></i>
-                                    <p class="card-text fw-semibold">Process Shipments</p>
-                                </div>
-                            </a>
-                        </div>
-                        <div class="col-sm-6 col-lg-3">
-                            <a href="inventory.php" class="d-block card bg-info text-white text-decoration-none shadow-sm hover-lift">
-                                <div class="card-body text-center py-4">
-                                    <i class="bi bi-boxes fs-1 mb-2"></i>
-                                    <p class="card-text fw-semibold">View Inventory</p>
-                                </div>
-                            </a>
-                        </div>
-                        <div class="col-sm-6 col-lg-3">
-                            <a href="reports.php" class="d-block card bg-danger text-white text-decoration-none shadow-sm hover-lift">
-                                <div class="card-body text-center py-4">
-                                    <i class="bi bi-file-earmark-bar-graph fs-1 mb-2"></i>
-                                    <p class="card-text fw-semibold">Generate Reports</p>
-                                </div>
-                            </a>
+                    <div id="quickActionsSection" style="display: none;">
+                        <h3 class="h5 mb-3">Quick Actions</h3>
+                        <div class="row g-3">
+                            <div class="col-sm-6 col-lg-3">
+                                <a href="inbound.php" class="d-block card bg-primary text-white text-decoration-none shadow-sm hover-lift">
+                                    <div class="card-body text-center py-4">
+                                        <i class="bi bi-box-arrow-in-down fs-1 mb-2"></i>
+                                        <p class="card-text fw-semibold">Receive Goods</p>
+                                    </div>
+                                </a>
+                            </div>
+                            <div class="col-sm-6 col-lg-3">
+                                <a href="outbound.php" class="d-block card bg-success text-white text-decoration-none shadow-sm hover-lift">
+                                    <div class="card-body text-center py-4">
+                                        <i class="bi bi-box-arrow-up-right fs-1 mb-2"></i>
+                                        <p class="card-text fw-semibold">Process Shipments</p>
+                                    </div>
+                                </a>
+                            </div>
+                            <div class="col-sm-6 col-lg-3">
+                                <a href="inventory.php" class="d-block card bg-info text-white text-decoration-none shadow-sm hover-lift">
+                                    <div class="card-body text-center py-4">
+                                        <i class="bi bi-boxes fs-1 mb-2"></i>
+                                        <p class="card-text fw-semibold">View Inventory</p>
+                                    </div>
+                                </a>
+                            </div>
+                            <div class="col-sm-6 col-lg-3">
+                                <a href="reports.php" class="d-block card bg-danger text-white text-decoration-none shadow-sm hover-lift">
+                                    <div class="card-body text-center py-4">
+                                        <i class="bi bi-file-earmark-bar-graph fs-1 mb-2"></i>
+                                        <p class="card-text fw-semibold">Generate Reports</p>
+                                    </div>
+                                </a>
+                            </div>
                         </div>
                     </div>
+
 
                     <!-- Charts Section -->
                     <div class="row g-4 mt-4">

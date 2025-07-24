@@ -47,24 +47,38 @@ function handleLogin($conn) {
     $stmt->close();
 
     if ($user && password_verify($password, $user['password_hash'])) {
+        // Set core session details
         $_SESSION['user_id'] = $user['user_id'];
         $_SESSION['username'] = $user['username'];
         $_SESSION['full_name'] = $user['full_name'];
         $_SESSION['is_global_admin'] = (bool)$user['is_global_admin'];
         
-        $stmt = $conn->prepare("
-            SELECT uwr.warehouse_id, w.warehouse_name, uwr.role 
-            FROM user_warehouse_roles uwr
-            JOIN warehouses w ON uwr.warehouse_id = w.warehouse_id
-            WHERE uwr.user_id = ? AND w.is_active = 1
-        ");
-        $stmt->bind_param("i", $user['user_id']);
-        $stmt->execute();
-        $roles_result = $stmt->get_result();
-        $_SESSION['assigned_warehouses'] = $roles_result->fetch_all(MYSQLI_ASSOC);
-        $stmt->close();
-
+        // Always clear any previous warehouse selection upon new login
         unset_current_warehouse();
+
+        // For non-global admins, check their warehouse assignments
+        if (!$_SESSION['is_global_admin']) {
+            $stmt = $conn->prepare("
+                SELECT uwr.warehouse_id, w.warehouse_name, uwr.role 
+                FROM user_warehouse_roles uwr
+                JOIN warehouses w ON uwr.warehouse_id = w.warehouse_id
+                WHERE uwr.user_id = ? AND w.is_active = 1
+            ");
+            $stmt->bind_param("i", $user['user_id']);
+            $stmt->execute();
+            $assigned_warehouses = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $stmt->close();
+            
+            $_SESSION['assigned_warehouses'] = $assigned_warehouses;
+
+            // If the user has access to exactly one warehouse, automatically select it for them.
+            if (count($assigned_warehouses) === 1) {
+                $single_warehouse = $assigned_warehouses[0];
+                set_current_warehouse($single_warehouse['warehouse_id'], $single_warehouse['warehouse_name'], trim($single_warehouse['role']));
+            }
+        }
+        // For global admins or users with 0 or >1 warehouses, we do nothing.
+        // The frontend will prompt them to select a warehouse after redirecting.
 
         sendJsonResponse([
             'success' => true, 
@@ -146,16 +160,17 @@ function handleSetWarehouse($conn) {
     $warehouse_name = '';
 
     if ($_SESSION['is_global_admin']) {
-        $user_role_for_warehouse = 'manager';
-        $stmt = $conn->prepare("SELECT warehouse_name FROM warehouses WHERE warehouse_id = ?");
+        $user_role_for_warehouse = 'manager'; // Global admins are always managers
+        $stmt = $conn->prepare("SELECT warehouse_name FROM warehouses WHERE warehouse_id = ? AND is_active = 1");
         $stmt->bind_param("i", $warehouse_id);
         $stmt->execute();
         $warehouse_name = $stmt->get_result()->fetch_assoc()['warehouse_name'] ?? null;
         $stmt->close();
     } else {
-        foreach ($_SESSION['assigned_warehouses'] as $wh) {
+        // Use the session variable set during login
+        $assigned_warehouses = $_SESSION['assigned_warehouses'] ?? [];
+        foreach ($assigned_warehouses as $wh) {
             if ($wh['warehouse_id'] == $warehouse_id) {
-                // --- FIX: Trim whitespace from the role to prevent auth issues ---
                 $user_role_for_warehouse = trim($wh['role']);
                 $warehouse_name = $wh['warehouse_name'];
                 break;

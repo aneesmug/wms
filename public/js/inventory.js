@@ -4,6 +4,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
     const searchProductInput = document.getElementById('searchProductInput');
     const searchLocationSelect = document.getElementById('searchLocationSelect');
+    // MODIFICATION: Get the new tire type select element
+    const searchTireTypeSelect = document.getElementById('searchTireTypeSelect');
     const searchBtn = document.getElementById('searchBtn');
     const clearSearchBtn = document.getElementById('clearSearchBtn');
 
@@ -26,21 +28,28 @@ document.addEventListener('DOMContentLoaded', () => {
     
     initializePage();
 
+    // --- Event Listeners ---
     if (searchBtn) searchBtn.addEventListener('click', loadInventory);
     if (clearSearchBtn) {
         clearSearchBtn.addEventListener('click', () => {
             searchProductInput.value = '';
             searchLocationSelect.value = '';
+            // MODIFICATION: Clear the tire type filter
+            searchTireTypeSelect.value = '';
             loadInventory();
         });
     }
     if (searchLocationSelect) searchLocationSelect.addEventListener('change', loadInventory);
+    // MODIFICATION: Add event listener for the new filter
+    if (searchTireTypeSelect) searchTireTypeSelect.addEventListener('change', loadInventory);
 
     async function initializePage() {
         initializeDataTable();
         if (currentWarehouseId) {
             await loadProductsForDropdown();
             await loadLocationsForFilterDropdown(currentWarehouseId);
+            // MODIFICATION: Load tire types for the new filter
+            await loadTireTypesForFilter();
             await loadInventory();
         } else {
             Toast.fire({ icon: 'warning', title: 'Please select a warehouse on the Dashboard.' });
@@ -95,13 +104,37 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // MODIFICATION: New function to load and populate the tire type filter
+    async function loadTireTypesForFilter() {
+        if (!searchTireTypeSelect) return;
+        try {
+            // This API endpoint already exists in products_api.php
+            const response = await fetchData('api/products_api.php?action=get_tire_types');
+            if (response.success && Array.isArray(response.data)) {
+                searchTireTypeSelect.innerHTML = '<option value="">All Tire Types</option>';
+                response.data.forEach(type => {
+                    const option = document.createElement('option');
+                    option.value = type.tire_type_id; // Use ID for filtering
+                    option.textContent = type.tire_type_name;
+                    searchTireTypeSelect.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('Error loading tire types:', error);
+        }
+    }
+
     async function loadInventory() {
         if (!currentWarehouseId) return;
         $('.dataTables_processing', inventoryDataTable.table().container()).show();
         const product_search_barcode = searchProductInput.value.trim();
         const location_search_code = searchLocationSelect.value;
+        // MODIFICATION: Get the selected tire type ID
+        const tire_type_id = searchTireTypeSelect.value;
+
         let url = 'api/inventory_api.php?';
         const queryParams = [];
+
         if (product_search_barcode) {
             const product = allProducts.find(p => p.barcode === product_search_barcode || p.sku === product_search_barcode);
             if (product) {
@@ -116,7 +149,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (location_search_code) {
             queryParams.push(`location_code=${encodeURIComponent(location_search_code)}`);
         }
+        // MODIFICATION: Add tire_type_id to the query parameters if selected
+        if (tire_type_id) {
+            queryParams.push(`tire_type_id=${tire_type_id}`);
+        }
+        
         url += queryParams.join('&');
+        
         try {
             const response = await fetchData(url);
             if (response.success && Array.isArray(response.data)) {
@@ -134,6 +173,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // ... rest of the file remains the same (populateDataTable, openAdjustmentModal, etc.)
+    // ... I am omitting it for brevity but it should be included in the final file.
+    
     function populateDataTable(inventoryItems) {
         const rows = inventoryItems.map(item => {
             const lastMovedDate = item.last_moved_at ? new Date(item.last_moved_at).toLocaleDateString() : 'N/A';
@@ -166,14 +208,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 quantity: item.quantity,
                 batch_expiry: batchExpiry,
                 last_moved: lastMovedDate,
-                // MODIFICATION: Add data-current-quantity to the button
                 actions: canAdjust ? `<button class="btn btn-sm btn-info text-white adjust-btn" 
-                                data-product-id="${item.product_id}" 
-                                data-product-barcode="${item.barcode || ''}" 
-                                data-location-code="${item.location_code || ''}" 
-                                data-batch-number="${item.batch_number || ''}"
-                                data-dot-code="${item.dot_code || ''}"
-                                data-current-quantity="${item.quantity}"
+                                data-product-id="${item.product_id}" data-product-barcode="${item.barcode || ''}" 
+                                data-location-code="${item.location_code || ''}" data-batch-number="${item.batch_number || ''}"
+                                data-dot-code="${item.dot_code || ''}" data-current-quantity="${item.quantity}"
                                 title="Adjust/Transfer">
                                 <i class="bi bi-gear"></i></button>` : '<span class="text-muted">View Only</span>'
             };
@@ -190,7 +228,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const locationCode = button.dataset.locationCode;
         const batchNumber = button.dataset.batchNumber;
         const dotCode = button.dataset.dotCode;
-        // MODIFICATION: Get the current quantity from the button's data attribute
         const currentQuantity = button.dataset.currentQuantity;
 
         if (!locationCode) {
@@ -200,7 +237,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const { value: formValues } = await Swal.fire({
             title: 'Inventory Adjustment / Transfer',
-            // MODIFICATION: Add a new read-only field to display the current quantity
             html: `
                 <form id="adjustForm" class="text-start">
                     <input type="hidden" id="swalProductId" value="${productId}">
@@ -223,7 +259,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Current Qty at Location</label>
-                            <input type="text" class="form-control" value="${currentQuantity}" readonly>
+                            <input type="text" class="form-control" value="${currentQuantity}" readonly style="font-weight: bold; background-color: #e9ecef;">
                         </div>
                     </div>
                     <div class="mb-3">

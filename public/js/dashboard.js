@@ -27,6 +27,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         await populateWarehouseSelector();
 
+        await setupQuickActionsVisibility();
+
         const currentWarehouseId = localStorage.getItem('current_warehouse_id');
         if (currentWarehouseId) {
             await loadDashboardData();
@@ -199,6 +201,33 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (warehouseSelector) {
         warehouseSelector.addEventListener('change', handleWarehouseChange);
+    }
+
+    async function setupQuickActionsVisibility() {
+        const quickActionsSection = document.getElementById('quickActionsSection');
+        if (!quickActionsSection) {
+            console.error('Quick Actions section not found.');
+            return;
+        }
+
+        // Fetch the latest authentication status from the server.
+        // This provides both the global admin status and the current role for the selected warehouse.
+        const authStatus = await fetchData('api/auth.php?action=check_auth');
+
+        if (authStatus && authStatus.authenticated) {
+            const isGlobalAdmin = authStatus.user.is_global_admin;
+            const userRole = authStatus.current_warehouse_role;
+
+            // Define the roles that are allowed to see the Quick Actions.
+            const allowedRoles = ['manager', 'operator'];
+
+            // Show the section if the user is a global admin or has one of the allowed roles.
+            if (isGlobalAdmin || (userRole && allowedRoles.includes(userRole))) {
+                quickActionsSection.style.display = 'block';
+            } else {
+                quickActionsSection.style.display = 'none';
+            }
+        }
     }
 
     // --- Run Initialization ---

@@ -4,6 +4,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
     const selectedOrderNumberDisplay = document.getElementById('selectedOrderNumberDisplay');
     const trackingNumberDisplay = document.getElementById('trackingNumberDisplay');
+    // MODIFICATION: Added Proof of Delivery display element
+    const proofOfDeliveryDisplay = document.getElementById('proofOfDeliveryDisplay');
     const orderProcessingArea = document.getElementById('orderProcessingArea');
     const currentOrderIdInput = document.getElementById('currentOrderId');
     const orderItemsTableBody = document.getElementById('orderItemsTableBody');
@@ -167,6 +169,8 @@ document.addEventListener('DOMContentLoaded', () => {
         orderItemsTableBody.innerHTML = `<tr><td colspan="9" class="text-center p-4">Loading items...</td></tr>`;
         trackingNumberDisplay.innerHTML = '';
         if(shippingAreaDisplay) shippingAreaDisplay.innerHTML = '';
+        // MODIFICATION: Clear Proof of Delivery display on load
+        if(proofOfDeliveryDisplay) proofOfDeliveryDisplay.innerHTML = '';
 
         try {
             const response = await fetchData(`api/outbound_api.php?order_id=${orderId}`);
@@ -197,6 +201,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     document.getElementById('copyTrackingBtn').addEventListener('click', () => copyToClipboard(order.tracking_number));
                 }
                 
+                // MODIFICATION: Display Proof of Delivery link if available
+                if (order.status === 'Delivered' && order.delivery_photo_path) {
+                    proofOfDeliveryDisplay.innerHTML = `
+                        <strong>Proof of Delivery:</strong>
+                        <a href="${order.delivery_photo_path}" target="_blank" class="btn btn-sm btn-outline-info ms-2">
+                            <i class="bi bi-camera-fill me-1"></i> View Photo
+                        </a>`;
+                }
+
                 if (addItemContainer) {
                     addItemContainer.style.display = (canManage && isOrderMutable) ? 'block' : 'none';
                     if (canManage && isOrderMutable) {
@@ -340,7 +353,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const formatProduct = (product) => {
                     if (!product.id) return product.text;
                     const stock = parseInt($(product.element).data('stock'), 10);
-                    // --- FIX: Use 'bg-danger' for stock 0 or less, 'bg-success' otherwise ---
                     const badgeClass = stock > 0 ? 'bg-success' : 'bg-danger';
                     const stockBadge = `<span class="badge ${badgeClass} float-end">Stock: ${stock}</span>`;
                     return $(`<div>${product.text}${stockBadge}</div>`);
@@ -438,7 +450,7 @@ document.addEventListener('DOMContentLoaded', () => {
         printPickReportBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Printing...';
 
         try {
-            const response = await fetchData(`api/picking_api.php?action=getPickReport&order_id=${selectedOrderId}`);
+            const response = await fetchData(`api/outbound_api.php?action=getPickReport&order_id=${selectedOrderId}`);
             
             if (!response?.success || !response.data) {
                 Swal.fire('Error', response?.message || 'Could not fetch pick report data.', 'error');
@@ -484,7 +496,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <div class="row align-items-center">
                                     <div class="col-4"><img src="https://wms.almutlak.local/img/Continental-Logo.png" alt="Logo 1" class="header-logo"></div>
                                     <div class="col-4 text-center"><h4>Delivery Note</h4></div>
-                                    <div class="col-4 text-end"><img src="https://wms.almutlak.local/img/Almutlak-Logo.png" alt="Logo 2" class="header-logo"></div>
+                                    <div class="col-4 text-end"><img src="https://wms.almutlak.local/img/logo_blk.png" alt="Logo 2" class="header-logo"></div>
                                 </div>
                             </div>
 
@@ -522,7 +534,6 @@ document.addEventListener('DOMContentLoaded', () => {
                                             <th>Location</th>
                                             <th>Batch</th>
                                             <th>DOT</th>
-                                            <th>Picked</th>
                                         </tr>
                                     </thead>
                                     <tbody>

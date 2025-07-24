@@ -14,7 +14,6 @@ function redirectToLogin() {
  * Handles the logout process by showing a confirmation dialog and then calling the API.
  */
 async function handleLogout() {
-    // Use the SweetAlert2 confirmation modal for a better user experience.
     showConfirmationModal('Confirm Logout', 'Are you sure you want to log out?', async () => {
         const result = await fetchData('api/auth.php?action=logout', 'POST');
         if (result && result.success) {
@@ -34,20 +33,86 @@ async function setCurrentWarehouse(id, name) {
         localStorage.setItem('current_warehouse_id', id);
         localStorage.setItem('current_warehouse_name', name);
         localStorage.setItem('current_warehouse_role', result.role);
-        window.location.reload(); // Reload to apply new role permissions and data
+        window.location.reload();
         return true;
     }
     return false;
 }
 
+/**
+ * Shows a SweetAlert2 modal to force warehouse selection.
+ * @param {Array<Object>} warehouses - An array of warehouse objects { warehouse_id, warehouse_name }.
+ */
+function promptWarehouseSelection(warehouses) {
+    const warehouseOptions = warehouses.map(wh => 
+        `<option value="${wh.warehouse_id}">${wh.warehouse_name}</option>`
+    ).join('');
+
+    Swal.fire({
+        title: 'Select Your Warehouse',
+        html: `<p>Please choose a warehouse to continue.</p><select id="swal-warehouse-select" class="form-select mt-3">${warehouseOptions}</select>`,
+        icon: 'info',
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showCancelButton: false,
+        confirmButtonText: 'Confirm & Continue',
+        preConfirm: () => {
+            const select = document.getElementById('swal-warehouse-select');
+            const warehouseId = select.value;
+            const warehouseName = select.options[select.selectedIndex].text;
+            if (!warehouseId) {
+                Swal.showValidationMessage('You must select a warehouse.');
+                return false;
+            }
+            return { warehouseId, warehouseName };
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const { warehouseId, warehouseName } = result.value;
+            setCurrentWarehouse(warehouseId, warehouseName);
+        }
+    });
+}
+
+/**
+ * UPDATED: Updates the user information display in the new sidebar dropdowns.
+ * @param {object} authStatus - The authentication status object from the API.
+ */
+function updateUserInfoDisplay(authStatus) {
+    const { user, current_warehouse_role } = authStatus;
+
+    if (!user) return; // Exit if user data is not available
+
+    // Target elements in both menus
+    const elements = {
+        nameDesktop: document.getElementById('userFullNameDesktop'),
+        roleDesktop: document.getElementById('userRoleDesktop'),
+        nameMobile: document.getElementById('userFullNameMobile'),
+        roleMobile: document.getElementById('userRoleMobile')
+    };
+
+    const displayName = user.full_name || 'User';
+    let displayRole = 'No Role Assigned'; // Default text
+
+    if (user.is_global_admin) {
+        displayRole = 'Global Admin';
+    } else if (current_warehouse_role) {
+        // Capitalize the first letter for better display
+        displayRole = current_warehouse_role.charAt(0).toUpperCase() + current_warehouse_role.slice(1);
+    }
+
+    // Update text content if elements exist
+    if (elements.nameDesktop) elements.nameDesktop.textContent = displayName;
+    if (elements.roleDesktop) elements.roleDesktop.textContent = displayRole;
+    if (elements.nameMobile) elements.nameMobile.textContent = displayName;
+    if (elements.roleMobile) elements.roleMobile.textContent = displayRole;
+}
+
+
 // --- Utility Functions ---
 
 /**
- * Fetches data from an API endpoint. This is the primary function for all server communication.
- * @param {string} url - The API endpoint URL.
- * @param {string} method - HTTP method.
- * @param {object|null} data - Request body data.
- * @returns {Promise<object|null>} JSON response data or null on error.
+ * Fetches data from an API endpoint.
  */
 async function fetchData(url, method = 'GET', data = null) {
     try {
@@ -55,23 +120,18 @@ async function fetchData(url, method = 'GET', data = null) {
             method: method,
             headers: { 'Content-Type': 'application/json' },
         };
-
         if (data) {
             options.body = JSON.stringify(data);
         }
-
         const response = await fetch(url, options);
         const result = await response.json();
-
         if (!response.ok) {
             console.error(`API Error: ${response.status} - ${result.message || 'Unknown error'}`);
             showMessageBox(result.message || `An error occurred (Status: ${response.status})`, 'error');
-
-            if (response.status === 401) { // Unauthorized
+            if (response.status === 401) {
                 setTimeout(redirectToLogin, 1500);
             }
-            // **FIX:** Return the result even on error so the calling function can read the message.
-            return result; 
+            return result;
         }
         return result;
     } catch (error) {
@@ -82,11 +142,13 @@ async function fetchData(url, method = 'GET', data = null) {
 }
 
 /**
- * Displays a SweetAlert2 Toast message for brief notifications.
- * @param {string} message - The message to display.
- * @param {string} type - 'info', 'success', 'warning', or 'error'.
+ * Displays a SweetAlert2 Toast message.
  */
 function showMessageBox(message, type = 'info') {
+    const currentWarehouseId = localStorage.getItem('current_warehouse_id');
+    if (!currentWarehouseId && (type === 'success' || type === 'info')) {
+        return;
+    }
     const Toast = Swal.mixin({
         toast: true,
         position: 'top-end',
@@ -98,18 +160,11 @@ function showMessageBox(message, type = 'info') {
             toast.addEventListener('mouseleave', Swal.resumeTimer);
         }
     });
-
-    Toast.fire({
-        icon: type,
-        title: message
-    });
+    Toast.fire({ icon: type, title: message });
 }
 
 /**
- * Shows a generic confirmation modal using SweetAlert2.
- * @param {string} title - The title of the modal.
- * @param {string} body - The message/body of the modal.
- * @param {function} onConfirm - The callback function to execute if confirmed.
+ * Shows a generic confirmation modal.
  */
 function showConfirmationModal(title, body, onConfirm) {
     Swal.fire({
@@ -121,10 +176,8 @@ function showConfirmationModal(title, body, onConfirm) {
         cancelButtonColor: '#d33',
         confirmButtonText: 'Yes, confirm it!'
     }).then((result) => {
-        if (result.isConfirmed) {
-            if (typeof onConfirm === 'function') {
-                onConfirm();
-            }
+        if (result.isConfirmed && typeof onConfirm === 'function') {
+            onConfirm();
         }
     });
 }
@@ -132,23 +185,44 @@ function showConfirmationModal(title, body, onConfirm) {
 // --- Common Page Setup ---
 
 /**
- * Checks authentication status on protected pages and redirects to login if necessary.
+ * Checks authentication and warehouse selection on page load.
  */
 async function enforceAuthentication() {
     const isProtectedPage = !window.location.pathname.endsWith('/') && !window.location.pathname.endsWith('index.php');
     if (isProtectedPage) {
         const authStatus = await fetchData('api/auth.php?action=check_auth');
+        
         if (!authStatus || !authStatus.authenticated) {
             redirectToLogin();
+            return;
+        }
+
+        // ALWAYS update the user info display if authenticated
+        updateUserInfoDisplay(authStatus);
+
+        if (!authStatus.current_warehouse_id) {
+            const warehouseData = await fetchData('api/auth.php?action=get_user_warehouses');
+            if (warehouseData.success && warehouseData.warehouses && warehouseData.warehouses.length > 0) {
+                promptWarehouseSelection(warehouseData.warehouses);
+            } else {
+                Swal.fire({
+                    title: 'No Warehouse Access',
+                    text: 'You do not have access to any active warehouses. Please contact an administrator.',
+                    icon: 'error',
+                    allowOutsideClick: false,
+                    allowEscapeKey: false,
+                    confirmButtonText: 'Logout'
+                }).then(handleLogout);
+            }
         }
     }
 }
 
 /**
- * Attaches event listeners to common elements like logout buttons.
+ * Attaches event listeners to common elements.
  */
 function setupCommonEventListeners() {
-    const logoutButtons = document.querySelectorAll('#logoutBtn, #logoutBtnDesktop, #logoutBtnMobile');
+    const logoutButtons = document.querySelectorAll('#logoutBtnDesktop, #logoutBtnMobile');
     logoutButtons.forEach(btn => {
         if (btn) btn.addEventListener('click', handleLogout);
     });
