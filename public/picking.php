@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WMS Outbound Operations</title>
+    <title>WMS Order Picking & Processing</title>
     <!-- Stylesheets -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
@@ -12,17 +12,6 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link rel="stylesheet" href="css/style.css">
-    <!-- Custom Style for new statuses -->
-    <style>
-        .bg-purple {
-            color: #fff;
-            background-color: #6f42c1; /* Bootstrap's purple */
-        }
-        .bg-orange {
-            color: #000;
-            background-color: #fd7e14; /* Bootstrap's orange */
-        }
-    </style>
 </head>
 <body class="bg-light">
 
@@ -32,7 +21,7 @@
         <header class="bg-white shadow-sm border-bottom">
             <div class="container-fluid px-4">
                 <div class="d-flex justify-content-between align-items-center py-3">
-                    <h1 class="h4 mb-0 text-dark">Outbound Operations</h1>
+                    <h1 class="h4 mb-0 text-dark">Order Picking & Processing</h1>
                 </div>
             </div>
         </header>
@@ -42,44 +31,23 @@
                 <div class="row g-4">
                     <div class="col-12">
                         <div class="card shadow-sm">
-                            <div class="card-header d-flex justify-content-between align-items-center flex-wrap">
-                                <h5 class="card-title mb-0">Current Outbound Orders</h5>
-                                <div class="d-flex align-items-center gap-3">
-                                    <div class="d-flex align-items-center">
-                                        <label for="statusFilter" class="form-label me-2 mb-0">Status:</label>
-                                        <select id="statusFilter" class="form-select form-select-sm" style="width: auto;">
-                                            <option value="">All</option>
-                                            <option value="New">New</option>
-                                            <option value="Pending Pick">Pending Pick</option>
-                                            <option value="Partially Picked">Partially Picked</option>
-                                            <option value="Picked">Picked</option>
-                                            <option value="Ready for Pickup">Ready for Pickup</option>
-                                            <option value="Assigned">Assigned</option>
-                                            <option value="Shipped">Shipped</option>
-                                            <option value="Out for Delivery">Out for Delivery</option>
-                                            <option value="Delivered">Delivered</option>
-                                            <option value="Cancelled">Cancelled</option>
-                                        </select>
-                                    </div>
-                                    <button id="showCreateOrderModalBtn" class="btn btn-primary btn-sm"><i class="bi bi-plus-circle me-1"></i> Create New Order</button>
-                                </div>
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">Orders for Picking / Processing</h5>
                             </div>
                             <div class="card-body">
                                 <div class="table-responsive">
-                                    <table id="outboundOrdersTable" class="table table-hover" style="width:100%">
+                                    <table id="pickingOrdersTable" class="table table-hover" style="width:100%">
                                         <thead>
                                             <tr>
                                                 <th>Order No.</th>
                                                 <th>Reference No.</th>
                                                 <th>Customer</th>
-                                                <th>Shipping Area</th>
-                                                <th>Tracking #</th>
                                                 <th>Req. Ship Date</th>
                                                 <th>Status</th>
                                                 <th>Actions</th>
                                             </tr>
                                         </thead>
-                                        <tbody id="outboundOrdersTableBody"></tbody>
+                                        <tbody id="pickingOrdersTableBody"></tbody>
                                     </table>
                                 </div>
                             </div>
@@ -87,18 +55,22 @@
                     </div>
 
                     <div class="col-12">
-                        <div id="orderProcessingArea" class="card shadow-sm d-none">
-                            <div class="card-header d-flex justify-content-between align-items-center">
+                        <div id="pickingProcessArea" class="card shadow-sm d-none">
+                            <div class="card-header d-flex justify-content-between align-items-center flex-wrap">
                                 <div>
                                     <h5 class="card-title mb-0">Process Order: <span id="selectedOrderNumberDisplay" class="text-primary fw-normal"></span></h5>
                                     <div id="shippingAreaDisplay" class="mt-1 text-muted small"></div>
-                                    <div id="trackingNumberDisplay" class="mt-1 text-muted small"></div>
+                                    <div id="driverInfoDisplay" class="mt-1 text-muted small"></div>
                                     <input type="hidden" id="currentOrderId">
                                 </div>
-                                <!-- FIX: Added Print Pick Report button -->
-                                <button id="printPickReportBtn" class="btn btn-sm btn-outline-secondary d-none">
-                                    <i class="bi bi-printer me-1"></i> Print Pick Report
-                                </button>
+                                <div class="btn-group">
+                                    <button id="printPickReportBtn" class="btn btn-sm btn-outline-secondary d-none">
+                                        <i class="bi bi-file-earmark-text me-1"></i> Print Pick Report
+                                    </button>
+                                    <button id="printStickersBtn" class="btn btn-sm btn-outline-secondary d-none">
+                                        <i class="bi bi-printer me-1"></i> Print Item Stickers
+                                    </button>
+                                </div>
                             </div>
                             <div class="card-body">
                                 <h6 class="card-subtitle mb-2 text-muted">Order Items</h6>
@@ -108,7 +80,6 @@
                                             <tr>
                                                 <th>SKU</th>
                                                 <th>Product</th>
-                                                <th>Barcode</th>
                                                 <th>Ordered</th>
                                                 <th>Picked</th>
                                                 <th>Batch</th>
@@ -121,14 +92,41 @@
                                     </table>
                                 </div>
 
-                                <div id="addItemContainer" class="mb-4"></div>
-
                                 <div id="actionsContainer" class="p-3 bg-light rounded border">
-                                    <div id="managementActionsArea" class="mt-4 pt-4 border-top">
+                                    <div id="pickActionsArea" class="d-none">
+                                        <h6 class="mb-3">Pick Items</h6>
+                                        <div class="row g-3">
+                                            <div class="col-md-6">
+                                                <label for="pickItemNumberInput" class="form-label">Item Barcode/SKU</label>
+                                                <input type="text" id="pickItemNumberInput" class="form-control" placeholder="Scan or enter...">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label for="pickLocationSelect" class="form-label">Pick Location</label>
+                                                <select id="pickLocationSelect" class="form-select"></select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label for="pickBatchNumberSelect" class="form-label">Batch Number</label>
+                                                <select id="pickBatchNumberSelect" class="form-select" disabled><option value="">Select location first</option></select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label for="pickDotCodeSelect" class="form-label">DOT Code (FIFO)</label>
+                                                <select id="pickDotCodeSelect" class="form-select" disabled><option value="">Select batch first</option></select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label for="pickQuantityInput" class="form-label">Quantity to Pick</label>
+                                                <input type="number" id="pickQuantityInput" value="1" min="1" class="form-control">
+                                                <div id="pickQuantityError" class="text-danger small mt-1"></div>
+                                            </div>
+                                        </div>
+                                        <div class="mt-3">
+                                            <button id="pickItemBtn" class="btn btn-info text-white">Pick Item</button>
+                                        </div>
+                                    </div>
+                                    <div id="managementActionsArea" class="mt-4 pt-4 border-top d-none">
                                         <h6 class="mb-3">Management Actions</h6>
                                         <div class="d-flex gap-2 flex-wrap">
-                                            <button id="shipOrderBtn" class="btn btn-success d-none">Manually Ship</button>
-                                            <button id="cancelOrderBtn" class="btn btn-danger">Cancel Order</button>
+                                            <button id="stageOrderBtn" class="btn btn-warning d-none">Stage for Pickup</button>
+                                            <button id="assignDriverBtn" class="btn btn-primary d-none"><i class="bi bi-person-plus-fill me-1"></i> Assign Driver</button>
                                         </div>
                                     </div>
                                 </div>
@@ -151,6 +149,6 @@
     
     <!-- Custom Application Scripts -->
     <script src="js/main.js"></script>
-    <script src="js/outbound.js" defer></script>
+    <script src="js/picking.js" defer></script>
 </body>
 </html>

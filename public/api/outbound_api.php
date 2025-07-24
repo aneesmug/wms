@@ -2,6 +2,7 @@
 // api/outbound.php
 
 require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../helpers/auth_helper.php';
 
 $conn = getDbConnection();
 ob_start();
@@ -18,25 +19,11 @@ if (!$current_warehouse_id && $_SERVER['REQUEST_METHOD'] !== 'GET' && !isset($_G
 $method = $_SERVER['REQUEST_METHOD'];
 $action = $_GET['action'] ?? '';
 
-// --- Action Routing ---
-if ($action === 'getDrivers') {
-    authorize_user_role(['operator', 'manager']);
-    handleGetDrivers($conn, $current_warehouse_id);
-    exit;
-}
-if ($action === 'assignDriver') {
-    authorize_user_role(['operator', 'manager']);
-    handleAssignDriver($conn, $current_warehouse_id, $current_user_id);
-    exit;
-}
-
 switch ($method) {
     case 'GET':
-        authorize_user_role(['viewer', 'operator', 'manager']);
+        authorize_user_role(['viewer', 'operator', 'manager', 'picker']);
         if ($action === 'getOrderHistory') {
             handleGetOrderHistory($conn, $current_warehouse_id);
-        } elseif ($action === 'getPickStickers') {
-            handleGetPickStickers($conn, $current_warehouse_id);
         } else {
             handleGetOutbound($conn, $current_warehouse_id);
         }
@@ -47,8 +34,6 @@ switch ($method) {
             handleCreateOutboundOrder($conn, $current_warehouse_id, $current_user_id);
         } elseif ($action === 'addItem') {
             handleAddItemToOrder($conn, $current_warehouse_id);
-        } elseif ($action === 'pickItem') {
-            handlePickItem($conn, $current_warehouse_id, $current_user_id);
         } elseif ($action === 'shipOrder') {
             handleShipOrder($conn, $current_warehouse_id, $current_user_id);
         } elseif ($action === 'cancelOrder') {
@@ -57,8 +42,6 @@ switch ($method) {
             handleUpdateOrderItem($conn, $current_warehouse_id, $current_user_id);
         } elseif ($action === 'deleteOrderItem') {
             handleDeleteOrderItem($conn, $current_warehouse_id);
-        } elseif ($action === 'unpickItem') {
-            handleUnpickItem($conn, $current_warehouse_id, $current_user_id);
         } elseif ($action === 'markOutForDelivery') {
             handleMarkOutForDelivery($conn, $current_warehouse_id, $current_user_id);
         } elseif ($action === 'markDelivered') {
@@ -80,7 +63,14 @@ function handleGetOutbound($conn, $warehouse_id) {
     if (isset($_GET['order_id'])) {
         $order_id = filter_var($_GET['order_id'], FILTER_VALIDATE_INT);
         if(!$order_id) { sendJsonResponse(['success' => false, 'message' => 'Invalid Order ID.'], 400); return; }
-        $stmt = $conn->prepare("SELECT oo.*, c.customer_name FROM outbound_orders oo JOIN customers c ON oo.customer_id = c.customer_id WHERE oo.order_id = ? AND oo.warehouse_id = ?");
+        
+        $stmt = $conn->prepare("
+            SELECT oo.*, c.customer_name, sl.location_code as shipping_area_code 
+            FROM outbound_orders oo 
+            JOIN customers c ON oo.customer_id = c.customer_id 
+            LEFT JOIN warehouse_locations sl ON oo.shipping_area_location_id = sl.location_id
+            WHERE oo.order_id = ? AND oo.warehouse_id = ?
+        ");
         $stmt->bind_param("ii", $order_id, $warehouse_id);
         $stmt->execute();
         $order = $stmt->get_result()->fetch_assoc();
@@ -106,7 +96,13 @@ function handleGetOutbound($conn, $warehouse_id) {
         $order['items'] = $items;
         sendJsonResponse(['success' => true, 'data' => $order]);
     } else {
-        $stmt = $conn->prepare("SELECT oo.*, c.customer_name FROM outbound_orders oo JOIN customers c ON oo.customer_id = c.customer_id WHERE oo.warehouse_id = ? ORDER BY oo.order_date DESC");
+        $stmt = $conn->prepare("
+            SELECT oo.order_id, oo.order_number, oo.reference_number, oo.status, oo.required_ship_date, oo.tracking_number, c.customer_name, sl.location_code as shipping_area_code
+            FROM outbound_orders oo 
+            JOIN customers c ON oo.customer_id = c.customer_id
+            LEFT JOIN warehouse_locations sl ON oo.shipping_area_location_id = sl.location_id
+            WHERE oo.warehouse_id = ? ORDER BY oo.order_date DESC
+        ");
         $stmt->bind_param("i", $warehouse_id);
         $stmt->execute();
         $orders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -131,135 +127,6 @@ function handleGetOrderHistory($conn, $warehouse_id) {
     sendJsonResponse(['success' => true, 'data' => $history]);
 }
 
-function handleGetPickStickers($conn, $warehouse_id) {
-    $order_id = filter_var($_GET['order_id'] ?? 0, FILTER_VALIDATE_INT);
-    if (!$order_id) { sendJsonResponse(['success' => false, 'message' => 'Invalid Order ID.'], 400); return; }
-    $stmt_verify = $conn->prepare("SELECT order_id FROM outbound_orders WHERE order_id = ? AND warehouse_id = ?");
-    $stmt_verify->bind_param("ii", $order_id, $warehouse_id);
-    $stmt_verify->execute();
-    if (!$stmt_verify->get_result()->fetch_assoc()) { sendJsonResponse(['success' => false, 'message' => 'Order not found in this warehouse.'], 404); return; }
-    $stmt_verify->close();
-    
-    // MODIFICATION: Added p.expiry_years to the SELECT statement
-    $stmt = $conn->prepare("
-        SELECT 
-            s.sticker_code, 
-            p.product_name, 
-            p.sku,
-            p.barcode,
-            p.expiry_years,
-            oip.dot_code,
-            oo.order_number,
-            oo.tracking_number,
-            c.customer_name,
-            c.phone,
-            c.address_line1,
-            c.address_line2,
-            c.city,
-            c.state,
-            c.zip_code,
-            c.country,
-            w.warehouse_name,
-            w.address as warehouse_address,
-            w.city as warehouse_city,
-            ROW_NUMBER() OVER(PARTITION BY oi.product_id ORDER BY s.sticker_id) as item_sequence,
-            oi.ordered_quantity as item_total
-        FROM outbound_pick_stickers s
-        JOIN outbound_item_picks oip ON s.pick_id = oip.pick_id
-        JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id
-        JOIN products p ON oi.product_id = p.product_id
-        JOIN outbound_orders oo ON oi.order_id = oo.order_id
-        JOIN customers c ON oo.customer_id = c.customer_id
-        JOIN warehouses w ON oo.warehouse_id = w.warehouse_id
-        WHERE oi.order_id = ?
-        ORDER BY p.product_name, s.sticker_id
-    ");
-    $stmt->bind_param("i", $order_id);
-    $stmt->execute();
-    $stickers = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    $stmt->close();
-    sendJsonResponse(['success' => true, 'data' => $stickers]);
-}
-
-function handlePickItem($conn, $warehouse_id, $user_id) {
-    $input = json_decode(file_get_contents('php://input'), true);
-    $order_id = (int)($input['order_id'] ?? 0);
-    $product_barcode = trim($input['product_barcode'] ?? '');
-    $location_id = (int)($input['location_id'] ?? 0);
-    $picked_quantity = (int)($input['picked_quantity'] ?? 0);
-    $batch_number = !empty($input['batch_number']) ? trim($input['batch_number']) : null;
-    $dot_code = !empty($input['dot_code']) ? trim($input['dot_code']) : null;
-
-    if (empty($order_id) || empty($product_barcode) || empty($location_id) || empty($dot_code) || $picked_quantity <= 0) { 
-        sendJsonResponse(['success' => false, 'message' => 'Order ID, Product, Location, DOT Code, and a valid Quantity are required.'], 400); 
-        return; 
-    }
-    
-    $conn->begin_transaction();
-    try {
-        $stmt_prod = $conn->prepare("SELECT product_id FROM products WHERE barcode = ? OR sku = ?");
-        $stmt_prod->bind_param("ss", $product_barcode, $product_barcode);
-        $stmt_prod->execute();
-        $product = $stmt_prod->get_result()->fetch_assoc();
-        $stmt_prod->close();
-        if (!$product) throw new Exception("Product not found.");
-        $product_id = $product['product_id'];
-        
-        $stmt_item = $conn->prepare("SELECT outbound_item_id, ordered_quantity FROM outbound_items WHERE order_id = ? AND product_id = ?");
-        $stmt_item->bind_param("ii", $order_id, $product_id);
-        $stmt_item->execute();
-        $order_item = $stmt_item->get_result()->fetch_assoc();
-        $stmt_item->close();
-        if (!$order_item) throw new Exception("This product is not on the selected order.");
-        $outbound_item_id = $order_item['outbound_item_id'];
-
-        $stmt_total_picked = $conn->prepare("SELECT SUM(picked_quantity) as total FROM outbound_item_picks WHERE outbound_item_id = ?");
-        $stmt_total_picked->bind_param("i", $outbound_item_id);
-        $stmt_total_picked->execute();
-        $total_picked = $stmt_total_picked->get_result()->fetch_assoc()['total'] ?? 0;
-        $stmt_total_picked->close();
-        if (($total_picked + $picked_quantity) > $order_item['ordered_quantity']) { throw new Exception("Over-picking not allowed. Ordered: {$order_item['ordered_quantity']}, Already Picked: {$total_picked}, Trying to Pick: {$picked_quantity}."); }
-        
-        $stmt_inv = $conn->prepare("SELECT quantity FROM inventory WHERE warehouse_id = ? AND product_id = ? AND location_id = ? AND (batch_number = ? OR (batch_number IS NULL AND ? IS NULL)) AND dot_code = ?");
-        $stmt_inv->bind_param("iiisss", $warehouse_id, $product_id, $location_id, $batch_number, $batch_number, $dot_code);
-        $stmt_inv->execute();
-        $inventory = $stmt_inv->get_result()->fetch_assoc();
-        $stmt_inv->close();
-        if (!$inventory || $inventory['quantity'] < $picked_quantity) { throw new Exception("Insufficient stock for this DOT code at location. Available: " . ($inventory['quantity'] ?? 0)); }
-        
-        $stmt_update_inv = $conn->prepare("UPDATE inventory SET quantity = quantity - ? WHERE warehouse_id = ? AND product_id = ? AND location_id = ? AND (batch_number = ? OR (batch_number IS NULL AND ? IS NULL)) AND dot_code = ?");
-        $stmt_update_inv->bind_param("iiiisss", $picked_quantity, $warehouse_id, $product_id, $location_id, $batch_number, $batch_number, $dot_code);
-        $stmt_update_inv->execute();
-        $stmt_update_inv->close();
-        
-        $stmt_insert_pick = $conn->prepare("INSERT INTO outbound_item_picks (outbound_item_id, location_id, batch_number, dot_code, picked_quantity, picked_by_user_id, picked_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
-        $stmt_insert_pick->bind_param("iissii", $outbound_item_id, $location_id, $batch_number, $dot_code, $picked_quantity, $user_id);
-        $stmt_insert_pick->execute();
-        $pick_id = $stmt_insert_pick->insert_id;
-        $stmt_insert_pick->close();
-        
-        $stmt_sticker = $conn->prepare("INSERT INTO outbound_pick_stickers (pick_id, sticker_code) VALUES (?, ?)");
-        for ($i = 0; $i < $picked_quantity; $i++) {
-            $timestamp_part = substr(microtime(true) * 10000, -5);
-            $pick_part = str_pad($pick_id, 5, '0', STR_PAD_LEFT);
-            $i_part = str_pad($i, 2, '0', STR_PAD_LEFT);
-            $sticker_code = $pick_part . $timestamp_part . $i_part;
-            if (strlen($sticker_code) > 12) $sticker_code = substr($sticker_code, 0, 12);
-            $stmt_sticker->bind_param("is", $pick_id, $sticker_code);
-            $stmt_sticker->execute();
-        }
-        $stmt_sticker->close();
-        
-        updateOutboundItemAndOrderStatus($conn, $order_id, $user_id);
-        $conn->commit();
-        sendJsonResponse(['success' => true, 'message' => 'Item picked successfully. Stickers generated.']);
-    } catch (Exception $e) {
-        $conn->rollback();
-        ob_clean();
-        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 400);
-    }
-}
-
 function handleShipOrder($conn, $warehouse_id, $user_id) {
     $input = json_decode(file_get_contents('php://input'), true);
     $order_id = (int)$input['order_id'];
@@ -272,14 +139,11 @@ function handleShipOrder($conn, $warehouse_id, $user_id) {
         $order_data = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         if (!$order_data) { throw new Exception("Order not found or does not belong to selected warehouse."); }
-        $stmt_check = $conn->prepare("SELECT SUM(ordered_quantity) as total_ordered, SUM(picked_quantity) as total_picked FROM outbound_items WHERE order_id = ?");
-        $stmt_check->bind_param("i", $order_id);
-        $stmt_check->execute();
-        $sums = $stmt_check->get_result()->fetch_assoc();
-        $stmt_check->close();
-        if ($sums['total_ordered'] != $sums['total_picked']) { throw new Exception("Cannot ship order. Ordered items and picked items do not match."); }
-        if ($sums['total_ordered'] == 0) { throw new Exception("Cannot ship an empty order."); }
-        if ($order_data['status'] !== 'Picked') { throw new Exception("Order must be in 'Picked' status to be shipped. Current status: " . $order_data['status']); }
+        
+        if (!in_array($order_data['status'], ['Picked', 'Ready for Pickup', 'Assigned'])) { 
+            throw new Exception("Order must be in 'Picked', 'Ready for Pickup', or 'Assigned' status to be shipped. Current status: " . $order_data['status']); 
+        }
+
         $tracking_number = 'TRK-' . $order_id . '-' . substr(str_shuffle('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 6);
         $delivery_code = rand(100000, 999999);
         $stmt = $conn->prepare("UPDATE outbound_orders SET status = 'Shipped', actual_ship_date = NOW(), shipped_by = ?, tracking_number = ?, delivery_confirmation_code = ? WHERE order_id = ?");
@@ -289,6 +153,69 @@ function handleShipOrder($conn, $warehouse_id, $user_id) {
         logOrderHistory($conn, $order_id, 'Shipped', $user_id, "Order shipped with Tracking #: $tracking_number. A delivery confirmation code has been generated.");
         $conn->commit();
         sendJsonResponse(['success' => true, 'message' => "Order successfully shipped with Tracking #: $tracking_number"]);
+    } catch (Exception $e) {
+        $conn->rollback();
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 400);
+    }
+}
+
+function handleCancelOrder($conn, $warehouse_id, $user_id) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $order_id = filter_var($input['order_id'] ?? 0, FILTER_VALIDATE_INT);
+    if (empty($order_id)) { sendJsonResponse(['success' => false, 'message' => 'Order ID is required to cancel.'], 400); return; }
+    $conn->begin_transaction();
+    try {
+        $stmt_check = $conn->prepare("SELECT status FROM outbound_orders WHERE order_id = ? AND warehouse_id = ?");
+        $stmt_check->bind_param("ii", $order_id, $warehouse_id);
+        $stmt_check->execute();
+        $order = $stmt_check->get_result()->fetch_assoc();
+        $stmt_check->close();
+        if (!$order) { throw new Exception("Order not found or does not belong to this warehouse."); }
+        if (in_array($order['status'], ['Shipped', 'Delivered', 'Cancelled'])) { throw new Exception("Cannot cancel an order that is already {$order['status']}."); }
+        
+        $stmt_items = $conn->prepare("SELECT p.picked_quantity, p.location_id, p.batch_number, p.dot_code, oi.product_id FROM outbound_item_picks p JOIN outbound_items oi ON p.outbound_item_id = oi.outbound_item_id WHERE oi.order_id = ?");
+        $stmt_items->bind_param("i", $order_id);
+        $stmt_items->execute();
+        $picked_items = $stmt_items->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt_items->close();
+        
+        foreach ($picked_items as $item) {
+            $stmt_inv_check = $conn->prepare("SELECT inventory_id FROM inventory WHERE product_id = ? AND location_id = ? AND (batch_number = ? OR (batch_number IS NULL AND ? IS NULL)) AND dot_code = ? AND warehouse_id = ?");
+            $stmt_inv_check->bind_param("iissii", $item['product_id'], $item['location_id'], $item['batch_number'], $item['batch_number'], $item['dot_code'], $warehouse_id);
+            $stmt_inv_check->execute();
+            $inventory_record = $stmt_inv_check->get_result()->fetch_assoc();
+            $stmt_inv_check->close();
+            if ($inventory_record) {
+                $stmt_update_inv = $conn->prepare("UPDATE inventory SET quantity = quantity + ? WHERE inventory_id = ?");
+                $stmt_update_inv->bind_param("ii", $item['picked_quantity'], $inventory_record['inventory_id']);
+                $stmt_update_inv->execute();
+                $stmt_update_inv->close();
+            } else {
+                $stmt_insert_inv = $conn->prepare("INSERT INTO inventory (product_id, warehouse_id, location_id, quantity, batch_number, dot_code) VALUES (?, ?, ?, ?, ?, ?)");
+                $stmt_insert_inv->bind_param("iiiiss", $item['product_id'], $warehouse_id, $item['location_id'], $item['picked_quantity'], $item['batch_number'], $item['dot_code']);
+                $stmt_insert_inv->execute();
+                $stmt_insert_inv->close();
+            }
+        }
+        
+        $stmt_delete_picks = $conn->prepare("DELETE FROM outbound_item_picks WHERE outbound_item_id IN (SELECT outbound_item_id FROM outbound_items WHERE order_id = ?)");
+        $stmt_delete_picks->bind_param("i", $order_id);
+        $stmt_delete_picks->execute();
+        $stmt_delete_picks->close();
+        
+        $stmt_reset_items = $conn->prepare("UPDATE outbound_items SET picked_quantity = 0 WHERE order_id = ?");
+        $stmt_reset_items->bind_param("i", $order_id);
+        $stmt_reset_items->execute();
+        $stmt_reset_items->close();
+        
+        $stmt_cancel = $conn->prepare("UPDATE outbound_orders SET status = 'Cancelled' WHERE order_id = ?");
+        $stmt_cancel->bind_param("i", $order_id);
+        $stmt_cancel->execute();
+        $stmt_cancel->close();
+        
+        logOrderHistory($conn, $order_id, 'Cancelled', $user_id, 'Order has been cancelled. All picked items returned to stock.');
+        $conn->commit();
+        sendJsonResponse(['success' => true, 'message' => 'Order cancelled successfully.']);
     } catch (Exception $e) {
         $conn->rollback();
         sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 400);
@@ -424,112 +351,6 @@ function handleAddItemToOrder($conn, $warehouse_id) {
     }
 }
 
-function handleCancelOrder($conn, $warehouse_id, $user_id) {
-    $input = json_decode(file_get_contents('php://input'), true);
-    $order_id = filter_var($input['order_id'] ?? 0, FILTER_VALIDATE_INT);
-    if (empty($order_id)) { sendJsonResponse(['success' => false, 'message' => 'Order ID is required to cancel.'], 400); return; }
-    $conn->begin_transaction();
-    try {
-        $stmt_check = $conn->prepare("SELECT status FROM outbound_orders WHERE order_id = ? AND warehouse_id = ?");
-        $stmt_check->bind_param("ii", $order_id, $warehouse_id);
-        $stmt_check->execute();
-        $order = $stmt_check->get_result()->fetch_assoc();
-        $stmt_check->close();
-        if (!$order) { throw new Exception("Order not found or does not belong to this warehouse."); }
-        if (in_array($order['status'], ['Shipped', 'Delivered', 'Cancelled'])) { throw new Exception("Cannot cancel an order that is already {$order['status']}."); }
-        
-        $stmt_items = $conn->prepare("SELECT p.picked_quantity, p.location_id, p.batch_number, p.dot_code, oi.product_id FROM outbound_item_picks p JOIN outbound_items oi ON p.outbound_item_id = oi.outbound_item_id WHERE oi.order_id = ?");
-        $stmt_items->bind_param("i", $order_id);
-        $stmt_items->execute();
-        $picked_items = $stmt_items->get_result()->fetch_all(MYSQLI_ASSOC);
-        $stmt_items->close();
-        
-        foreach ($picked_items as $item) {
-            $stmt_inv_check = $conn->prepare("SELECT inventory_id FROM inventory WHERE product_id = ? AND location_id = ? AND (batch_number = ? OR (batch_number IS NULL AND ? IS NULL)) AND dot_code = ? AND warehouse_id = ?");
-            $stmt_inv_check->bind_param("iissii", $item['product_id'], $item['location_id'], $item['batch_number'], $item['batch_number'], $item['dot_code'], $warehouse_id);
-            $stmt_inv_check->execute();
-            $inventory_record = $stmt_inv_check->get_result()->fetch_assoc();
-            $stmt_inv_check->close();
-            if ($inventory_record) {
-                $stmt_update_inv = $conn->prepare("UPDATE inventory SET quantity = quantity + ? WHERE inventory_id = ?");
-                $stmt_update_inv->bind_param("ii", $item['picked_quantity'], $inventory_record['inventory_id']);
-                $stmt_update_inv->execute();
-                $stmt_update_inv->close();
-            } else {
-                $stmt_insert_inv = $conn->prepare("INSERT INTO inventory (product_id, warehouse_id, location_id, quantity, batch_number, dot_code) VALUES (?, ?, ?, ?, ?, ?)");
-                $stmt_insert_inv->bind_param("iiiiss", $item['product_id'], $warehouse_id, $item['location_id'], $item['picked_quantity'], $item['batch_number'], $item['dot_code']);
-                $stmt_insert_inv->execute();
-                $stmt_insert_inv->close();
-            }
-        }
-        
-        $stmt_delete_picks = $conn->prepare("DELETE FROM outbound_item_picks WHERE outbound_item_id IN (SELECT outbound_item_id FROM outbound_items WHERE order_id = ?)");
-        $stmt_delete_picks->bind_param("i", $order_id);
-        $stmt_delete_picks->execute();
-        $stmt_delete_picks->close();
-        
-        $stmt_reset_items = $conn->prepare("UPDATE outbound_items SET picked_quantity = 0 WHERE order_id = ?");
-        $stmt_reset_items->bind_param("i", $order_id);
-        $stmt_reset_items->execute();
-        $stmt_reset_items->close();
-        
-        $stmt_cancel = $conn->prepare("UPDATE outbound_orders SET status = 'Cancelled' WHERE order_id = ?");
-        $stmt_cancel->bind_param("i", $order_id);
-        $stmt_cancel->execute();
-        $stmt_cancel->close();
-        
-        logOrderHistory($conn, $order_id, 'Cancelled', $user_id, 'Order has been cancelled. All picked items returned to stock.');
-        $conn->commit();
-        sendJsonResponse(['success' => true, 'message' => 'Order cancelled successfully.']);
-    } catch (Exception $e) {
-        $conn->rollback();
-        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 400);
-    }
-}
-
-function handleUnpickItem($conn, $warehouse_id, $user_id) {
-    $input = json_decode(file_get_contents('php://input'), true);
-    $pick_id = (int)($input['pick_id'] ?? 0);
-    if (empty($pick_id)) { sendJsonResponse(['success' => false, 'message' => 'Pick ID is required.'], 400); return; }
-    $conn->begin_transaction();
-    try {
-        $stmt_pick = $conn->prepare("SELECT p.picked_quantity, p.location_id, p.batch_number, p.dot_code, oi.order_id, o.status, oi.product_id FROM outbound_item_picks p JOIN outbound_items oi ON p.outbound_item_id = oi.outbound_item_id JOIN outbound_orders o ON oi.order_id = o.order_id WHERE p.pick_id = ? AND o.warehouse_id = ?");
-        $stmt_pick->bind_param("ii", $pick_id, $warehouse_id);
-        $stmt_pick->execute();
-        $pick = $stmt_pick->get_result()->fetch_assoc();
-        $stmt_pick->close();
-        if (!$pick) throw new Exception("Pick record not found in this warehouse.");
-        if (in_array($pick['status'], ['Shipped', 'Delivered', 'Cancelled'])) { throw new Exception("Cannot unpick from a {$pick['status']} order."); }
-
-        $stmt_inv_check = $conn->prepare("SELECT inventory_id FROM inventory WHERE product_id = ? AND location_id = ? AND (batch_number = ? OR (batch_number IS NULL AND ? IS NULL)) AND dot_code = ? AND warehouse_id = ?");
-        $stmt_inv_check->bind_param("iissii", $pick['product_id'], $pick['location_id'], $pick['batch_number'], $pick['batch_number'], $pick['dot_code'], $warehouse_id);
-        $stmt_inv_check->execute();
-        $inventory_record = $stmt_inv_check->get_result()->fetch_assoc();
-        $stmt_inv_check->close();
-        if ($inventory_record) {
-            $stmt_update_inv = $conn->prepare("UPDATE inventory SET quantity = quantity + ? WHERE inventory_id = ?");
-            $stmt_update_inv->bind_param("ii", $pick['picked_quantity'], $inventory_record['inventory_id']);
-            $stmt_update_inv->execute();
-            $stmt_update_inv->close();
-        } else {
-            $stmt_insert_inv = $conn->prepare("INSERT INTO inventory (product_id, warehouse_id, location_id, quantity, batch_number, dot_code) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt_insert_inv->bind_param("iiiiss", $pick['product_id'], $warehouse_id, $pick['location_id'], $pick['picked_quantity'], $pick['batch_number'], $pick['dot_code']);
-            $stmt_insert_inv->execute();
-            $stmt_insert_inv->close();
-        }
-        $stmt_delete_pick = $conn->prepare("DELETE FROM outbound_item_picks WHERE pick_id = ?");
-        $stmt_delete_pick->bind_param("i", $pick_id);
-        $stmt_delete_pick->execute();
-        $stmt_delete_pick->close();
-        updateOutboundItemAndOrderStatus($conn, $pick['order_id'], $user_id);
-        $conn->commit();
-        sendJsonResponse(['success' => true, 'message' => 'Item unpicked successfully.']);
-    } catch (Exception $e) {
-        $conn->rollback();
-        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 400);
-    }
-}
-
 function handleUpdateOrderItem($conn, $warehouse_id, $user_id) {
     $input = json_decode(file_get_contents('php://input'), true);
     $outbound_item_id = filter_var($input['outbound_item_id'] ?? 0, FILTER_VALIDATE_INT);
@@ -617,66 +438,4 @@ function logOrderHistory($conn, $order_id, $status, $user_id, $notes = '') {
         error_log("Failed to log order history: " . $stmt->error);
     }
     $stmt->close();
-}
-
-function handleGetDrivers($conn, $warehouse_id) {
-    $stmt = $conn->prepare("
-        SELECT u.user_id, u.full_name 
-        FROM users u
-        JOIN user_warehouse_roles uwr ON u.user_id = uwr.user_id
-        WHERE uwr.role = 'driver' AND uwr.warehouse_id = ?
-        ORDER BY u.full_name ASC
-    ");
-    $stmt->bind_param("i", $warehouse_id);
-    $stmt->execute();
-    $drivers = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    $stmt->close();
-    sendJsonResponse(['success' => true, 'data' => $drivers]);
-}
-
-function handleAssignDriver($conn, $warehouse_id, $user_id) {
-    $input = json_decode(file_get_contents('php://input'), true);
-    $order_id = filter_var($input['order_id'] ?? 0, FILTER_VALIDATE_INT);
-    $driver_user_id = filter_var($input['driver_user_id'] ?? 0, FILTER_VALIDATE_INT);
-
-    if (empty($order_id) || empty($driver_user_id)) {
-        sendJsonResponse(['success' => false, 'message' => 'Order ID and Driver ID are required.'], 400);
-        return;
-    }
-
-    $conn->begin_transaction();
-    try {
-        $stmt_check = $conn->prepare("SELECT status FROM outbound_orders WHERE order_id = ? AND warehouse_id = ?");
-        $stmt_check->bind_param("ii", $order_id, $warehouse_id);
-        $stmt_check->execute();
-        $order = $stmt_check->get_result()->fetch_assoc();
-        if (!$order || $order['status'] !== 'Shipped') {
-            throw new Exception("Order must be in 'Shipped' status to assign a driver.", 400);
-        }
-        $stmt_check->close();
-
-        $stmt_assign = $conn->prepare("INSERT INTO outbound_order_assignments (order_id, driver_user_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE driver_user_id = VALUES(driver_user_id), assigned_at = NOW()");
-        $stmt_assign->bind_param("ii", $order_id, $driver_user_id);
-        $stmt_assign->execute();
-        $stmt_assign->close();
-
-        $stmt_update = $conn->prepare("UPDATE outbound_orders SET status = 'Out for Delivery' WHERE order_id = ?");
-        $stmt_update->bind_param("i", $order_id);
-        $stmt_update->execute();
-        $stmt_update->close();
-        
-        $stmt_driver = $conn->prepare("SELECT full_name FROM users WHERE user_id = ?");
-        $stmt_driver->bind_param("i", $driver_user_id);
-        $stmt_driver->execute();
-        $driver_name = $stmt_driver->get_result()->fetch_assoc()['full_name'] ?? 'Unknown Driver';
-        $stmt_driver->close();
-
-        logOrderHistory($conn, $order_id, 'Out for Delivery', $user_id, "Assigned to driver: {$driver_name}.");
-        $conn->commit();
-        sendJsonResponse(['success' => true, 'message' => 'Driver assigned successfully.']);
-
-    } catch (Exception $e) {
-        $conn->rollback();
-        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], $e->getCode() ?: 500);
-    }
 }

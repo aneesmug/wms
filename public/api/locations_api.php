@@ -19,7 +19,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 switch ($method) {
     case 'GET':
         // User must have at least 'viewer' role for the target warehouse to see its locations
-        authorize_user_role(['viewer', 'operator', 'manager'], $target_warehouse_id);
+        authorize_user_role(['picker', 'viewer', 'operator', 'manager'], $target_warehouse_id);
         handleGetRequest($conn, $target_warehouse_id);
         break;
     case 'POST':

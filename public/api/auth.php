@@ -155,7 +155,8 @@ function handleSetWarehouse($conn) {
     } else {
         foreach ($_SESSION['assigned_warehouses'] as $wh) {
             if ($wh['warehouse_id'] == $warehouse_id) {
-                $user_role_for_warehouse = $wh['role'];
+                // --- FIX: Trim whitespace from the role to prevent auth issues ---
+                $user_role_for_warehouse = trim($wh['role']);
                 $warehouse_name = $wh['warehouse_name'];
                 break;
             }

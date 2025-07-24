@@ -274,3 +274,12 @@ button:active {
     font-weight: bold; 
     background-color: #e9ecef;
 }
+
+.bg-purple {
+    color: #fff;
+    background-color: #6f42c1; /* Bootstrap's purple */
+}
+.bg-orange {
+    color: #000;
+    background-color: #fd7e14; /* Bootstrap's orange */
+}

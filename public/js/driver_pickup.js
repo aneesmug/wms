@@ -13,23 +13,18 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             const response = await fetch(url, options);
             
-            // Get the raw response text first to handle non-JSON responses gracefully
             const responseText = await response.text();
 
-            // Try to parse the text as JSON
             let jsonResult;
             try {
                 jsonResult = JSON.parse(responseText);
             } catch (e) {
-                // If parsing fails, the response was not valid JSON. This is likely a server error.
                 console.error("Failed to parse JSON:", e);
-                console.error("Raw server response:", responseText); // Log the raw response for debugging
-                // Throw an error with the raw response to be displayed to the user
+                console.error("Raw server response:", responseText);
                 throw new Error("The server returned an invalid response. Check the developer console for more details.");
             }
 
             if (!response.ok) {
-                // Use the parsed JSON for the error message if available, otherwise provide a generic error.
                 throw new Error(jsonResult.message || `An error occurred. Status: ${response.status}`);
             }
 
@@ -49,14 +44,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const videoElement = document.getElementById('video');
     const sourceSelect = document.getElementById('sourceSelect');
     const torchButton = document.getElementById('torchButton');
-    const scannedItemList = document.getElementById('scannedItemList'); // MODIFICATION: Get the new list element
+    const scannedItemList = document.getElementById('scannedItemList');
+    // --- MODIFICATION: Add elements for scanner activation ---
+    const startScannerBtn = document.getElementById('startScannerBtn');
+    const scannerContainer = document.getElementById('scannerContainer');
 
     // --- State ---
     let orderId = null;
     let itemsToScan = [];
-    let scannedItemsLog = []; // MODIFICATION: State for the scanned items log
+    let scannedItemsLog = [];
+    let audioContext = null; // For beep sound
 
-    // MODIFICATION: Add EAN_13 to the list of scannable formats
     const formats = [ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.EAN_13];
     const hints = new Map();
     hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
@@ -69,18 +67,43 @@ document.addEventListener('DOMContentLoaded', () => {
     let isTorchOn = false;
 
     /**
-     * Initializes the page by getting the order ID from the URL and loading data.
+     * Initializes the page by getting the order ID and setting up event listeners.
      */
     async function initializePage() {
         const urlParams = new URLSearchParams(window.location.search);
         orderId = urlParams.get('order_id');
 
         if (!orderId) {
-            Swal.fire('Error', 'No Order ID provided. Please go back to your deliveries list.', 'error');
+            Swal.fire('Error', 'No Order ID provided. Please go back to your deliveries list.', 'error').then(() => {
+                window.location.href = 'delivery.php';
+            });
             return;
+        }
+        
+        // --- MODIFICATION: Set up button listener instead of auto-starting scanner ---
+        if (startScannerBtn) {
+            startScannerBtn.addEventListener('click', handleStartScannerClick);
         }
 
         await loadOrderDetails();
+    }
+
+    /**
+     * Handles the click on the "Start Scanner" button.
+     */
+    function handleStartScannerClick() {
+        // Initialize AudioContext on user gesture
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+
+        // Hide the button and show the scanner interface
+        startScannerBtn.style.display = 'none';
+        if (scannerContainer) {
+            scannerContainer.classList.remove('d-none');
+        }
+        
+        // Now, start the camera
         initializeBarcodeScanner();
     }
 
@@ -94,9 +117,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const order = result.data;
             orderNumberDisplay.textContent = order.order_number;
             itemsToScan = order.items;
-            scannedItemsLog = order.scanned_items_log || []; // MODIFICATION: Store the log
+            scannedItemsLog = order.scanned_items_log || [];
             renderItemList();
-            renderScannedList(); // MODIFICATION: Render the new list
+            renderScannedList();
         } else {
             itemList.innerHTML = '<li class="list-group-item text-danger">Could not load order details.</li>';
             scannedItemList.innerHTML = '<li class="list-group-item text-danger">Could not load scan history.</li>';
@@ -114,8 +137,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         itemsToScan.forEach(item => {
-            const scannedCount = item.scanned_quantity || 0;
-            const isComplete = scannedCount >= item.ordered_quantity;
+            const scannedCount = parseInt(item.scanned_quantity, 10) || 0;
+            const orderedQuantity = parseInt(item.ordered_quantity, 10);
+            const isComplete = scannedCount >= orderedQuantity;
             const icon = isComplete 
                 ? '<i class="bi bi-check-circle-fill text-success"></i>' 
                 : '<i class="bi bi-x-circle-fill text-danger"></i>';
@@ -127,14 +151,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div>
                     <strong>${item.sku}</strong> - ${item.product_name}
                 </div>
-                <span class="badge bg-primary rounded-pill">${scannedCount} / ${item.ordered_quantity} ${icon}</span>
+                <span class="badge bg-primary rounded-pill">${scannedCount} / ${orderedQuantity} ${icon}</span>
             `;
             itemList.appendChild(li);
         });
     }
     
     /**
-     * MODIFICATION: Renders the list of individually scanned items.
+     * Renders the list of individually scanned items.
      */
     function renderScannedList() {
         scannedItemList.innerHTML = '';
@@ -146,7 +170,6 @@ document.addEventListener('DOMContentLoaded', () => {
         scannedItemsLog.forEach(scan => {
             const li = document.createElement('li');
             li.className = 'list-group-item';
-            // Use 'en-GB' for a 24-hour format that's widely understood
             const scannedTime = new Date(scan.scanned_at).toLocaleTimeString('en-GB');
 
             li.innerHTML = `
@@ -170,11 +193,9 @@ document.addEventListener('DOMContentLoaded', () => {
         codeReader.listVideoInputDevices()
             .then((videoInputDevices) => {
                 if (videoInputDevices.length > 0) {
-                    // Prefer the rear camera if available
                     const rearCamera = videoInputDevices.find(device => device.label.toLowerCase().includes('back') || device.label.toLowerCase().includes('environment'));
                     selectedDeviceId = rearCamera ? rearCamera.deviceId : videoInputDevices[0].deviceId;
                     
-                    // Populate the camera select dropdown
                     videoInputDevices.forEach((element) => {
                         const sourceOption = document.createElement('option');
                         sourceOption.text = element.label;
@@ -212,7 +233,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (result) {
                 const scannedBarcode = result.getText();
                 const now = Date.now();
-                // Debounce to prevent multiple scans of the same barcode in quick succession
                 if (scannedBarcode === lastScannedBarcode && (now - lastScanTime < 3000)) {
                     return;
                 }
@@ -233,7 +253,6 @@ document.addEventListener('DOMContentLoaded', () => {
      * Checks if the camera track supports torch and sets up the button.
      */
     function setupTorchControl(controls) {
-        // Ensure stream and track exist before proceeding
         if (!controls || !controls.stream || typeof controls.stream.getVideoTracks !== 'function') return;
         
         const track = controls.stream.getVideoTracks()[0];
@@ -256,7 +275,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             torchSupported = false;
             torchButton.style.display = 'none';
-            console.log("Torch not supported on this device/camera.");
         }
     }
 
@@ -272,7 +290,8 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     async function verifyScannedItem(barcode) {
         scanFeedback.innerHTML = `<div class="alert alert-info">Verifying: ${barcode}...</div>`;
-        
+        barcodeInput.disabled = true;
+
         const result = await fetchData('api/driver_api.php?action=scanOrderItem', 'POST', {
             order_id: orderId,
             barcode: barcode
@@ -280,27 +299,44 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (result && result.success) {
             playBeep();
-            scanFeedback.innerHTML = `<div class="alert alert-success">${result.message}</div>`;
-            // MODIFICATION: Reload all data to ensure both lists are in sync
-            await loadOrderDetails(); 
+
+            if (result.data && result.data.order_status_updated) {
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Verification Complete!',
+                    text: result.message,
+                    confirmButtonText: 'Back to Deliveries'
+                }).then(() => {
+                    window.location.href = 'delivery.php';
+                });
+            } else {
+                scanFeedback.innerHTML = `<div class="alert alert-success">${result.message}</div>`;
+                await loadOrderDetails();
+            }
         } else {
-            // The global fetchData handles showing the Swal error alert
-            // We can still show a message in the feedback div if we want
             if (result) {
                  scanFeedback.innerHTML = `<div class="alert alert-danger">${result.message || 'Invalid barcode or item not on order.'}</div>`;
             } else {
                  scanFeedback.innerHTML = `<div class="alert alert-danger">A network error occurred. Please try again.</div>`;
             }
         }
-        barcodeInput.value = ''; 
+        barcodeInput.value = '';
+        barcodeInput.disabled = false;
+        barcodeInput.focus();
     }
 
     /**
      * Plays a short beep sound.
      */
     function playBeep() {
+        if (!audioContext) {
+            console.log("AudioContext not initialized. Cannot play beep.");
+            return;
+        }
+        if (audioContext.state === 'suspended') {
+            audioContext.resume();
+        }
         try {
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
             const gainNode = audioContext.createGain();
             oscillator.connect(gainNode);

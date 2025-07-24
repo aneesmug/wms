@@ -16,7 +16,7 @@ $action = $_GET['action'] ?? null;
 // Handle GET requests for specific actions
 if ($method === 'GET') {
     if ($action === 'get_tire_types') {
-        authorize_user_role(['viewer', 'operator', 'manager']);
+        authorize_user_role(['picker', 'viewer', 'operator', 'manager']);
         handleGetTireTypes($conn);
         exit;
     }
@@ -26,7 +26,7 @@ if ($method === 'GET') {
 // Apply role-based authorization for each action
 switch ($method) {
     case 'GET':
-        authorize_user_role(['viewer', 'operator', 'manager']);
+        authorize_user_role(['picker', 'viewer', 'operator', 'manager']);
         if (!$current_warehouse_id) {
             sendJsonResponse(['success' => false, 'message' => 'A warehouse must be selected to view products.'], 400);
             return;

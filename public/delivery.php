@@ -8,6 +8,12 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link rel="stylesheet" href="css/style.css">
+    <style>
+        .bg-orange {
+            color: #000;
+            background-color: #fd7e14; /* Bootstrap's orange */
+        }
+    </style>
 </head>
 <body>
     <?php include 'includes/menu.php'; ?>
@@ -16,7 +22,6 @@
         <header class="bg-white shadow-sm border-bottom">
             <div class="container-fluid px-4">
                 <div class="d-flex justify-content-between align-items-center py-3">
-                    <!-- This button toggles the offcanvas menu on mobile -->
                     <button class="btn btn-outline-secondary d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
                         <i class="bi bi-list"></i>
                     </button>

@@ -13,14 +13,14 @@ $permissions = [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
         'locations.php', 'products.php', 'customers.php', 'suppliers.php', 
         'reports.php', 'inbound_report.php', 'batch_search.php', 'users.php',
-        'warehouses.php' // MODIFICATION: Added warehouses page permission for managers
+        'warehouses.php', 'picking.php' // MODIFICATION: Added picking page
     ],
     'operator' => [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
-        'locations.php', 'batch_search.php'
+        'locations.php', 'batch_search.php', 'picking.php' // MODIFICATION: Added picking page
     ],
     'picker' => [
-        'dashboard.php', 'outbound.php', 'inventory.php'
+        'dashboard.php', 'inventory.php', 'picking.php' // MODIFICATION: Changed outbound to picking
     ],
     'viewer' => [
         'dashboard.php', 'inventory.php', 'reports.php', 'inbound_report.php'
@@ -62,7 +62,9 @@ $menu_items = [
     'operations' => [
         'label' => 'Operations', 'icon' => 'bi-arrows-angle-contract', 'submenu' => [
             ['label' => 'Inbound', 'url' => 'inbound.php', 'icon' => 'bi-box-arrow-in-down'],
-            ['label' => 'Outbound', 'url' => 'outbound.php', 'icon' => 'bi-box-arrow-up-right']
+            ['label' => 'Outbound', 'url' => 'outbound.php', 'icon' => 'bi-box-arrow-up-right'],
+            // MODIFICATION: Added Picking link
+            ['label' => 'Picking', 'url' => 'picking.php', 'icon' => 'bi-box-seam']
         ]
     ],
     'inventory' => [
@@ -74,7 +76,6 @@ $menu_items = [
     'master_data' => [
         'label' => 'Master Data', 'icon' => 'bi-database', 'submenu' => [
             ['label' => 'Products', 'url' => 'products.php', 'icon' => 'bi-tag'],
-            // MODIFICATION: Added Warehouses link
             ['label' => 'Warehouses', 'url' => 'warehouses.php', 'icon' => 'bi-buildings'],
             ['label' => 'Customers', 'url' => 'customers.php', 'icon' => 'bi-people'],
             ['label' => 'Suppliers', 'url' => 'suppliers.php', 'icon' => 'bi-truck']

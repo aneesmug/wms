@@ -13,7 +13,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 switch ($method) {
     case 'GET':
-        authorize_user_role(['viewer', 'operator', 'manager']);
+        authorize_user_role(['picker', 'viewer', 'operator', 'manager']);
         $action = filter_input(INPUT_GET, 'action', FILTER_SANITIZE_STRING);
         if ($action === 'location_stock') {
             $warehouse_id_for_stock = filter_input(INPUT_GET, 'warehouse_id', FILTER_VALIDATE_INT) ?: $current_warehouse_id;
