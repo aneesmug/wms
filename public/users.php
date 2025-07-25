@@ -76,19 +76,20 @@ if (session_status() === PHP_SESSION_NONE) {
         </div>
     </div>
 
-    <!-- Hidden Form for SweetAlert2 -->
+    <!-- Hidden Form for the Main User Details Modal -->
     <div id="userFormContainer" style="display: none;">
         <form id="userForm" class="text-start">
             <input type="hidden" id="userId" name="user_id">
             
             <!-- Profile Image Section -->
             <div class="mb-3 text-center">
-                <img id="profileImagePreview" src="assets/images/default-user.png" alt="Profile Preview" class="rounded-circle mb-2" style="width: 120px; height: 120px; object-fit: cover;">
-                <div id="croppieContainer" class="mt-2" style="display: none; width: 100%; height: 300px;"></div>
-                <label for="profileImage" class="btn btn-sm btn-outline-secondary mt-2">
-                    <i class="bi bi-upload"></i> Choose Image
-                </label>
-                <input type="file" id="profileImage" name="profile_image" class="d-none" accept="image/*">
+                <img id="profileImagePreview" src="uploads/users/defult.png" alt="Profile Preview" class="rounded-circle mb-2" style="width: 120px; height: 120px; object-fit: cover; cursor: pointer;">
+                <div>
+                    <label for="profileImage" class="btn btn-sm btn-outline-secondary mt-2">
+                        <i class="bi bi-upload"></i> Choose Image
+                    </label>
+                    <input type="file" id="profileImage" name="profile_image" class="d-none" accept="image/*">
+                </div>
             </div>
 
             <div class="row">
@@ -168,6 +169,12 @@ if (session_status() === PHP_SESSION_NONE) {
             </div>
         </form>
     </div>
+
+    <!-- Hidden Container for the Croppie Modal -->
+    <div id="croppieModalContainer" style="display: none;">
+        <div id="croppieEditor" style="width: 100%; height: 400px;"></div>
+    </div>
+
 
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
