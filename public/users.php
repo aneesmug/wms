@@ -11,21 +11,15 @@ if (session_status() === PHP_SESSION_NONE) {
     <title>User Management - WMS</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
-    <!-- SweetAlert2 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
-    <!-- Croppie CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/croppie/2.6.5/croppie.min.css">
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="bg-light">
-    <!-- Main container that includes sidebar and content -->
     <div id="content">
-        <?php include 'includes/menu.php'; // Include the shared sidebar navigation ?>
+        <?php include 'includes/menu.php'; ?>
 
-        <!-- Main Content Area -->
         <div class="flex-grow-1 d-flex flex-column">
-            
-            <!-- Top Header Bar -->
             <header class="bg-white shadow-sm border-bottom">
                 <div class="container-fluid px-4">
                     <div class="d-flex justify-content-between align-items-center py-3">
@@ -37,16 +31,11 @@ if (session_status() === PHP_SESSION_NONE) {
                 </div>
             </header>
 
-            <!-- Page-specific Content -->
             <main class="flex-grow-1 p-4 p-md-5 bg-light">
                 <div class="container-fluid">
-                    <?php
-                    // Security check: Ensure only global admins can see the content.
-                    if (!isset($_SESSION['is_global_admin']) || $_SESSION['is_global_admin'] !== true) {
-                        echo '<div class="alert alert-danger">You do not have permission to access this page.</div>';
-                    } else {
-                    ?>
-                        <!-- User table card -->
+                    <?php if (!isset($_SESSION['is_global_admin']) || $_SESSION['is_global_admin'] !== true): ?>
+                        <div class="alert alert-danger">You do not have permission to access this page.</div>
+                    <?php else: ?>
                         <div class="card shadow-sm">
                             <div class="card-body">
                                 <div class="table-responsive">
@@ -61,131 +50,127 @@ if (session_status() === PHP_SESSION_NONE) {
                                             </tr>
                                         </thead>
                                         <tbody id="usersTableBody">
-                                            <!-- User rows will be dynamically inserted here by JavaScript -->
                                             <tr><td colspan="5" class="text-center p-4">Loading users...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
                             </div>
                         </div>
-                    <?php
-                    } // End of admin-only content block
-                    ?>
+                    <?php endif; ?>
                 </div>
             </main>
         </div>
     </div>
 
-    <!-- Hidden Form for the Main User Details Modal -->
-    <div id="userFormContainer" style="display: none;">
-        <form id="userForm" class="text-start">
-            <input type="hidden" id="userId" name="user_id">
-            
-            <!-- Profile Image Section -->
-            <div class="mb-3 text-center">
-                <img id="profileImagePreview" src="uploads/users/defult.png" alt="Profile Preview" class="rounded-circle mb-2" style="width: 120px; height: 120px; object-fit: cover; cursor: pointer;">
-                <div>
-                    <label for="profileImage" class="btn btn-sm btn-outline-secondary mt-2">
-                        <i class="bi bi-upload"></i> Choose Image
-                    </label>
-                    <input type="file" id="profileImage" name="profile_image" class="d-none" accept="image/*">
+    <!-- Bootstrap Modal for User Form -->
+    <div class="modal fade" id="userModal" tabindex="-1" aria-labelledby="userModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="userModalLabel">User Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="userForm" class="text-start" novalidate>
+                        <input type="hidden" id="userId" name="user_id">
+                        
+                        <!-- Profile Image Section -->
+                        <div class="mb-3 text-center" id="profileImageSection" style="display: none;">
+                            <img id="profileImagePreview" src="uploads/users/default.png" alt="Profile Preview" 
+                                 class="rounded-circle mb-2" style="width: 120px; height: 120px; object-fit: cover; cursor: pointer;">
+                            <div>
+                                <input type="file" id="profileImageInput" class="d-none" accept="image/*">
+                                <button type="button" id="changeImageBtn" class="btn btn-sm btn-outline-secondary mt-2">
+                                    <i class="bi bi-upload"></i> Change Image
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="fullName" class="form-label">Full Name</label>
+                                <input type="text" class="form-control" id="fullName" name="full_name" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="username" class="form-label">Username</label>
+                                <input type="text" class="form-control" id="username" name="username" required>
+                            </div>
+                        </div>
+
+                        <div id="passwordSection">
+                            <div class="mb-3">
+                                <label for="password" class="form-label">Password</label>
+                                <div class="input-group">
+                                    <input type="password" class="form-control" id="password" name="password">
+                                    <button class="btn btn-outline-secondary" type="button" id="togglePassword"><i class="bi bi-eye-slash"></i></button>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="confirmPassword" class="form-label">Confirm Password</label>
+                                <div class="input-group">
+                                    <input type="password" class="form-control" id="confirmPassword" name="confirm_password">
+                                     <button class="btn btn-outline-secondary" type="button" id="toggleConfirmPassword"><i class="bi bi-eye-slash"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="changePasswordBtnContainer" class="mb-3" style="display: none;">
+                             <label class="form-label">Password</label>
+                             <div><button type="button" class="btn btn-secondary" id="changePasswordBtn"><i class="bi bi-key me-2"></i>Change Password</button></div>
+                        </div>
+
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" role="switch" id="isGlobalAdmin" name="is_global_admin">
+                            <label class="form-check-label" for="isGlobalAdmin">Is Global Admin</label>
+                        </div>
+
+                        <hr>
+
+                        <div id="warehouseRolesSection">
+                            <h5>Warehouse Permissions</h5>
+                            <p class="text-muted small">Assign roles for specific warehouses. This is disabled for Global Admins.</p>
+                            <div class="row g-3 align-items-end" id="addRoleControls">
+                                <div class="col-md-5"><label for="warehouseSelect" class="form-label">Warehouse</label><select id="warehouseSelect" class="form-select"></select></div>
+                                <div class="col-md-5"><label for="roleSelect" class="form-label">Role</label><select id="roleSelect" class="form-select"></select></div>
+                                <div class="col-md-2"><button type="button" class="btn btn-success w-100" id="addRoleBtn">Add</button></div>
+                            </div>
+                            <div class="mt-3">
+                                <h6 class="mb-2">Assigned Roles</h6>
+                                <ul class="list-group" id="assignedRolesList"></ul>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="saveUserBtn">Save Changes</button>
                 </div>
             </div>
-
-            <div class="row">
-                <div class="col-md-6 mb-3">
-                    <label for="fullName" class="form-label">Full Name</label>
-                    <input type="text" class="form-control" id="fullName" name="full_name" required>
-                </div>
-                <div class="col-md-6 mb-3">
-                    <label for="username" class="form-label">Username</label>
-                    <input type="text" class="form-control" id="username" name="username" required>
-                </div>
-            </div>
-
-            <!-- Password section for new users -->
-            <div id="passwordSection">
-                <div class="mb-3">
-                    <label for="password" class="form-label">Password</label>
-                    <div class="input-group">
-                        <input type="password" class="form-control" id="password" name="password" required>
-                        <button class="btn btn-outline-secondary" type="button" id="togglePassword">
-                            <i class="bi bi-eye-slash"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="mb-3">
-                    <label for="confirmPassword" class="form-label">Confirm Password</label>
-                    <div class="input-group">
-                        <input type="password" class="form-control" id="confirmPassword" name="confirm_password" required>
-                         <button class="btn btn-outline-secondary" type="button" id="toggleConfirmPassword">
-                            <i class="bi bi-eye-slash"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Change password button for existing users -->
-            <div id="changePasswordBtnContainer" class="mb-3" style="display: none;">
-                 <label class="form-label">Password</label>
-                 <div>
-                    <button type="button" class="btn btn-secondary" id="changePasswordBtn">
-                        <i class="bi bi-key me-2"></i>Change Password
-                    </button>
-                 </div>
-            </div>
-
-            <div class="form-check form-switch mb-3">
-                <input class="form-check-input" type="checkbox" role="switch" id="isGlobalAdmin" name="is_global_admin">
-                <label class="form-check-label" for="isGlobalAdmin">Is Global Admin</label>
-            </div>
-
-            <hr>
-
-            <div id="warehouseRolesSection">
-                <h5>Warehouse Permissions</h5>
-                <p class="text-muted small">Assign roles for specific warehouses. This is disabled for Global Admins.</p>
-                
-                <div class="row g-3 align-items-end" id="addRoleControls">
-                    <div class="col-md-5">
-                        <label for="warehouseSelect" class="form-label">Warehouse</label>
-                        <select id="warehouseSelect" class="form-select"></select>
-                    </div>
-                    <div class="col-md-5">
-                        <label for="roleSelect" class="form-label">Role</label>
-                        <select id="roleSelect" class="form-select"></select>
-                    </div>
-                    <div class="col-md-2">
-                        <button type="button" class="btn btn-success w-100" id="addRoleBtn">Add</button>
-                    </div>
-                </div>
-
-                <div class="mt-3">
-                    <h6 class="mb-2">Assigned Roles</h6>
-                    <ul class="list-group" id="assignedRolesList">
-                        <!-- Assigned roles will be listed here -->
-                    </ul>
-                </div>
-            </div>
-        </form>
+        </div>
     </div>
 
-    <!-- Hidden Container for the Croppie Modal -->
-    <div id="croppieModalContainer" style="display: none;">
-        <div id="croppieEditor" style="width: 100%; height: 400px;"></div>
+    <!-- Bootstrap Modal for Croppie -->
+    <div class="modal fade" id="croppieModal" tabindex="-1" aria-labelledby="croppieModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="croppieModalLabel">Crop Your Image</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body"><div id="croppieEditor" style="width:100%; height:400px;"></div></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="saveCropBtn">Crop & Save</button>
+                </div>
+            </div>
+        </div>
     </div>
 
-
-    <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- SweetAlert2 -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <!-- Croppie JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/croppie/2.6.5/croppie.min.js"></script>
-    <!-- Load utility scripts first -->
     <script src="js/api.js"></script>
     <script src="js/main.js"></script>
-    <!-- Page-specific script -->
     <script src="js/users.js"></script>
 </body>
 </html>

@@ -75,7 +75,7 @@ function promptWarehouseSelection(warehouses) {
 }
 
 /**
- * UPDATED: Updates the user information display in the new sidebar dropdowns.
+ * UPDATED: Updates the user information display, including the profile picture.
  * @param {object} authStatus - The authentication status object from the API.
  */
 function updateUserInfoDisplay(authStatus) {
@@ -83,12 +83,17 @@ function updateUserInfoDisplay(authStatus) {
 
     if (!user) return; // Exit if user data is not available
 
+    const defaultImagePath = 'uploads/users/default.png';
+    const profileImageUrl = user.profile_image_url || defaultImagePath;
+
     // Target elements in both menus
     const elements = {
         nameDesktop: document.getElementById('userFullNameDesktop'),
         roleDesktop: document.getElementById('userRoleDesktop'),
+        imageDesktop: document.getElementById('userProfileImageDesktop'),
         nameMobile: document.getElementById('userFullNameMobile'),
-        roleMobile: document.getElementById('userRoleMobile')
+        roleMobile: document.getElementById('userRoleMobile'),
+        imageMobile: document.getElementById('userProfileImageMobile')
     };
 
     const displayName = user.full_name || 'User';
@@ -101,11 +106,20 @@ function updateUserInfoDisplay(authStatus) {
         displayRole = current_warehouse_role.charAt(0).toUpperCase() + current_warehouse_role.slice(1);
     }
 
-    // Update text content if elements exist
+    // Update text content and image sources
     if (elements.nameDesktop) elements.nameDesktop.textContent = displayName;
     if (elements.roleDesktop) elements.roleDesktop.textContent = displayRole;
+    if (elements.imageDesktop) {
+        elements.imageDesktop.src = profileImageUrl;
+        elements.imageDesktop.onerror = () => { elements.imageDesktop.src = defaultImagePath; };
+    }
+    
     if (elements.nameMobile) elements.nameMobile.textContent = displayName;
     if (elements.roleMobile) elements.roleMobile.textContent = displayRole;
+    if (elements.imageMobile) {
+        elements.imageMobile.src = profileImageUrl;
+        elements.imageMobile.onerror = () => { elements.imageMobile.src = defaultImagePath; };
+    }
 }
 
 

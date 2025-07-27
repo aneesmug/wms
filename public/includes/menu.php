@@ -53,13 +53,13 @@ $menu_items = [
     ],
     'inventory' => [
         'label' => 'Inventory', 'icon' => 'bi-boxes', 'submenu' => [
-            ['label' => 'Stock', 'url' => 'inventory.php', 'icon' => 'bi-box'],
-            ['label' => 'Locations', 'url' => 'locations.php', 'icon' => 'bi-geo-alt']
+            ['label' => 'Stock', 'url' => 'inventory.php', 'icon' => 'bi-box']
         ]
     ],
     'master_data' => [
         'label' => 'Master Data', 'icon' => 'bi-database', 'submenu' => [
             ['label' => 'Products', 'url' => 'products.php', 'icon' => 'bi-tag'],
+            ['label' => 'Locations', 'url' => 'locations.php', 'icon' => 'bi-geo-alt'],
             ['label' => 'Warehouses', 'url' => 'warehouses.php', 'icon' => 'bi-buildings'],
             ['label' => 'Customers', 'url' => 'customers.php', 'icon' => 'bi-people'],
             ['label' => 'Suppliers', 'url' => 'suppliers.php', 'icon' => 'bi-truck']
@@ -127,11 +127,10 @@ function is_submenu_active($submenu_items, $current_page) {
     <!-- User Info Dropdown (Desktop) -->
     <div class="dropdown pb-3 text-center">
         <a href="#" class="d-block link-light text-decoration-none dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-            <i class="bi bi-person-circle fs-4"></i>
+            <img id="userProfileImageDesktop" src="uploads/users/default.png" alt="User" width="32" height="32" class="rounded-circle">
         </a>
         <ul class="dropdown-menu dropdown-menu-dark text-small shadow" style="left: auto; right: 10px;">
             <li><h6 id="userFullNameDesktop" class="dropdown-header">Loading...</h6></li>
-            <!-- MODIFICATION: Changed text-muted to text-white-50 for better contrast -->
             <li><span id="userRoleDesktop" class="dropdown-item-text text-white-50 px-3">Loading...</span></li>
             <li><hr class="dropdown-divider"></li>
             <li><a id="logoutBtnDesktop" class="dropdown-item" href="#"><i class="bi bi-box-arrow-left me-2"></i>Logout</a></li>
@@ -148,7 +147,7 @@ function is_submenu_active($submenu_items, $current_page) {
     <div class="offcanvas-body d-flex flex-column">
         <!-- User Info (Mobile) -->
         <div class="d-flex align-items-center mb-3 p-2 border-bottom border-secondary">
-            <i class="bi bi-person-circle fs-2 me-3"></i>
+            <img id="userProfileImageMobile" src="uploads/users/default.png" alt="User" width="40" height="40" class="rounded-circle me-3">
             <div>
                 <div id="userFullNameMobile" class="fw-bold">Loading...</div>
                 <div id="userRoleMobile" class="text-white-50 small">Loading...</div>

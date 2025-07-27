@@ -1,16 +1,28 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // --- DOM Element Selectors ---
+    // --- DOM & Modal Selectors ---
     const usersTableBody = document.getElementById('usersTableBody');
     const addUserBtn = document.getElementById('addUserBtn');
-    const userFormContainer = document.getElementById('userFormContainer');
-    const croppieModalContainer = document.getElementById('croppieModalContainer');
+    const userModalEl = document.getElementById('userModal');
+    // FIX: Initialize modal with options to prevent closing on outside click or escape key
+    const userModal = new bootstrap.Modal(userModalEl, {
+        backdrop: 'static',
+        keyboard: false
+    });
+    const userForm = document.getElementById('userForm');
+    const saveUserBtn = document.getElementById('saveUserBtn');
+    
+    // --- Correct Default Image Path ---
+    const defaultImagePath = 'uploads/users/default.png';
 
     // --- State Management ---
     let availableWarehouses = [];
     let availableRoles = [];
     let isDataLoaded = false;
     let croppieInstance = null;
-    // The cropped image data will now be stored on the preview element itself, not in a global variable.
+    let croppedImageData = null;
+    let currentUserId = null;
+    let isEditing = false;
+    let localAssignedRoles = [];
 
     // --- Initial Data Loading ---
     const initializePage = async () => {
@@ -22,27 +34,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const loadUsers = async () => {
         const result = await fetchData('api/users_api.php?action=get_users');
-        if (result && result.success) {
-            renderUsersTable(result.users);
-        } else {
-            usersTableBody.innerHTML = '<tr><td colspan="5" class="text-center text-danger p-4">Failed to load users.</td></tr>';
-        }
+        renderUsersTable(result?.success ? result.users : []);
     };
 
     const loadWarehouses = async () => {
         const result = await fetchData('api/users_api.php?action=get_all_warehouses');
-        if (result && result.success) availableWarehouses = result.warehouses;
+        if (result?.success) availableWarehouses = result.warehouses;
     };
 
     const loadRoles = async () => {
         const result = await fetchData('api/users_api.php?action=get_all_roles');
-        if (result && result.success) availableRoles = result.roles;
+        if (result?.success) availableRoles = result.roles;
     };
 
     // --- UI Rendering & Helpers ---
     const renderUsersTable = (users) => {
         usersTableBody.innerHTML = '';
-        if (users.length === 0) {
+        if (!users || users.length === 0) {
             usersTableBody.innerHTML = '<tr><td colspan="5" class="text-center p-4">No users found.</td></tr>';
             return;
         }
@@ -50,16 +58,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const rolesHtml = user.warehouse_roles
                 ? user.warehouse_roles.split(';').map(role => `<span class="badge bg-secondary me-1 mb-1">${role.replace(':', ': ')}</span>`).join('')
                 : (user.is_global_admin ? '<span class="badge bg-info">All Access</span>' : '<span class="badge bg-light text-dark">None</span>');
-            const profileImage = user.profile_image_url || 'assets/images/default-user.png';
+            const profileImage = user.profile_image_url || defaultImagePath;
             
-            // FIX: Corrected the onerror handler to prevent reload loops.
-            // It now points to the correct default image and includes a safeguard (this.onerror=null;)
-            // to ensure the event only fires once if the default image is also missing.
             const row = `
                 <tr>
                     <td>
                         <div class="d-flex align-items-center">
-                            <img src="${profileImage}" class="rounded-circle me-3" alt="${user.full_name}" style="width: 45px; height: 45px; object-fit: cover;" onerror="this.onerror=null; this.src='assets/images/default-user.png';">
+                            <img src="${profileImage}" class="rounded-circle me-3" alt="${user.full_name}" style="width: 45px; height: 45px; object-fit: cover;" onerror="this.onerror=null; this.src='${defaultImagePath}';">
                             <div class="fw-bold">${user.full_name}</div>
                         </div>
                     </td>
@@ -75,26 +80,26 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    const renderAssignedRolesInSwal = (rolesToRender) => {
-        const list = Swal.getPopup()?.querySelector('#assignedRolesList');
+    const renderAssignedRoles = () => {
+        const list = document.getElementById('assignedRolesList');
         if (!list) return;
-        list.innerHTML = rolesToRender.length === 0 ? '<li class="list-group-item text-muted">No roles assigned.</li>'
-            : rolesToRender.map((role, index) => `
+        list.innerHTML = localAssignedRoles.length === 0 ? '<li class="list-group-item text-muted">No roles assigned.</li>'
+            : localAssignedRoles.map((role, index) => `
                 <li class="list-group-item d-flex justify-content-between align-items-center">
                     <span><i class="bi bi-building me-2"></i><strong>${role.warehouse_name}</strong> as <span class="badge bg-primary">${role.role}</span></span>
                     <button type="button" class="btn-close" aria-label="Remove" data-index="${index}"></button>
                 </li>`).join('');
         list.querySelectorAll('.btn-close').forEach(btn => {
             btn.addEventListener('click', e => {
-                rolesToRender.splice(parseInt(e.target.dataset.index), 1);
-                renderAssignedRolesInSwal(rolesToRender);
+                localAssignedRoles.splice(parseInt(e.target.dataset.index), 1);
+                renderAssignedRoles();
             });
         });
     };
-
+    
     const setupPasswordToggle = (toggleBtnId, passwordInputId) => {
-        const btn = Swal.getPopup()?.querySelector(`#${toggleBtnId}`);
-        const input = Swal.getPopup()?.querySelector(`#${passwordInputId}`);
+        const btn = document.getElementById(toggleBtnId);
+        const input = document.getElementById(passwordInputId);
         if (btn && input) {
             btn.addEventListener('click', () => {
                 const type = input.type === 'password' ? 'text' : 'password';
@@ -105,27 +110,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    /**
-     * Opens a dedicated modal for Croppie.
-     * @param {File} file - The image file selected by the user.
-     * @returns {Promise<string|null>} A promise that resolves with the Base64 cropped image data, or null if cancelled.
-     */
-    const openCroppieModal = (file) => {
+    // --- Croppie in SweetAlert2 Logic ---
+    const openCroppieInSwal = (file) => {
         return new Promise((resolve) => {
             const reader = new FileReader();
             reader.onload = (event) => {
                 Swal.fire({
                     title: 'Crop Your Image',
-                    html: croppieModalContainer.innerHTML,
+                    html: `<div id="croppie-editor-container" style="width:100%; height:400px;"></div>`,
                     width: 'auto',
                     showCancelButton: true,
                     confirmButtonText: 'Crop & Save',
                     didOpen: () => {
-                        const editor = Swal.getPopup().querySelector('#croppieEditor');
+                        const editor = Swal.getPopup().querySelector('#croppie-editor-container');
                         croppieInstance = new Croppie(editor, {
                             viewport: { width: 200, height: 200, type: 'circle' },
                             boundary: { width: 300, height: 300 },
-                            enableExif: true
+                            enableExif: true,
+                            mouseWheelZoom: true,
+                            showZoomer: true
                         });
                         croppieInstance.bind({ url: event.target.result });
                     },
@@ -136,12 +139,20 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     },
                     preConfirm: async () => {
-                        return await croppieInstance.result({
-                            type: 'base64',
-                            size: 'viewport',
-                            format: 'jpeg',
-                            quality: 0.9
-                        });
+                        if (!croppieInstance) return null;
+                        try {
+                            const result = await croppieInstance.result({
+                                type: 'base64',
+                                size: 'viewport',
+                                format: 'jpeg',
+                                quality: 0.9
+                            });
+                            return result;
+                        } catch (error) {
+                            console.error('Croppie Error:', error);
+                            Swal.showValidationMessage(`Cropping failed: ${error.message}`);
+                            return null;
+                        }
                     }
                 }).then(result => {
                     resolve(result.isConfirmed ? result.value : null);
@@ -152,146 +163,130 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- Main Form Logic ---
-    if (addUserBtn) {
-        addUserBtn.addEventListener('click', () => openUserForm());
-    }
-
     const openUserForm = async (userId = null) => {
-        await initializePage();
+        await initializePage(); // Ensure data is loaded before opening form
+        userForm.reset();
+        userForm.classList.remove('was-validated');
+        croppedImageData = null;
+        localAssignedRoles = [];
+        isEditing = userId !== null;
+        currentUserId = userId;
 
-        const isEditing = userId !== null;
-        let localAssignedRoles = [];
-        let userDataForEdit = null;
-
+        // --- Configure UI based on Add/Edit mode ---
+        document.getElementById('userModalLabel').textContent = isEditing ? 'Edit User' : 'Add New User';
+        document.getElementById('profileImageSection').style.display = isEditing ? 'block' : 'none';
+        document.getElementById('passwordSection').style.display = isEditing ? 'none' : 'block';
+        document.getElementById('changePasswordBtnContainer').style.display = isEditing ? 'block' : 'none';
+        document.getElementById('password').required = !isEditing;
+        document.getElementById('confirmPassword').required = !isEditing;
+        
         if (isEditing) {
             const result = await fetchData(`api/users_api.php?action=get_user_details&user_id=${userId}`);
-            if (!result || !result.success) return Swal.fire('Error', 'Could not fetch user details.', 'error');
-            userDataForEdit = result.user;
-            localAssignedRoles = userDataForEdit.warehouse_roles.map(role => ({
+            if (!result?.success) return Swal.fire('Error', 'Could not fetch user details.', 'error');
+            const userData = result.user;
+            document.getElementById('userId').value = userData.user_id;
+            document.getElementById('fullName').value = userData.full_name;
+            document.getElementById('username').value = userData.username;
+            document.getElementById('isGlobalAdmin').checked = userData.is_global_admin;
+            document.getElementById('profileImagePreview').src = userData.profile_image_url || defaultImagePath;
+            localAssignedRoles = userData.warehouse_roles.map(role => ({
                 ...role,
                 warehouse_name: availableWarehouses.find(w => w.warehouse_id == role.warehouse_id)?.warehouse_name || 'Unknown'
             }));
+        } else {
+            document.getElementById('profileImagePreview').src = defaultImagePath;
         }
 
-        Swal.fire({
-            title: isEditing ? 'Edit User' : 'Add New User',
-            html: userFormContainer.innerHTML,
-            width: '800px',
-            showCancelButton: true,
-            confirmButtonText: isEditing ? 'Save Changes' : 'Create User',
-            customClass: { popup: 'p-4' },
-            didOpen: () => {
-                const popup = Swal.getPopup();
-                const profileImageInput = popup.querySelector('#profileImage');
-                const profileImagePreview = popup.querySelector('#profileImagePreview');
-                
-                // FIX: Store cropped image data on a data attribute of the preview element.
-                // This is a reliable way to maintain state between modals.
-                profileImagePreview.dataset.imageData = '';
-
-                profileImageInput.addEventListener('change', async (e) => {
-                    const file = e.target.files[0];
-                    if (file) {
-                        const newImageData = await openCroppieModal(file);
-                        if (newImageData) {
-                            profileImagePreview.dataset.imageData = newImageData;
-                            profileImagePreview.src = newImageData;
-                        }
-                        e.target.value = '';
-                    }
-                });
-                
-                profileImagePreview.addEventListener('click', () => profileImageInput.click());
-
-                const form = popup.querySelector('#userForm');
-                const warehouseSelect = popup.querySelector('#warehouseSelect');
-                const roleSelect = popup.querySelector('#roleSelect');
-                const isGlobalAdminSwitch = popup.querySelector('#isGlobalAdmin');
-                const passwordSection = popup.querySelector('#passwordSection');
-                const changePasswordBtnContainer = popup.querySelector('#changePasswordBtnContainer');
-
-                const toggleWarehouseRolesSection = (isAdmin) => {
-                    popup.querySelector('#warehouseRolesSection').style.opacity = isAdmin ? '0.5' : '1';
-                    popup.querySelectorAll('#warehouseRolesSection select, #warehouseRolesSection button').forEach(c => c.disabled = isAdmin);
-                };
-
-                warehouseSelect.innerHTML = availableWarehouses.map(w => `<option value="${w.warehouse_id}">${w.warehouse_name}</option>`).join('');
-                roleSelect.innerHTML = availableRoles.map(r => `<option value="${r}">${r.charAt(0).toUpperCase() + r.slice(1)}</option>`).join('');
-                isGlobalAdminSwitch.addEventListener('change', (e) => toggleWarehouseRolesSection(e.target.checked));
-
-                popup.querySelector('#addRoleBtn').addEventListener('click', () => {
-                    const warehouseId = parseInt(warehouseSelect.value);
-                    const role = roleSelect.value;
-                    const warehouseName = warehouseSelect.options[warehouseSelect.selectedIndex].text;
-                    const existing = localAssignedRoles.find(r => r.warehouse_id == warehouseId);
-                    if (existing) existing.role = role;
-                    else localAssignedRoles.push({ warehouse_id: warehouseId, warehouse_name: warehouseName, role });
-                    renderAssignedRolesInSwal(localAssignedRoles);
-                });
-
-                if (isEditing) {
-                    form.userId.value = userDataForEdit.user_id;
-                    form.fullName.value = userDataForEdit.full_name;
-                    form.username.value = userDataForEdit.username;
-                    isGlobalAdminSwitch.checked = userDataForEdit.is_global_admin;
-                    passwordSection.style.display = 'none';
-                    changePasswordBtnContainer.style.display = 'block';
-                    popup.querySelector('#changePasswordBtn').addEventListener('click', () => openChangePasswordForm(userId));
-                    if (userDataForEdit.profile_image_url) profileImagePreview.src = userDataForEdit.profile_image_url;
-                } else {
-                    passwordSection.style.display = 'block';
-                    changePasswordBtnContainer.style.display = 'none';
-                    form.password.required = true;
-                    form.confirm_password.required = true;
-                    setupPasswordToggle('togglePassword', 'password');
-                    setupPasswordToggle('toggleConfirmPassword', 'confirmPassword');
-                }
-                toggleWarehouseRolesSection(isGlobalAdminSwitch.checked);
-                renderAssignedRolesInSwal(localAssignedRoles);
-            },
-            preConfirm: async () => {
-                const form = Swal.getPopup().querySelector('#userForm');
-                if (!form.checkValidity()) {
-                    form.reportValidity();
-                    return false;
-                }
-                const formData = new FormData(form);
-                const profileImagePreview = form.querySelector('#profileImagePreview');
-
-                const data = {
-                    user_id: formData.get('user_id') ? parseInt(formData.get('user_id')) : null,
-                    full_name: formData.get('full_name'),
-                    username: formData.get('username'),
-                    is_global_admin: formData.get('is_global_admin') === 'on',
-                    warehouse_roles: localAssignedRoles,
-                    // FIX: Read the image data from the data attribute.
-                    profile_image: profileImagePreview.dataset.imageData || null
-                };
-                if (!isEditing) {
-                    data.password = formData.get('password');
-                    data.confirm_password = formData.get('confirm_password');
-                    if (data.password !== data.confirm_password) {
-                        Swal.showValidationMessage('Passwords do not match.');
-                        return false;
-                    }
-                }
-                return data;
-            }
-        }).then(async (result) => {
-            if (result.isConfirmed) {
-                const action = result.value.user_id ? 'update_user' : 'create_user';
-                const apiResult = await fetchData(`api/users_api.php?action=${action}`, 'POST', result.value);
-                if (apiResult && apiResult.success) {
-                    Swal.fire('Success!', apiResult.message, 'success');
-                    loadUsers();
-                } else {
-                    Swal.fire('Error!', apiResult.message || 'An unknown error occurred.', 'error');
-                }
-            }
-        });
+        renderAssignedRoles();
+        toggleWarehouseRolesSection(document.getElementById('isGlobalAdmin').checked);
+        userModal.show();
+    };
+    
+    const toggleWarehouseRolesSection = (isAdmin) => {
+        const section = document.getElementById('warehouseRolesSection');
+        section.style.opacity = isAdmin ? '0.5' : '1';
+        section.querySelectorAll('select, button').forEach(c => c.disabled = isAdmin);
     };
 
-    // Make functions globally accessible for onclick attributes
+    // --- Event Listeners ---
+    if (addUserBtn) addUserBtn.addEventListener('click', () => openUserForm());
+
+    document.getElementById('changeImageBtn').addEventListener('click', () => document.getElementById('profileImageInput').click());
+    
+    document.getElementById('profileImageInput').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            const newImageData = await openCroppieInSwal(file);
+            if (newImageData) {
+                croppedImageData = newImageData;
+                document.getElementById('profileImagePreview').src = newImageData;
+            }
+            e.target.value = ''; // Reset file input
+        }
+    });
+
+    document.getElementById('isGlobalAdmin').addEventListener('change', (e) => toggleWarehouseRolesSection(e.target.checked));
+
+    document.getElementById('addRoleBtn').addEventListener('click', () => {
+        const warehouseSelect = document.getElementById('warehouseSelect');
+        const roleSelect = document.getElementById('roleSelect');
+        const warehouseId = parseInt(warehouseSelect.value);
+        const role = roleSelect.value;
+        if (!warehouseId || !role) return;
+
+        const warehouseName = warehouseSelect.options[warehouseSelect.selectedIndex].text;
+        const existing = localAssignedRoles.find(r => r.warehouse_id == warehouseId);
+        if (existing) existing.role = role;
+        else localAssignedRoles.push({ warehouse_id: warehouseId, warehouse_name: warehouseName, role });
+        renderAssignedRoles();
+    });
+    
+    document.getElementById('changePasswordBtn').addEventListener('click', () => openChangePasswordForm(currentUserId));
+
+    saveUserBtn.addEventListener('click', async () => {
+        if (!userForm.checkValidity()) {
+            userForm.classList.add('was-validated');
+            return;
+        }
+
+        const formData = new FormData(userForm);
+        const data = {
+            user_id: currentUserId,
+            full_name: formData.get('full_name'),
+            username: formData.get('username'),
+            is_global_admin: formData.get('is_global_admin') === 'on',
+            warehouse_roles: localAssignedRoles,
+            profile_image: croppedImageData
+        };
+
+        if (!isEditing) {
+            data.password = formData.get('password');
+            data.confirm_password = formData.get('confirm_password');
+            if (data.password !== data.confirm_password) {
+                Swal.fire('Error', 'Passwords do not match.', 'error');
+                return;
+            }
+        }
+
+        const action = isEditing ? 'update_user' : 'create_user';
+        const result = await fetchData(`api/users_api.php?action=${action}`, 'POST', data);
+        if (result?.success) {
+            userModal.hide();
+            Swal.fire('Success!', result.message, 'success');
+            loadUsers();
+        } else {
+            Swal.fire('Error!', result?.message || 'An unknown error occurred.', 'error');
+        }
+    });
+    
+    userModalEl.addEventListener('shown.bs.modal', () => {
+        const warehouseSelect = document.getElementById('warehouseSelect');
+        const roleSelect = document.getElementById('roleSelect');
+        warehouseSelect.innerHTML = availableWarehouses.map(w => `<option value="${w.warehouse_id}">${w.warehouse_name}</option>`).join('');
+        roleSelect.innerHTML = availableRoles.map(r => `<option value="${r}">${r.charAt(0).toUpperCase() + r.slice(1)}</option>`).join('');
+    });
+
+    // --- Global Functions ---
     window.openUserForm = openUserForm;
     window.handleDeleteUser = (userId, username) => {
         Swal.fire({
@@ -304,15 +299,59 @@ document.addEventListener('DOMContentLoaded', () => {
         }).then(async (result) => {
             if (result.isConfirmed) {
                 const apiResult = await fetchData('api/users_api.php?action=delete_user', 'POST', { user_id: userId });
-                if (apiResult && apiResult.success) {
+                if (apiResult?.success) {
                     Swal.fire('Deleted!', 'The user has been deleted.', 'success');
                     loadUsers();
                 } else {
-                    Swal.fire('Error!', apiResult.message || 'Failed to delete user.', 'error');
+                    Swal.fire('Error!', apiResult?.message || 'Failed to delete user.', 'error');
                 }
             }
         });
     };
 
-    initializePage();
+    const openChangePasswordForm = (userId) => {
+        Swal.fire({
+            title: 'Change Password',
+            html: `
+                <input type="password" id="swal-password" class="swal2-input" placeholder="New Password">
+                <input type="password" id="swal-confirm-password" class="swal2-input" placeholder="Confirm New Password">
+            `,
+            confirmButtonText: 'Change Password',
+            focusConfirm: false,
+            preConfirm: async () => {
+                const password = document.getElementById('swal-password').value;
+                const confirmPassword = document.getElementById('swal-confirm-password').value;
+                if (!password || !confirmPassword) {
+                    Swal.showValidationMessage('Both fields are required');
+                    return false;
+                }
+                if (password !== confirmPassword) {
+                    Swal.showValidationMessage('Passwords do not match');
+                    return false;
+                }
+                
+                const result = await fetchData('api/users_api.php?action=change_password', 'POST', {
+                    user_id: userId,
+                    password: password,
+                    confirm_password: confirmPassword
+                });
+
+                if (!result?.success) {
+                    Swal.showValidationMessage(`Request failed: ${result?.message || 'Unknown error'}`);
+                    return false;
+                }
+                return result;
+            }
+        }).then((result) => {
+            if (result.isConfirmed) {
+                Swal.fire('Success!', 'Password has been changed successfully.', 'success');
+            }
+        });
+    };
+
+    // --- Initializations ---
+    initializePage(); 
+    
+    setupPasswordToggle('togglePassword', 'password');
+    setupPasswordToggle('toggleConfirmPassword', 'confirmPassword');
 });

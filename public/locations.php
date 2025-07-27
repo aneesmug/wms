@@ -26,7 +26,6 @@
         <header class="bg-white shadow-sm border-bottom">
             <div class="container-fluid px-4">
                 <div class="d-flex justify-content-between align-items-center py-3">
-                    <!-- This button toggles the offcanvas menu on mobile -->
                     <button class="btn btn-outline-secondary d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
                         <i class="bi bi-list"></i>
                     </button>
@@ -38,17 +37,15 @@
 
             <main class="flex-grow-1 p-4 p-md-5 bg-light">
                 <div class="container-fluid">
-                    <div class="card shadow-sm">
+                    <div class="card shadow-sm mb-4">
                         <div class="card-header d-flex justify-content-between align-items-center flex-wrap">
                             <h5 class="card-title mb-2 mb-md-0 me-3">Warehouse Locations</h5>
                             <div class="d-flex align-items-center">
                                 <div class="me-3 d-flex align-items-center">
                                     <label for="locationTypeFilter" class="form-label-sm mb-0 me-2">Filter by Type:</label>
-                                    <select id="locationTypeFilter" class="form-select form-select-sm" style="width: auto;">
-                                        <!-- Options are populated dynamically by locations.js -->
-                                    </select>
+                                    <select id="locationTypeFilter" class="form-select form-select-sm" style="width: auto;"></select>
                                 </div>
-                                <button id="addNewLocationBtn" class="btn btn-primary btn-sm">
+                                <button id="addNewLocationBtn" class="btn btn-primary btn-sm" style="display: none;">
                                     <i class="bi bi-plus-circle me-1"></i> Add New Location
                                 </button>
                             </div>
@@ -69,7 +66,30 @@
                                         </tr>
                                     </thead>
                                     <tbody id="locationsTableBody">
-                                        <!-- Data will be populated by DataTables -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card shadow-sm">
+                        <div class="card-header d-flex justify-content-between align-items-center flex-wrap">
+                            <h5 class="card-title mb-2 mb-md-0 me-3">Location Types</h5>
+                            <button id="addNewLocationTypeBtn" class="btn btn-info btn-sm" style="display: none;">
+                                <i class="bi bi-plus-circle me-1"></i> Add New Type
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table id="locationTypesDataTable" class="table table-hover" style="width:100%">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Description</th>
+                                            <th class="text-end">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="locationTypesTableBody">
                                     </tbody>
                                 </table>
                             </div>

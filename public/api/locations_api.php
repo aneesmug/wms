@@ -8,40 +8,38 @@ ob_start();
 
 authenticate_user(true, null); 
 
-// MODIFICATION: Allow fetching locations for a specified warehouse, not just the current one.
 $target_warehouse_id = filter_input(INPUT_GET, 'warehouse_id', FILTER_VALIDATE_INT);
 if (!$target_warehouse_id) {
     $target_warehouse_id = get_current_warehouse_id();
 }
 
 $method = $_SERVER['REQUEST_METHOD'];
+$action = $_GET['action'] ?? null;
 
 switch ($method) {
     case 'GET':
-        // User must have at least 'viewer' role for the target warehouse to see its locations
         authorize_user_role(['picker', 'viewer', 'operator', 'manager'], $target_warehouse_id);
-        handleGetRequest($conn, $target_warehouse_id);
+        handleGetRequest($conn, $target_warehouse_id, $action);
         break;
     case 'POST':
-        authorize_user_role(['operator', 'manager'], $target_warehouse_id);
-        handleCreateLocation($conn, $target_warehouse_id);
+        handlePostRequest($conn, $target_warehouse_id, $action);
         break;
     case 'PUT':
-        authorize_user_role(['operator', 'manager'], $target_warehouse_id);
-        handleUpdateLocation($conn, $target_warehouse_id);
+        authorize_user_role(['manager'], null); // Only managers can edit types
+        handleUpdateLocationType($conn);
         break;
     case 'DELETE':
-        authorize_user_role(['manager'], $target_warehouse_id);
-        handleDeleteLocation($conn, $target_warehouse_id);
+        authorize_user_role(['manager'], null); // Only managers can delete types
+        handleDeleteLocationType($conn);
         break;
     default:
         sendJsonResponse(['success' => false, 'message' => 'Method Not Allowed'], 405);
         break;
 }
 
-function handleGetRequest($conn, $warehouse_id) {
-    if (isset($_GET['action']) && $_GET['action'] == 'get_types') {
-        $stmt = $conn->prepare("SELECT type_id, type_name FROM location_types WHERE is_active = 1 ORDER BY type_name ASC");
+function handleGetRequest($conn, $warehouse_id, $action) {
+    if ($action == 'get_types') {
+        $stmt = $conn->prepare("SELECT type_id, type_name, type_description FROM location_types ORDER BY type_name ASC");
         $stmt->execute();
         $result = $stmt->get_result();
         $types = $result->fetch_all(MYSQLI_ASSOC);
@@ -53,6 +51,92 @@ function handleGetRequest($conn, $warehouse_id) {
         getAllLocations($conn, $warehouse_id);
     }
 }
+
+function handlePostRequest($conn, $warehouse_id, $action) {
+    if ($action == 'create_type') {
+        authorize_user_role(['manager'], null);
+        handleCreateLocationType($conn);
+    } else {
+        authorize_user_role(['operator', 'manager'], $warehouse_id);
+        handleCreateLocation($conn, $warehouse_id);
+    }
+}
+
+function handleCreateLocationType($conn) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $type_name = sanitize_input($input['type_name'] ?? '');
+    $type_description = sanitize_input($input['type_description'] ?? '');
+
+    if (empty($type_name)) {
+        sendJsonResponse(['success' => false, 'message' => 'Type Name is required.'], 400);
+        return;
+    }
+
+    $stmt_check = $conn->prepare("SELECT type_id FROM location_types WHERE LOWER(type_name) = LOWER(?)");
+    $stmt_check->bind_param("s", $type_name);
+    $stmt_check->execute();
+    if ($stmt_check->get_result()->num_rows > 0) {
+        sendJsonResponse(['success' => false, 'message' => 'A Location Type with this name already exists.'], 409);
+        $stmt_check->close();
+        return;
+    }
+    $stmt_check->close();
+
+    $stmt = $conn->prepare("INSERT INTO location_types (type_name, type_description, is_active) VALUES (?, ?, 1)");
+    $stmt->bind_param("ss", $type_name, $type_description);
+
+    if ($stmt->execute()) {
+        sendJsonResponse(['success' => true, 'message' => 'Location Type created successfully.', 'type_id' => $stmt->insert_id], 201);
+    } else {
+        sendJsonResponse(['success' => false, 'message' => 'Failed to create location type.', 'error' => $stmt->error], 500);
+    }
+    $stmt->close();
+}
+
+function handleUpdateLocationType($conn) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $type_id = filter_var($input['type_id'] ?? null, FILTER_VALIDATE_INT);
+    $type_name = sanitize_input($input['type_name'] ?? '');
+    $type_description = sanitize_input($input['type_description'] ?? '');
+
+    if (!$type_id) {
+        sendJsonResponse(['success' => false, 'message' => 'Type ID is required.'], 400);
+        return;
+    }
+    if (empty($type_name)) {
+        sendJsonResponse(['success' => false, 'message' => 'Type Name is required.'], 400);
+        return;
+    }
+
+    $stmt = $conn->prepare("UPDATE location_types SET type_name = ?, type_description = ? WHERE type_id = ?");
+    $stmt->bind_param("ssi", $type_name, $type_description, $type_id);
+
+    if ($stmt->execute()) {
+        sendJsonResponse(['success' => true, 'message' => 'Location Type updated successfully.']);
+    } else {
+        sendJsonResponse(['success' => false, 'message' => 'Failed to update location type.', 'error' => $stmt->error], 500);
+    }
+    $stmt->close();
+}
+
+function handleDeleteLocationType($conn) {
+    $type_id = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
+    if (!$type_id) {
+        sendJsonResponse(['success' => false, 'message' => 'Type ID is required.'], 400);
+        return;
+    }
+
+    $stmt = $conn->prepare("DELETE FROM location_types WHERE type_id = ?");
+    $stmt->bind_param("i", $type_id);
+
+    if ($stmt->execute()) {
+        sendJsonResponse(['success' => true, 'message' => 'Location Type deleted successfully.']);
+    } else {
+        sendJsonResponse(['success' => false, 'message' => 'Failed to delete location type.', 'error' => $stmt->error], 500);
+    }
+    $stmt->close();
+}
+
 
 function getAllLocations($conn, $warehouse_id) {
     $stmt = $conn->prepare("
@@ -131,7 +215,7 @@ function handleCreateLocation($conn, $warehouse_id) {
     $is_active = isset($input['is_active']) ? (bool)$input['is_active'] : true;
 
     $stmt_check = $conn->prepare("SELECT location_id FROM warehouse_locations WHERE location_code = ? AND warehouse_id = ?");
-    $stmt_check->bind_param("si", $location_code, $warehouse_id);
+    $stmt_check->bind_param("si", $warehouse_id, $location_code);
     $stmt_check->execute();
     if ($stmt_check->get_result()->num_rows > 0) {
         sendJsonResponse(['success' => false, 'message' => 'Location Code already exists in this warehouse.'], 409);

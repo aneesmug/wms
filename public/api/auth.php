@@ -17,7 +17,7 @@ switch ($action) {
         handleLogout();
         break;
     case 'check_auth':
-        checkAuthentication();
+        checkAuthentication($conn); // Pass connection to the function
         break;
     case 'set_warehouse':
         handleSetWarehouse($conn);
@@ -39,7 +39,7 @@ function handleLogin($conn) {
         sendJsonResponse(['message' => 'Username and password are required'], 400);
     }
 
-    $stmt = $conn->prepare("SELECT user_id, username, password_hash, is_global_admin, full_name FROM users WHERE username = ?");
+    $stmt = $conn->prepare("SELECT user_id, username, password_hash, is_global_admin, full_name, profile_image_url FROM users WHERE username = ?");
     $stmt->bind_param("s", $username);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -51,6 +51,7 @@ function handleLogin($conn) {
         $_SESSION['user_id'] = $user['user_id'];
         $_SESSION['username'] = $user['username'];
         $_SESSION['full_name'] = $user['full_name'];
+        $_SESSION['profile_image_url'] = $user['profile_image_url']; // Add image to session
         $_SESSION['is_global_admin'] = (bool)$user['is_global_admin'];
         
         // Always clear any previous warehouse selection upon new login
@@ -77,9 +78,7 @@ function handleLogin($conn) {
                 set_current_warehouse($single_warehouse['warehouse_id'], $single_warehouse['warehouse_name'], trim($single_warehouse['role']));
             }
         }
-        // For global admins or users with 0 or >1 warehouses, we do nothing.
-        // The frontend will prompt them to select a warehouse after redirecting.
-
+        
         sendJsonResponse([
             'success' => true, 
             'message' => 'Login successful',
@@ -95,14 +94,26 @@ function handleLogout() {
     sendJsonResponse(['success' => true, 'message' => 'Logged out successfully']);
 }
 
-function checkAuthentication() {
+function checkAuthentication($conn) { // Accept connection
     if (isset($_SESSION['user_id'])) {
+        // Refresh user data from DB to get the latest profile image
+        $stmt = $conn->prepare("SELECT full_name, profile_image_url FROM users WHERE user_id = ?");
+        $stmt->bind_param("i", $_SESSION['user_id']);
+        $stmt->execute();
+        $user_data = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        // Update session with latest data
+        $_SESSION['full_name'] = $user_data['full_name'];
+        $_SESSION['profile_image_url'] = $user_data['profile_image_url'];
+
         sendJsonResponse([
             'authenticated' => true, 
             'user' => [
                 'username' => $_SESSION['username'],
                 'full_name' => $_SESSION['full_name'] ?? 'N/A',
-                'is_global_admin' => $_SESSION['is_global_admin'] ?? false
+                'is_global_admin' => $_SESSION['is_global_admin'] ?? false,
+                'profile_image_url' => $_SESSION['profile_image_url'] // Send image URL
             ], 
             'current_warehouse_id' => get_current_warehouse_id(), 
             'current_warehouse_name' => get_current_warehouse_name(),

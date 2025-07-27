@@ -3,21 +3,24 @@
 document.addEventListener('DOMContentLoaded', () => {
     // --- Global Variables ---
     let locationsDataTable;
-    let locationTypes = []; // To store the types fetched from the DB
+    let locationTypesDataTable;
+    let locationTypes = []; 
     const currentWarehouseRole = localStorage.getItem('current_warehouse_role');
     const currentWarehouseId = localStorage.getItem('current_warehouse_id');
 
     // --- DOM Elements ---
-    const logoutBtn = document.getElementById('logoutBtn');
     const addNewLocationBtn = document.getElementById('addNewLocationBtn');
+    const addNewLocationTypeBtn = document.getElementById('addNewLocationTypeBtn');
     const locationsTableBody = document.getElementById('locationsTableBody');
+    const locationTypesTableBody = document.getElementById('locationTypesTableBody');
     const locationTypeFilter = document.getElementById('locationTypeFilter');
 
     // --- Event Listeners ---
-    if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
     if (addNewLocationBtn) addNewLocationBtn.addEventListener('click', () => openLocationModal());
+    if (addNewLocationTypeBtn) addNewLocationTypeBtn.addEventListener('click', openLocationTypeModal);
     if (locationTypeFilter) locationTypeFilter.addEventListener('change', applyTypeFilter);
     if (locationsTableBody) locationsTableBody.addEventListener('click', handleTableButtonClick);
+    if (locationTypesTableBody) locationTypesTableBody.addEventListener('click', handleTypeTableButtonClick);
 
     // --- Initial Page Load ---
     initializePage();
@@ -33,34 +36,65 @@ document.addEventListener('DOMContentLoaded', () => {
                 confirmButtonText: 'Go to Dashboard'
             }).then(() => { window.location.href = 'dashboard.html'; });
             if (addNewLocationBtn) addNewLocationBtn.style.display = 'none';
+            if (addNewLocationTypeBtn) addNewLocationTypeBtn.style.display = 'none';
             if (locationTypeFilter) locationTypeFilter.parentElement.style.display = 'none';
             return;
         }
 
-        const canManage = currentWarehouseRole === 'operator' || currentWarehouseRole === 'manager';
+        const canManageLocations = currentWarehouseRole === 'operator' || currentWarehouseRole === 'manager';
+        const isManager = currentWarehouseRole === 'manager';
+
         if (addNewLocationBtn) {
-            addNewLocationBtn.style.display = canManage ? 'block' : 'none';
+            addNewLocationBtn.style.display = canManageLocations ? 'block' : 'none';
+        }
+        if (addNewLocationTypeBtn) {
+            addNewLocationTypeBtn.style.display = isManager ? 'block' : 'none';
         }
 
+        await loadLocationTypes();
         await populateTypeFilter();
         await loadLocations();
+    }
+    
+    async function loadLocationTypes() {
+        const response = await fetchData('api/locations_api.php?action=get_types');
+        if (locationTypesDataTable) { locationTypesDataTable.destroy(); }
+        locationTypesTableBody.innerHTML = '';
+
+        if (response?.success && Array.isArray(response.data)) {
+            locationTypes = response.data;
+            const isManager = currentWarehouseRole === 'manager';
+
+            locationTypes.forEach(type => {
+                const row = document.createElement('tr');
+                let actionsHtml = '<div class="text-end">';
+                if (isManager) {
+                    actionsHtml += `<button data-id="${type.type_id}" class="btn btn-sm btn-outline-primary edit-type-btn" title="Edit"><i class="bi bi-pencil"></i></button>`;
+                    actionsHtml += `<button data-id="${type.type_id}" class="btn btn-sm btn-outline-danger delete-type-btn ms-2" title="Delete"><i class="bi bi-trash"></i></button>`;
+                } else {
+                    actionsHtml += '<span class="text-muted">View Only</span>';
+                }
+                actionsHtml += '</div>';
+
+                row.innerHTML = `
+                    <td>${type.type_name}</td>
+                    <td>${type.type_description || 'N/A'}</td>
+                    <td>${actionsHtml}</td>`;
+                locationTypesTableBody.appendChild(row);
+            });
+        }
+        locationTypesDataTable = new DataTable('#locationTypesDataTable', { responsive: true, order: [[0, 'asc']] });
     }
 
     async function populateTypeFilter() {
         if (!locationTypeFilter) return;
-
-        const response = await fetchData('api/locations_api.php?action=get_types');
-
-        if (response?.success && Array.isArray(response.data)) {
-            locationTypes = response.data; // Store for later use in modals
-            locationTypeFilter.innerHTML = '<option value="">All Types</option>';
-            locationTypes.forEach(type => {
-                const option = document.createElement('option');
-                option.value = type.type_name; // Filter by name
-                option.textContent = type.type_name.charAt(0).toUpperCase() + type.type_name.slice(1).replace(/_/g, ' ');
-                locationTypeFilter.appendChild(option);
-            });
-        }
+        locationTypeFilter.innerHTML = '<option value="">All Types</option>';
+        locationTypes.forEach(type => {
+            const option = document.createElement('option');
+            option.value = type.type_name;
+            option.textContent = type.type_name.charAt(0).toUpperCase() + type.type_name.slice(1).replace(/_/g, ' ');
+            locationTypeFilter.appendChild(option);
+        });
     }
 
     async function loadLocations() {
@@ -111,6 +145,64 @@ document.addEventListener('DOMContentLoaded', () => {
             handleDeleteClick(locationId);
         }
     }
+    
+    function handleTypeTableButtonClick(event) {
+        const button = event.target.closest('button');
+        if (!button) return;
+        const typeId = button.dataset.id;
+        if (button.classList.contains('edit-type-btn')) {
+            openLocationTypeModal(typeId);
+        } else if (button.classList.contains('delete-type-btn')) {
+            handleDeleteTypeClick(typeId);
+        }
+    }
+
+    function openLocationTypeModal(typeId = null) {
+        const isUpdating = !!typeId;
+        const typeData = isUpdating ? locationTypes.find(t => t.type_id == typeId) : {};
+
+        Swal.fire({
+            title: isUpdating ? 'Edit Location Type' : 'Add New Location Type',
+            html: `
+                <form id="swalLocationTypeForm" class="text-start">
+                    <div class="mb-3">
+                        <label for="swalTypeName" class="form-label">Type Name*</label>
+                        <input type="text" id="swalTypeName" class="form-control" value="${typeData.type_name || ''}" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="swalTypeDescription" class="form-label">Description</label>
+                        <textarea id="swalTypeDescription" class="form-control" rows="3">${typeData.type_description || ''}</textarea>
+                    </div>
+                </form>`,
+            showCancelButton: true,
+            confirmButtonText: isUpdating ? 'Update' : 'Save',
+            preConfirm: () => {
+                const typeName = document.getElementById('swalTypeName').value;
+                if (!typeName) {
+                    Swal.showValidationMessage('Type Name is required');
+                    return false;
+                }
+                return {
+                    type_id: typeId,
+                    type_name: typeName.trim(),
+                    type_description: document.getElementById('swalTypeDescription').value.trim(),
+                };
+            }
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                const url = isUpdating ? `api/locations_api.php?action=update_type` : `api/locations_api.php?action=create_type`;
+                const method = isUpdating ? 'PUT' : 'POST';
+                const saveResult = await fetchData(url, method, result.value);
+
+                if (saveResult?.success) {
+                    await Swal.fire('Success!', saveResult.message, 'success');
+                    await initializePage();
+                } else {
+                    Swal.fire('Error!', saveResult?.message || 'Failed to save location type.', 'error');
+                }
+            }
+        });
+    }
 
     async function openLocationModal(locationId = null) {
         const isUpdating = !!locationId;
@@ -125,7 +217,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        // Generate the dropdown options from the fetched types
         const typeOptions = locationTypes.map(type => 
             `<option value="${type.type_id}" ${isUpdating && type.type_id == locationData.location_type_id ? 'selected' : ''}>
                 ${type.type_name.charAt(0).toUpperCase() + type.type_name.slice(1).replace(/_/g, ' ')}
@@ -191,6 +282,27 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+    
+    function handleDeleteTypeClick(typeId) {
+        Swal.fire({
+            title: 'Are you sure?',
+            text: "Deleting this type will also affect locations using it. This action cannot be undone!",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            confirmButtonText: 'Yes, delete it!'
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                const deleteResult = await fetchData(`api/locations_api.php?action=delete_type&id=${typeId}`, 'DELETE');
+                if (deleteResult?.success) {
+                    await Swal.fire('Deleted!', 'The location type has been deleted.', 'success');
+                    await initializePage();
+                } else {
+                    Swal.fire('Failed!', deleteResult?.message || 'Could not delete the location type.', 'error');
+                }
+            }
+        });
+    }
 
     function handleDeleteClick(locationId) {
         Swal.fire({
@@ -211,10 +323,5 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
-    }
-
-    async function handleLogout() {
-        await fetchData('api/auth.php?action=logout');
-        redirectToLogin();
     }
 });
