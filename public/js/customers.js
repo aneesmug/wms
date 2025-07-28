@@ -2,14 +2,12 @@
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
-    const logoutBtn = document.getElementById('logoutBtn');
     const addCustomerBtn = document.getElementById('addCustomerBtn');
     
     // --- State & Config ---
     const currentWarehouseRole = localStorage.getItem('current_warehouse_role');
     let customersTable = null;
 
-    // --- SweetAlert2 Mixin for Toasts ---
     const Toast = Swal.mixin({
         toast: true,
         position: 'top-end',
@@ -22,16 +20,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- Event Listeners ---
     if (addCustomerBtn) addCustomerBtn.addEventListener('click', () => showCustomerForm(null));
-    if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
 
-    // --- Initial Page Load ---
     initializePage();
 
-    // --- Core Functions ---
     async function initializePage() {
-        const canManage = currentWarehouseRole === 'operator' || currentWarehouseRole === 'manager';
+        const canManage = ['operator', 'manager'].includes(currentWarehouseRole);
         if (addCustomerBtn) addCustomerBtn.style.display = canManage ? 'block' : 'none';
         
         initializeCustomersDataTable();
@@ -53,10 +47,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     orderable: false,
                     className: 'text-end',
                     render: function(data, type, row) {
-                        const canEdit = currentWarehouseRole === 'operator' || currentWarehouseRole === 'manager';
+                        const canEdit = ['operator', 'manager'].includes(currentWarehouseRole);
                         const canDelete = currentWarehouseRole === 'manager';
                         let actionsHtml = `<button data-id="${row.customer_id}" data-name="${row.customer_name}" class="btn btn-sm btn-outline-secondary view-orders-btn" title="View Order History"><i class="bi bi-list-ul"></i></button>`;
-                        actionsHtml += ` <button onclick="window.location.href='customer_transactions.html?customer_id=${row.customer_id}'" class="btn btn-sm btn-outline-success ms-2" title="Transactions"><i class="bi bi-cash-coin"></i></button>`;
+                        actionsHtml += ` <button onclick="window.location.href='customer_transactions.php?customer_id=${row.customer_id}'" class="btn btn-sm btn-outline-success ms-2" title="Transactions"><i class="bi bi-cash-coin"></i></button>`;
                         if (canEdit) {
                             actionsHtml += `<button data-id="${row.customer_id}" class="btn btn-sm btn-outline-primary edit-btn ms-2" title="Edit"><i class="bi bi-pencil"></i></button>`;
                         }
@@ -141,19 +135,23 @@ document.addEventListener('DOMContentLoaded', () => {
             width: '90%', showConfirmButton: false, showCloseButton: true,
             didOpen: async () => {
                 try {
-                    const response = await fetchData('api/outbound_api.php');
+                    const response = await fetchData(`api/outbound_api.php?customer_id=${customerId}`);
                     let tableHtml = `<div class="table-responsive mt-3"><table class="table table-sm table-striped table-bordered"><thead><tr><th>Order #</th><th>Order Date</th><th>Required Ship Date</th><th>Status</th><th class="text-end">Actions</th></tr></thead><tbody>`;
                     if (response?.success && Array.isArray(response.data)) {
-                        const customerOrders = response.data.filter(order => order.customer_id == customerId);
+                        const customerOrders = response.data;
                         if (customerOrders.length === 0) {
                             tableHtml += `<tr><td colspan="5" class="text-center p-3">No orders found for this customer.</td></tr>`;
                         } else {
                             customerOrders.forEach(order => {
-                                const statusMap = { 'Delivered': 'bg-success', 'Out for Delivery': 'bg-primary', 'Shipped': 'bg-info', 'Picked': 'bg-primary', 'Partially Picked': 'bg-warning text-dark', 'New': 'bg-secondary', 'Pending Pick': 'bg-secondary', 'Cancelled': 'bg-danger' };
+                                const statusMap = { 'Delivered': 'bg-success', 'Returned': 'bg-info', 'Partially Returned': 'bg-warning text-dark', 'Shipped': 'bg-info', 'Cancelled': 'bg-danger' };
                                 const statusClass = statusMap[order.status] || 'bg-secondary';
-                                let actionsHtml = `<button data-order-id="${order.order_id}" data-order-number="${order.order_number}" class="btn btn-sm btn-outline-info track-order-btn" title="Track Movement"><i class="bi bi-truck"></i></button>`;
-                                if (order.status === 'Shipped' && (currentWarehouseRole === 'operator' || currentWarehouseRole === 'manager')) { actionsHtml += ` <button data-order-id="${order.order_id}" class="btn btn-sm btn-outline-warning mark-out-for-delivery-btn ms-2" title="Mark as Out for Delivery"><i class="bi bi-box-arrow-up"></i></button>`; }
-                                if (order.status === 'Out for Delivery' && (currentWarehouseRole === 'operator' || currentWarehouseRole === 'manager')) { actionsHtml += ` <button data-order-id="${order.order_id}" data-order-number="${order.order_number}" class="btn btn-sm btn-outline-success mark-delivered-btn ms-2" title="Confirm Delivery"><i class="bi bi-check2-circle"></i></button>`; }
+                                let actionsHtml = '';
+                                
+                                const canReturn = ['Shipped', 'Delivered', 'Partially Returned'].includes(order.status) && ['operator', 'manager'].includes(currentWarehouseRole);
+                                if (canReturn) {
+                                    actionsHtml += `<button data-order-id="${order.order_id}" class="btn btn-sm btn-outline-warning create-return-btn" title="Create Return"><i class="bi bi-arrow-return-left"></i></button>`;
+                                }
+
                                 tableHtml += `<tr><td>${order.order_number}</td><td>${new Date(order.order_date).toLocaleDateString()}</td><td>${order.required_ship_date}</td><td><span class="badge ${statusClass}">${order.status}</span></td><td class="text-end">${actionsHtml}</td></tr>`;
                             });
                         }
@@ -169,79 +167,115 @@ document.addEventListener('DOMContentLoaded', () => {
     function addOrderActionListeners() {
         const swalContainer = document.querySelector('.swal2-container');
         if (!swalContainer) return;
-        swalContainer.addEventListener('click', (event) => {
-            const target = event.target.closest('button');
-            if (!target) return;
-            if (target.classList.contains('track-order-btn')) { handleTrackOrderClick(target); } 
-            else if (target.classList.contains('mark-out-for-delivery-btn')) { handleMarkOutForDeliveryClick(target); } 
-            else if (target.classList.contains('mark-delivered-btn')) { handleMarkDeliveredClick(target); }
+
+        swalContainer.querySelectorAll('.create-return-btn').forEach(button => {
+            button.addEventListener('click', (e) => {
+                const orderId = e.currentTarget.dataset.orderId;
+                showReturnCreationModal(orderId);
+            });
         });
     }
     
-    function addTableButtonListeners() {
-        $('#customersTable tbody').off('click').on('click', '.edit-btn', handleEditClick);
-        $('#customersTable tbody').on('click', '.delete-btn', handleDeleteClick);
-        $('#customersTable tbody').on('click', '.view-orders-btn', function() { showCustomerOrders($(this).data('id'), $(this).data('name')); });
-    }
+    async function showReturnCreationModal(orderId) {
+        const orderDetailsResponse = await fetchData(`api/outbound_api.php?order_id=${orderId}`);
+        if (!orderDetailsResponse.success) {
+            return Swal.fire('Error', 'Could not fetch order details for return.', 'error');
+        }
 
-    function handleMarkOutForDeliveryClick(btn) {
-        const orderId = btn.dataset.orderId;
-        Swal.fire({ title: 'Mark as Out for Delivery?', text: "This will update the order status.", icon: 'question', showCancelButton: true, confirmButtonColor: '#3085d6', cancelButtonColor: '#d33', confirmButtonText: 'Yes, mark it!' }).then(async (result) => {
-            if (result.isConfirmed) {
-                try {
-                    const apiResult = await fetchData('api/outbound_api.php?action=markOutForDelivery', 'POST', { order_id: orderId });
-                    if (apiResult?.success) { Toast.fire({ icon: 'success', title: apiResult.message }); Swal.close(); }
-                } catch(error) { Swal.fire('Error', error.message, 'error'); }
-            }
-        });
-    }
+        const items = orderDetailsResponse.data.items;
+        let itemsHtml = '<p>No returnable items found on this order.</p>';
 
-    function handleMarkDeliveredClick(btn) {
-        const orderId = btn.dataset.orderId;
-        const orderNumber = btn.dataset.orderNumber;
+        if (items && items.length > 0) {
+            itemsHtml = `
+                <table class="table table-bordered table-sm">
+                    <thead>
+                        <tr>
+                            <th>SKU</th>
+                            <th>Product</th>
+                            <th>Shipped Qty</th>
+                            <th>Return Qty</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${items.map(item => `
+                            <tr>
+                                <td>${item.sku}</td>
+                                <td>${item.product_name}</td>
+                                <td>${item.picked_quantity}</td>
+                                <td>
+                                    <input type="number" class="form-control form-control-sm return-qty-input" 
+                                           data-outbound-item-id="${item.outbound_item_id}" 
+                                           max="${item.picked_quantity}" min="0" value="0">
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
         Swal.fire({
-            title: `Confirm Delivery for Order #${orderNumber}`,
-            html: `<p class="text-muted small">Enter the <strong>6-digit confirmation code</strong> provided by the customer.</p><div class="swal2-form"><input type="text" id="swal-delivery-code" class="swal2-input" placeholder="Confirmation Code" maxlength="6"><input type="text" id="swal-receiver-name" class="swal2-input" placeholder="Receiver's Name"><input type="tel" id="swal-receiver-phone" class="swal2-input" placeholder="Receiver's Phone (Optional)"></div>`,
-            focusConfirm: false, showCancelButton: true, confirmButtonText: 'Confirm Delivery',
+            title: 'Create Partial Return',
+            html: `
+                <div class="text-start">
+                    <div class="mb-3">
+                        <label for="swal-return-reason" class="form-label">Reason for Return</label>
+                        <textarea id="swal-return-reason" class="form-control" rows="2" placeholder="e.g., Damaged, wrong item..."></textarea>
+                    </div>
+                    ${itemsHtml}
+                </div>
+            `,
+            width: '800px',
+            showCancelButton: true,
+            confirmButtonText: 'Initiate Return',
             preConfirm: () => {
-                const code = document.getElementById('swal-delivery-code').value;
-                const name = document.getElementById('swal-receiver-name').value;
-                if (!code || !name) { Swal.showValidationMessage(`Confirmation Code and Receiver's Name are required`); return false; }
-                return { delivery_code: code, receiver_name: name, receiver_phone: document.getElementById('swal-receiver-phone').value };
+                const reason = document.getElementById('swal-return-reason').value;
+                const itemsToReturn = [];
+                document.querySelectorAll('.return-qty-input').forEach(input => {
+                    const qty = parseInt(input.value, 10);
+                    if (qty > 0) {
+                        itemsToReturn.push({
+                            outbound_item_id: input.dataset.outboundItemId,
+                            quantity: qty
+                        });
+                    }
+                });
+
+                if (!reason.trim()) {
+                    Swal.showValidationMessage('A reason for the return is required.');
+                    return false;
+                }
+                if (itemsToReturn.length === 0) {
+                    Swal.showValidationMessage('You must specify a return quantity for at least one item.');
+                    return false;
+                }
+                
+                return {
+                    order_id: orderId,
+                    reason: reason,
+                    items: itemsToReturn
+                };
             }
         }).then(async (result) => {
             if (result.isConfirmed) {
                 try {
-                    const data = { order_id: orderId, ...result.value };
-                    const apiResult = await fetchData('api/outbound_api.php?action=markDelivered', 'POST', data);
-                    if (apiResult?.success) { Swal.fire('Success!', apiResult.message, 'success'); }
-                } catch (error) { Swal.fire('Error!', error.message, 'error'); }
+                    const apiResult = await fetchData('api/returns_api.php?action=create_return', 'POST', result.value);
+                    if (apiResult.success) {
+                        Swal.fire('Success', apiResult.message, 'success').then(() => {
+                            window.location.href = 'returns.php';
+                        });
+                    }
+                } catch (error) {
+                    Swal.fire('Error', error.message, 'error');
+                }
             }
         });
     }
 
-    function handleTrackOrderClick(btn) {
-        const orderId = btn.dataset.orderId;
-        const orderNumber = btn.dataset.orderNumber;
-        Swal.fire({
-            title: `History for Order #${orderNumber}`,
-            html: '<div class="d-flex justify-content-center"><div class="spinner-border" role="status"></div></div>',
-            width: '800px', showConfirmButton: false,
-            didOpen: async () => {
-                try {
-                    const response = await fetchData(`api/outbound_api.php?action=getOrderHistory&order_id=${orderId}`);
-                    let historyHtml = '<ul class="list-group list-group-flush text-start mt-3">';
-                    if (response?.success && Array.isArray(response.data) && response.data.length > 0) {
-                        response.data.forEach(item => {
-                            const date = new Date(item.created_at).toLocaleString();
-                            historyHtml += `<li class="list-group-item d-flex justify-content-between align-items-start"><div class="ms-2 me-auto"><div class="fw-bold">${item.status}</div><small class="text-muted">${item.notes || 'Status updated'} by ${item.user_name || 'System'}</small></div><span class="badge bg-primary rounded-pill">${date}</span></li>`;
-                        });
-                    } else { historyHtml += '<li class="list-group-item">No history found for this order.</li>'; }
-                    historyHtml += '</ul>';
-                    Swal.update({ html: historyHtml });
-                } catch (error) { Swal.update({ icon: 'error', title: 'Error', html: `Could not load order history: ${error.message}` }); }
-            }
-        });
+    function addTableButtonListeners() {
+        $('#customersTable tbody').off('click').on('click', '.edit-btn', handleEditClick);
+        $('#customersTable tbody').on('click', '.delete-btn', handleDeleteClick);
+        $('#customersTable tbody').on('click', '.view-orders-btn', function() { showCustomerOrders($(this).data('id'), $(this).data('name')); });
     }
 
     function handleDeleteClick(event) {
@@ -250,14 +284,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (result.isConfirmed) {
                 try {
                     const apiResult = await fetchData(`api/customers_api.php?id=${id}`, 'DELETE');
-                    if (apiResult?.success) { Swal.fire('Deleted!', 'Customer has been deleted.', 'success'); await loadCustomers(); }
-                } catch (error) { Swal.fire('Error', error.message, 'error'); }
+                    if (apiResult?.success) { 
+                        Swal.fire('Deleted!', 'Customer has been deleted.', 'success'); 
+                        await loadCustomers(); 
+                    }
+                } catch (error) { 
+                    Swal.fire('Error', error.message, 'error'); 
+                }
             }
         });
-    }
-
-    async function handleLogout() {
-        await fetchData('api/auth.php?action=logout');
-        redirectToLogin();
     }
 });

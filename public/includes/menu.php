@@ -12,17 +12,17 @@ $permissions = [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
         'locations.php', 'products.php', 'customers.php', 'suppliers.php', 
         'reports.php', 'inbound_report.php', 'batch_search.php', 'users.php',
-        'warehouses.php', 'picking.php'
+        'warehouses.php', 'picking.php', 'returns.php' // <-- Added returns page
     ],
     'operator' => [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
-        'locations.php', 'batch_search.php', 'picking.php'
+        'locations.php', 'batch_search.php', 'picking.php', 'returns.php' // <-- Added returns page
     ],
     'picker' => [
         'dashboard.php', 'inventory.php', 'picking.php'
     ],
     'viewer' => [
-        'dashboard.php', 'inventory.php', 'reports.php', 'inbound_report.php'
+        'dashboard.php', 'inventory.php', 'reports.php', 'inbound_report.php', 'returns.php' // <-- Added returns page
     ],
     'driver' => [
         'delivery.php'
@@ -36,6 +36,10 @@ if (isset($_SESSION['is_global_admin']) && $_SESSION['is_global_admin'] === true
 }
 
 function can_access($page, $permissionMap, $role) {
+    // All logged-in users can access their own profile
+    if ($page === 'profile.php') {
+        return true;
+    }
     return isset($permissionMap[$role]) && in_array($page, $permissionMap[$role]);
 }
 
@@ -48,7 +52,8 @@ $menu_items = [
         'label' => 'Operations', 'icon' => 'bi-arrows-angle-contract', 'submenu' => [
             ['label' => 'Inbound', 'url' => 'inbound.php', 'icon' => 'bi-box-arrow-in-down'],
             ['label' => 'Outbound', 'url' => 'outbound.php', 'icon' => 'bi-box-arrow-up-right'],
-            ['label' => 'Picking', 'url' => 'picking.php', 'icon' => 'bi-box-seam']
+            ['label' => 'Picking', 'url' => 'picking.php', 'icon' => 'bi-box-seam'],
+            ['label' => 'Returns', 'url' => 'returns.php', 'icon' => 'bi-arrow-return-left'] // <-- New Menu Item
         ]
     ],
     'inventory' => [
@@ -133,6 +138,7 @@ function is_submenu_active($submenu_items, $current_page) {
             <li><h6 id="userFullNameDesktop" class="dropdown-header">Loading...</h6></li>
             <li><span id="userRoleDesktop" class="dropdown-item-text text-white-50 px-3">Loading...</span></li>
             <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="profile.php"><i class="bi bi-person-fill me-2"></i>My Profile</a></li>
             <li><a id="logoutBtnDesktop" class="dropdown-item" href="#"><i class="bi bi-box-arrow-left me-2"></i>Logout</a></li>
         </ul>
     </div>
@@ -154,6 +160,7 @@ function is_submenu_active($submenu_items, $current_page) {
             </div>
         </div>
         <ul class="nav nav-pills flex-column mb-auto">
+             <li><a class="nav-link text-white <?php echo $current_page == 'profile.php' ? 'active' : ''; ?>" href="profile.php"><i class="bi bi-person-fill me-2"></i>My Profile</a></li>
             <?php foreach ($menu_items as $key => $item): ?>
                 <?php
                 if (isset($item['submenu'])) {

@@ -96,23 +96,29 @@
                                     <div id="pickActionsArea" class="d-none">
                                         <h6 class="mb-3">Pick Items</h6>
                                         <div class="row g-3">
-                                            <div class="col-md-6">
+                                            <div class="col-md-3">
                                                 <label for="pickItemNumberInput" class="form-label">Item Barcode/SKU</label>
                                                 <input type="text" id="pickItemNumberInput" class="form-control" placeholder="Scan or enter...">
                                             </div>
-                                            <div class="col-md-6">
-                                                <label for="pickLocationSelect" class="form-label">Pick Location</label>
-                                                <select id="pickLocationSelect" class="form-select"></select>
-                                            </div>
-                                            <div class="col-md-4">
-                                                <label for="pickBatchNumberSelect" class="form-label">Batch Number</label>
-                                                <select id="pickBatchNumberSelect" class="form-select" disabled><option value="">Select location first</option></select>
-                                            </div>
-                                            <div class="col-md-4">
+                                            <div class="col-md-2">
                                                 <label for="pickDotCodeSelect" class="form-label">DOT Code (FIFO)</label>
-                                                <select id="pickDotCodeSelect" class="form-select" disabled><option value="">Select batch first</option></select>
+                                                <select id="pickDotCodeSelect" class="form-select" disabled>
+                                                    <option value="">Enter item number first</option>
+                                                </select>
                                             </div>
-                                            <div class="col-md-4">
+                                            <div class="col-md-2">
+                                                <label for="pickLocationSelect" class="form-label">Pick Location</label>
+                                                <select id="pickLocationSelect" class="form-select" disabled>
+                                                    <option value="">Select DOT first</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label for="pickBatchNumberSelect" class="form-label">Batch Number</label>
+                                                <select id="pickBatchNumberSelect" class="form-select" disabled>
+                                                    <option value="">Select location first</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-2">
                                                 <label for="pickQuantityInput" class="form-label">Quantity to Pick</label>
                                                 <input type="number" id="pickQuantityInput" value="1" min="1" class="form-control">
                                                 <div id="pickQuantityError" class="text-danger small mt-1"></div>

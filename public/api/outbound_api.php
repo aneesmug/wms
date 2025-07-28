@@ -3,6 +3,7 @@
 
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../helpers/auth_helper.php';
+require_once __DIR__ . '/../helpers/order_helper.php'; // <-- FIX: Include the new helper file
 
 $conn = getDbConnection();
 ob_start();
@@ -11,7 +12,7 @@ authenticate_user(true, null);
 $current_warehouse_id = get_current_warehouse_id();
 $current_user_id = $_SESSION['user_id'];
 
-if (!$current_warehouse_id && $_SERVER['REQUEST_METHOD'] !== 'GET' && !isset($_GET['action'])) {
+if (!$current_warehouse_id && $_SERVER['REQUEST_METHOD'] !== 'GET' && !isset($_GET['action']) && !isset($_GET['customer_id'])) {
     sendJsonResponse(['success' => false, 'message' => 'No warehouse selected. Please select a warehouse from the dashboard.'], 400);
     exit;
 }
@@ -123,16 +124,10 @@ function handleGetPickReport($conn, $warehouse_id) {
 }
 
 function handleGetOutbound($conn, $warehouse_id) {
-    if (!$warehouse_id) {
-        sendJsonResponse(['success' => true, 'data' => []]);
-        return;
-    }
     if (isset($_GET['order_id'])) {
         $order_id = filter_var($_GET['order_id'], FILTER_VALIDATE_INT);
         if(!$order_id) { sendJsonResponse(['success' => false, 'message' => 'Invalid Order ID.'], 400); return; }
         
-        // MODIFICATION: No change needed here as oo.* already includes the new column.
-        // This is just a confirmation.
         $stmt = $conn->prepare("
             SELECT oo.*, c.customer_name, sl.location_code as shipping_area_code 
             FROM outbound_orders oo 
@@ -165,14 +160,37 @@ function handleGetOutbound($conn, $warehouse_id) {
         $order['items'] = $items;
         sendJsonResponse(['success' => true, 'data' => $order]);
     } else {
-        $stmt = $conn->prepare("
+        $customer_id_filter = filter_input(INPUT_GET, 'customer_id', FILTER_VALIDATE_INT);
+
+        $sql = "
             SELECT oo.order_id, oo.order_number, oo.reference_number, oo.status, oo.required_ship_date, oo.tracking_number, c.customer_name, sl.location_code as shipping_area_code
             FROM outbound_orders oo 
             JOIN customers c ON oo.customer_id = c.customer_id
             LEFT JOIN warehouse_locations sl ON oo.shipping_area_location_id = sl.location_id
-            WHERE oo.warehouse_id = ? ORDER BY oo.order_date DESC
-        ");
-        $stmt->bind_param("i", $warehouse_id);
+        ";
+        $params = [];
+        $types = "";
+
+        if ($customer_id_filter) {
+            $sql .= " WHERE oo.customer_id = ?";
+            $params[] = $customer_id_filter;
+            $types .= "i";
+        } else {
+            if (!$warehouse_id) {
+                sendJsonResponse(['success' => true, 'data' => []]);
+                return;
+            }
+            $sql .= " WHERE oo.warehouse_id = ?";
+            $params[] = $warehouse_id;
+            $types .= "i";
+        }
+        $sql .= " ORDER BY oo.order_date DESC";
+
+        $stmt = $conn->prepare($sql);
+        if (!empty($params)) {
+            $stmt->bind_param($types, ...$params);
+        }
+        
         $stmt->execute();
         $orders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
@@ -498,13 +516,4 @@ function updateOutboundItemAndOrderStatus($conn, $order_id, $user_id) {
     $stmt_update_order->bind_param("si", $new_status, $order_id);
     $stmt_update_order->execute();
     $stmt_update_order->close();
-}
-
-function logOrderHistory($conn, $order_id, $status, $user_id, $notes = '') {
-    $stmt = $conn->prepare("INSERT INTO order_history (order_id, status, updated_by_user_id, notes) VALUES (?, ?, ?, ?)");
-    $stmt->bind_param("isis", $order_id, $status, $user_id, $notes);
-    if (!$stmt->execute()) {
-        error_log("Failed to log order history: " . $stmt->error);
-    }
-    $stmt->close();
 }

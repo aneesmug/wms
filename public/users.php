@@ -11,6 +11,7 @@ if (session_status() === PHP_SESSION_NONE) {
     <title>User Management - WMS</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/croppie/2.6.5/croppie.min.css">
     <link rel="stylesheet" href="css/style.css">
@@ -24,9 +25,6 @@ if (session_status() === PHP_SESSION_NONE) {
                 <div class="container-fluid px-4">
                     <div class="d-flex justify-content-between align-items-center py-3">
                         <h1 class="h4 mb-0 text-dark">User Management</h1>
-                        <button class="btn btn-primary" id="addUserBtn">
-                            <i class="bi bi-plus-circle me-1"></i> Add New User
-                        </button>
                     </div>
                 </div>
             </header>
@@ -37,20 +35,36 @@ if (session_status() === PHP_SESSION_NONE) {
                         <div class="alert alert-danger">You do not have permission to access this page.</div>
                     <?php else: ?>
                         <div class="card shadow-sm">
+                            <div class="card-header d-flex justify-content-between align-items-center flex-wrap">
+                                <h5 class="card-title mb-0 me-auto">User List</h5>
+                                <div class="d-flex align-items-center ms-3">
+                                    <div class="btn-group">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" data-bs-auto-close="outside">
+                                            <i class="bi bi-filter"></i> Filter
+                                        </button>
+                                        <div id="filterContainer" class="dropdown-menu p-3" style="width: 350px;">
+                                            <!-- Dynamic filter UI will be injected here by main.js -->
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-primary btn-sm ms-3" id="addUserBtn">
+                                        <i class="bi bi-plus-circle me-1"></i> Add New User
+                                    </button>
+                                </div>
+                            </div>
                             <div class="card-body">
                                 <div class="table-responsive">
-                                    <table class="table table-hover align-middle">
+                                    <table id="usersTable" class="table table-hover align-middle" style="width:100%">
                                         <thead class="table-light">
                                             <tr>
                                                 <th>User</th>
                                                 <th>Username</th>
                                                 <th>Global Admin</th>
-                                                <th>Assigned Warehouses & Roles</th>
+                                                <th>Assigned Locations & Roles</th>
                                                 <th class="text-end">Actions</th>
                                             </tr>
                                         </thead>
-                                        <tbody id="usersTableBody">
-                                            <tr><td colspan="5" class="text-center p-4">Loading users...</td></tr>
+                                        <tbody>
+                                            <!-- Data will be loaded by DataTables -->
                                         </tbody>
                                     </table>
                                 </div>
@@ -66,106 +80,27 @@ if (session_status() === PHP_SESSION_NONE) {
     <div class="modal fade" id="userModal" tabindex="-1" aria-labelledby="userModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
             <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="userModalLabel">User Details</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
+                <div class="modal-header"><h5 class="modal-title" id="userModalLabel">User Details</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
                 <div class="modal-body">
                     <form id="userForm" class="text-start" novalidate>
                         <input type="hidden" id="userId" name="user_id">
-                        
-                        <!-- Profile Image Section -->
-                        <div class="mb-3 text-center" id="profileImageSection" style="display: none;">
-                            <img id="profileImagePreview" src="uploads/users/default.png" alt="Profile Preview" 
-                                 class="rounded-circle mb-2" style="width: 120px; height: 120px; object-fit: cover; cursor: pointer;">
-                            <div>
-                                <input type="file" id="profileImageInput" class="d-none" accept="image/*">
-                                <button type="button" id="changeImageBtn" class="btn btn-sm btn-outline-secondary mt-2">
-                                    <i class="bi bi-upload"></i> Change Image
-                                </button>
-                            </div>
-                        </div>
-
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label for="fullName" class="form-label">Full Name</label>
-                                <input type="text" class="form-control" id="fullName" name="full_name" required>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label for="username" class="form-label">Username</label>
-                                <input type="text" class="form-control" id="username" name="username" required>
-                            </div>
-                        </div>
-
-                        <div id="passwordSection">
-                            <div class="mb-3">
-                                <label for="password" class="form-label">Password</label>
-                                <div class="input-group">
-                                    <input type="password" class="form-control" id="password" name="password">
-                                    <button class="btn btn-outline-secondary" type="button" id="togglePassword"><i class="bi bi-eye-slash"></i></button>
-                                </div>
-                            </div>
-                            <div class="mb-3">
-                                <label for="confirmPassword" class="form-label">Confirm Password</label>
-                                <div class="input-group">
-                                    <input type="password" class="form-control" id="confirmPassword" name="confirm_password">
-                                     <button class="btn btn-outline-secondary" type="button" id="toggleConfirmPassword"><i class="bi bi-eye-slash"></i></button>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div id="changePasswordBtnContainer" class="mb-3" style="display: none;">
-                             <label class="form-label">Password</label>
-                             <div><button type="button" class="btn btn-secondary" id="changePasswordBtn"><i class="bi bi-key me-2"></i>Change Password</button></div>
-                        </div>
-
-                        <div class="form-check form-switch mb-3">
-                            <input class="form-check-input" type="checkbox" role="switch" id="isGlobalAdmin" name="is_global_admin">
-                            <label class="form-check-label" for="isGlobalAdmin">Is Global Admin</label>
-                        </div>
-
+                        <div class="mb-3 text-center" id="profileImageSection" style="display: none;"><img id="profileImagePreview" src="uploads/users/default.png" alt="Profile Preview" class="rounded-circle mb-2" style="width: 120px; height: 120px; object-fit: cover; cursor: pointer;"><div><input type="file" id="profileImageInput" class="d-none" accept="image/*"><button type="button" id="changeImageBtn" class="btn btn-sm btn-outline-secondary mt-2"><i class="bi bi-upload"></i> Change Image</button></div></div>
+                        <div class="row"><div class="col-md-6 mb-3"><label for="fullName" class="form-label">Full Name</label><input type="text" class="form-control" id="fullName" name="full_name" required></div><div class="col-md-6 mb-3"><label for="username" class="form-label">Username</label><input type="text" class="form-control" id="username" name="username" required></div></div>
+                        <div id="passwordSection"><div class="mb-3"><label for="password" class="form-label">Password</label><div class="input-group"><input type="password" class="form-control" id="password" name="password"><button class="btn btn-outline-secondary" type="button" id="togglePassword"><i class="bi bi-eye-slash"></i></button></div></div><div class="mb-3"><label for="confirmPassword" class="form-label">Confirm Password</label><div class="input-group"><input type="password" class="form-control" id="confirmPassword" name="confirm_password"><button class="btn btn-outline-secondary" type="button" id="toggleConfirmPassword"><i class="bi bi-eye-slash"></i></button></div></div></div>
+                        <div id="changePasswordBtnContainer" class="mb-3" style="display: none;"><label class="form-label">Password</label><div><button type="button" class="btn btn-secondary" id="changePasswordBtn"><i class="bi bi-key me-2"></i>Change Password</button></div></div>
+                        <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" role="switch" id="isGlobalAdmin" name="is_global_admin"><label class="form-check-label" for="isGlobalAdmin">Is Global Admin</label></div>
                         <hr>
-
-                        <div id="warehouseRolesSection">
-                            <h5>Warehouse Permissions</h5>
-                            <p class="text-muted small">Assign roles for specific warehouses. This is disabled for Global Admins.</p>
-                            <div class="row g-3 align-items-end" id="addRoleControls">
-                                <div class="col-md-5"><label for="warehouseSelect" class="form-label">Warehouse</label><select id="warehouseSelect" class="form-select"></select></div>
-                                <div class="col-md-5"><label for="roleSelect" class="form-label">Role</label><select id="roleSelect" class="form-select"></select></div>
-                                <div class="col-md-2"><button type="button" class="btn btn-success w-100" id="addRoleBtn">Add</button></div>
-                            </div>
-                            <div class="mt-3">
-                                <h6 class="mb-2">Assigned Roles</h6>
-                                <ul class="list-group" id="assignedRolesList"></ul>
-                            </div>
-                        </div>
+                        <div id="warehouseRolesSection"><h5>Warehouse Permissions</h5><p class="text-muted small">Assign roles for specific warehouses. This is disabled for Global Admins.</p><div class="row g-3 align-items-end" id="addRoleControls"><div class="col-md-5"><label for="warehouseSelect" class="form-label">Warehouse</label><select id="warehouseSelect" class="form-select"></select></div><div class="col-md-5"><label for="roleSelect" class="form-label">Role</label><select id="roleSelect" class="form-select"></select></div><div class="col-md-2"><button type="button" class="btn btn-success w-100" id="addRoleBtn">Add</button></div></div><div class="mt-3"><h6 class="mb-2">Assigned Roles</h6><ul class="list-group" id="assignedRolesList"></ul></div></div>
                     </form>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="saveUserBtn">Save Changes</button>
-                </div>
+                <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" id="saveUserBtn">Save Changes</button></div>
             </div>
         </div>
     </div>
 
-    <!-- Bootstrap Modal for Croppie -->
-    <div class="modal fade" id="croppieModal" tabindex="-1" aria-labelledby="croppieModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="croppieModalLabel">Crop Your Image</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body"><div id="croppieEditor" style="width:100%; height:400px;"></div></div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="saveCropBtn">Crop & Save</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
+    <script src="https://code.jquery.com/jquery-3.7.0.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/croppie/2.6.5/croppie.min.js"></script>

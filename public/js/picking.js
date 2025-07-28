@@ -24,9 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- State Variables ---
     let selectedOrderId = null;
     let allProducts = [];
-    let allWarehouseLocations = [];
-    let warehouseLocationsMap = new Map();
-    let productInventoryDetails = [];
+    let productInventoryDetails = []; // Holds details for validation
     let ordersTable = null;
     let currentOrderItems = []; 
     const currentWarehouseRole = localStorage.getItem('current_warehouse_role');
@@ -51,15 +49,21 @@ document.addEventListener('DOMContentLoaded', () => {
     if (printPickReportBtn) printPickReportBtn.addEventListener('click', handlePrintPickReport);
     if (stageOrderBtn) stageOrderBtn.addEventListener('click', handleStageOrder);
     if (assignDriverBtn) assignDriverBtn.addEventListener('click', handleAssignDriver);
-    if (pickLocationSelect) $(pickLocationSelect).on('change', populateBatchDropdown);
-    if (pickBatchNumberSelect) $(pickBatchNumberSelect).on('change', populateDotCodeDropdown);
+    
+    // NEW picking workflow event listeners
+    if (pickItemNumberInput) pickItemNumberInput.addEventListener('change', handleProductScan);
+    if (pickDotCodeSelect) $(pickDotCodeSelect).on('change', handleDotSelect);
+    if (pickLocationSelect) $(pickLocationSelect).on('change', handleLocationSelect);
+    if (pickBatchNumberSelect) $(pickBatchNumberSelect).on('change', () => validatePickQuantity());
     if (pickQuantityInput) pickQuantityInput.addEventListener('input', validatePickQuantity);
-    if (pickDotCodeSelect) $(pickDotCodeSelect).on('change', validatePickQuantity);
-    if (pickItemNumberInput) pickItemNumberInput.addEventListener('change', () => filterPickLocationsByProduct(pickItemNumberInput.value.trim()));
+
 
     async function initializePage() {
         initializeOrdersDataTable();
-        $('#pickLocationSelect').select2({ theme: 'bootstrap-5' });
+        // Initialize Select2 for all dropdowns
+        $('#pickDotCodeSelect, #pickLocationSelect, #pickBatchNumberSelect').select2({ theme: 'bootstrap-5' });
+        
+        // Customize DOT code dropdown to show badges
         $('#pickDotCodeSelect').select2({
             theme: 'bootstrap-5',
             templateResult: formatDotOption,
@@ -70,8 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             await Promise.all([ 
                 loadProductsForDropdown(), 
-                loadPickableOrders(),
-                loadAllWarehouseLocations()
+                loadPickableOrders()
             ]);
         } catch (error) {
             Swal.fire('Initialization Error', `Could not load initial page data. ${error.message}`, 'error');
@@ -94,17 +97,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (response?.success && Array.isArray(response.data)) allProducts = response.data;
     }
     
-    async function loadAllWarehouseLocations() {
-        const response = await fetchData(`api/locations_api.php`);
-        if (response?.success && Array.isArray(response.data)) {
-            allWarehouseLocations = response.data.filter(loc => loc.is_active);
-            warehouseLocationsMap = new Map(allWarehouseLocations.map(loc => [parseInt(loc.location_id, 10), loc]));
-        }
-    }
-
     async function loadPickableOrders() {
         const response = await fetchData('api/picking_api.php?action=getOrdersForPicking');
-        
         if (!response?.success) return;
 
         const tableData = response.data.map(order => {
@@ -156,7 +150,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const isPickable = ['Pending Pick', 'Partially Picked'].includes(order.status);
                 const canUnpick = ['Pending Pick', 'Partially Picked', 'Picked'].includes(order.status);
-                // MODIFICATION: Only allow staging if the order status is 'Picked'.
                 const canStage = order.status === 'Picked';
                 const canAssign = ['Ready for Pickup', 'Assigned'].includes(order.status);
 
@@ -225,28 +218,204 @@ document.addEventListener('DOMContentLoaded', () => {
             if(pickingProcessArea) pickingProcessArea.classList.remove('d-none');
             loadOrderItems(selectedOrderId);
             if (pickItemNumberInput) pickItemNumberInput.value = '';
-            if (pickLocationSelect) {
-                $(pickLocationSelect).empty().append(new Option('Enter item number first', '')).trigger('change');
-            }
-            if (pickBatchNumberSelect) { pickBatchNumberSelect.innerHTML = '<option value="">Select location first</option>'; pickBatchNumberSelect.disabled = true; }
-            if (pickDotCodeSelect) { pickDotCodeSelect.innerHTML = '<option value="">Select batch first</option>'; pickDotCodeSelect.disabled = true; }
+            
+            // Reset all dropdowns
+            $(pickDotCodeSelect).empty().append(new Option('Enter item number first', '')).prop('disabled', true).trigger('change');
+            $(pickLocationSelect).empty().append(new Option('Select DOT first', '')).prop('disabled', true).trigger('change');
+            $(pickBatchNumberSelect).empty().append(new Option('Select location first', '')).prop('disabled', true).trigger('change');
             if (pickQuantityInput) pickQuantityInput.value = '1';
+
             Toast.fire({ icon: 'info', title: `Selected Order: ${orderNumber}` });
         });
     }
+    
+    /**
+     * New Picking Workflow Step 1: Handle product scan/entry.
+     * Fetches available DOT codes for the product.
+     */
+    async function handleProductScan() {
+        // Reset all subsequent dropdowns
+        $(pickDotCodeSelect).empty().append(new Option('Select DOT', '')).prop('disabled', true).trigger('change');
+        $(pickLocationSelect).empty().append(new Option('Select DOT first', '')).prop('disabled', true).trigger('change');
+        $(pickBatchNumberSelect).empty().append(new Option('Select location first', '')).prop('disabled', true).trigger('change');
+        productInventoryDetails = [];
 
+        const productBarcode = pickItemNumberInput.value.trim();
+        if (!productBarcode) return;
+
+        const product = allProducts.find(p => p.barcode === productBarcode || p.sku === productBarcode);
+        if (!product) {
+            Toast.fire({ icon: 'error', title: 'Product not found.' });
+            return;
+        }
+
+        const orderItem = currentOrderItems.find(item => item.product_id == product.product_id);
+        const remainingToPick = orderItem ? (orderItem.ordered_quantity - orderItem.picked_quantity) : 0;
+        
+        if (!orderItem || remainingToPick <= 0) {
+            Toast.fire({ icon: 'warning', title: 'This product is not on the order or is fully picked.' });
+            return;
+        }
+
+        const response = await fetchData(`api/picking_api.php?action=getDotsForProduct&product_id=${product.product_id}`);
+        
+        if (response?.success && response.data.length > 0) {
+            const dotCodes = response.data;
+            $(pickDotCodeSelect).empty().append(new Option('Select a DOT Code (Oldest First)', ''));
+            dotCodes.forEach((item, index) => {
+                const optionText = `DOT: ${item.dot_code}`;
+                const newOption = new Option(optionText, item.dot_code);
+                if (index === 0) {
+                    newOption.dataset.badgeClass = 'bg-success';
+                    newOption.dataset.badgeText = 'Oldest (FIFO)';
+                }
+                $(pickDotCodeSelect).append(newOption);
+            });
+            $(pickDotCodeSelect).prop('disabled', false);
+            
+            // Automatically select the first (oldest) DOT code to guide the user
+            if (dotCodes.length > 0) {
+                $(pickDotCodeSelect).val(dotCodes[0].dot_code).trigger('change');
+            }
+        } else {
+            Toast.fire({ icon: 'error', title: 'No available stock (DOTs) found for this item.' });
+            $(pickDotCodeSelect).empty().append(new Option('No stock found', '')).prop('disabled', true).trigger('change');
+        }
+    }
+
+    /**
+     * New Picking Workflow Step 2: Handle DOT code selection.
+     * Fetches locations containing the product with the selected DOT.
+     */
+    async function handleDotSelect() {
+        $(pickLocationSelect).empty().append(new Option('Loading...', '')).prop('disabled', true).trigger('change');
+        $(pickBatchNumberSelect).empty().append(new Option('Select Location first', '')).prop('disabled', true).trigger('change');
+        
+        const productBarcode = pickItemNumberInput.value.trim();
+        const selectedDot = pickDotCodeSelect.value;
+        
+        if (!productBarcode || !selectedDot) {
+            $(pickLocationSelect).empty().append(new Option('Select DOT first', '')).prop('disabled', true).trigger('change');
+            return;
+        }
+        
+        const product = allProducts.find(p => p.barcode === productBarcode || p.sku === productBarcode);
+        if (!product) return;
+
+        const response = await fetchData(`api/picking_api.php?action=getLocationsForDot&product_id=${product.product_id}&dot_code=${selectedDot}`);
+
+        if (response?.success && response.data.length > 0) {
+            const locations = response.data;
+            $(pickLocationSelect).empty().append(new Option('Select a Pick Location', ''));
+            locations.forEach(location => {
+                const option = new Option(`${location.location_code} (Available: ${location.available_quantity})`, location.location_id);
+                $(pickLocationSelect).append(option);
+            });
+            $(pickLocationSelect).prop('disabled', false).trigger('change');
+        } else {
+            $(pickLocationSelect).empty().append(new Option('No locations for this DOT', '')).prop('disabled', true).trigger('change');
+        }
+    }
+
+    /**
+     * New Picking Workflow Step 3: Handle location selection.
+     * Fetches batch numbers for the specific item in that location.
+     */
+    async function handleLocationSelect() {
+        $(pickBatchNumberSelect).empty().append(new Option('Loading...', '')).prop('disabled', true).trigger('change');
+
+        const productBarcode = pickItemNumberInput.value.trim();
+        const selectedDot = pickDotCodeSelect.value;
+        const selectedLocationId = pickLocationSelect.value;
+
+        if (!productBarcode || !selectedDot || !selectedLocationId) {
+            $(pickBatchNumberSelect).empty().append(new Option('Select Location first', '')).prop('disabled', true).trigger('change');
+            return;
+        }
+
+        const product = allProducts.find(p => p.barcode === productBarcode || p.sku === productBarcode);
+        if (!product) return;
+
+        const response = await fetchData(`api/picking_api.php?action=getBatchesForLocationDot&product_id=${product.product_id}&dot_code=${selectedDot}&location_id=${selectedLocationId}`);
+        
+        // Store details for quantity validation
+        productInventoryDetails = (response?.success && Array.isArray(response.data)) ? response.data : [];
+
+        if (response?.success && response.data.length > 0) {
+            const batches = response.data;
+            $(pickBatchNumberSelect).empty().append(new Option('Select a Batch', ''));
+            batches.forEach(batch => {
+                const batchNumberText = batch.batch_number || 'N/A';
+                const option = new Option(`${batchNumberText} (Qty: ${batch.quantity})`, batchNumberText);
+                $(pickBatchNumberSelect).append(option);
+            });
+            $(pickBatchNumberSelect).prop('disabled', false).trigger('change');
+        } else {
+            $(pickBatchNumberSelect).empty().append(new Option('No batches found', '')).prop('disabled', true).trigger('change');
+        }
+    }
+
+    /**
+     * Validates the quantity entered against available stock and order requirements.
+     */
+    function validatePickQuantity() {
+        const quantityErrorDiv = document.getElementById('pickQuantityError');
+        quantityErrorDiv.textContent = '';
+        pickItemBtn.disabled = true; // Disable by default
+        
+        const selectedBatch = pickBatchNumberSelect.value;
+        const enteredQty = parseInt(pickQuantityInput.value, 10);
+
+        if (!pickItemNumberInput.value || !pickDotCodeSelect.value || !pickLocationSelect.value || !selectedBatch || isNaN(enteredQty) || enteredQty <= 0) {
+            return;
+        }
+
+        // Check against available stock for the specific batch
+        const inventoryItem = productInventoryDetails.find(item => (item.batch_number || 'N/A') === selectedBatch);
+        if (!inventoryItem || enteredQty > inventoryItem.quantity) {
+            quantityErrorDiv.textContent = `Only ${inventoryItem?.quantity || 0} available for this batch.`;
+            return;
+        }
+
+        // Check against remaining quantity to pick for this item on the order
+        const product = allProducts.find(p => p.barcode === pickItemNumberInput.value.trim() || p.sku === pickItemNumberInput.value.trim());
+        if (product) {
+            const orderItem = currentOrderItems.find(oi => oi.product_id == product.product_id);
+            if (orderItem) {
+                const remainingToPick = orderItem.ordered_quantity - orderItem.picked_quantity;
+                if (enteredQty > remainingToPick) {
+                    quantityErrorDiv.textContent = `Order only requires ${remainingToPick} more.`;
+                    return;
+                }
+            }
+        }
+        
+        pickItemBtn.disabled = false; // All checks passed, enable button
+    }
+
+    /**
+     * Submits the picked item data to the backend.
+     */
     async function handlePickItem() {
         if (!selectedOrderId) { Swal.fire('Error', 'Please select an order first.', 'error'); return; }
+        
+        const productBarcode = pickItemNumberInput.value.trim();
+        const product = allProducts.find(p => p.barcode === productBarcode || p.sku === productBarcode);
+        if (!product) {
+            Swal.fire('Error', 'Could not find product details for the entered barcode/SKU.', 'error');
+            return;
+        }
+
         const data = { 
             order_id: selectedOrderId, 
-            product_barcode: pickItemNumberInput.value.trim(), 
+            product_id: product.product_id,
             location_id: pickLocationSelect.value, 
             picked_quantity: parseInt(pickQuantityInput.value, 10), 
             batch_number: pickBatchNumberSelect.value === 'N/A' ? null : pickBatchNumberSelect.value, 
             dot_code: pickDotCodeSelect.value 
         };
         
-        if (!data.product_barcode || !data.location_id || !data.dot_code || isNaN(data.picked_quantity) || data.picked_quantity <= 0) { 
+        if (!data.product_id || !data.location_id || !data.dot_code || isNaN(data.picked_quantity) || data.picked_quantity <= 0) { 
             Swal.fire('Validation Error', 'Product, Location, DOT Code, and a valid Quantity are required to pick.', 'error'); 
             return; 
         }
@@ -260,9 +429,24 @@ document.addEventListener('DOMContentLoaded', () => {
             
             await loadOrderItems(selectedOrderId);
             await loadPickableOrders();
-            await filterPickLocationsByProduct(pickedBarcode);
+            // Rescan the product to refresh the dropdowns for the next pick
+            pickItemNumberInput.value = pickedBarcode;
+            await handleProductScan();
         }
     }
+    
+    function formatDotOption(option) {
+        if (!option.id) return option.text;
+        const badgeClass = option.element.dataset.badgeClass;
+        const badgeText = option.element.dataset.badgeText;
+        let badgeHtml = '';
+        if (badgeClass && badgeText) {
+            badgeHtml = `<span class="badge ${badgeClass} float-end">${badgeText}</span>`;
+        }
+        return $(`<div>${option.text}${badgeHtml}</div>`);
+    }
+
+    // --- Other Action Handlers (Unpick, Stage, Assign, Print) ---
 
     function addOrderItemActionListeners(orderId) {
         document.querySelectorAll('.unpick-item-btn').forEach(button => button.addEventListener('click', (event) => { 
@@ -272,20 +456,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleUnpickItem(pickId, orderId) {
-        Swal.fire({ 
-            title: 'Confirm Unpick', 
-            text: 'Are you sure you want to return this picked item to stock?', 
-            icon: 'warning', 
-            showCancelButton: true, 
-            confirmButtonColor: '#3085d6', 
-            cancelButtonColor: '#d33', 
-            confirmButtonText: 'Yes, unpick it!' 
-        }).then(async (result) => {
+        Swal.fire({ title: 'Confirm Unpick', text: 'Are you sure you want to return this picked item to stock?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Yes, unpick it!' }).then(async (result) => {
             if (result.isConfirmed) {
                 const apiResult = await fetchData('api/picking_api.php?action=unpickItem', 'POST', { pick_id: pickId });
                 if (apiResult?.success) {
                     Toast.fire({ icon: 'success', title: apiResult.message });
                     await Promise.all([loadOrderItems(orderId), loadPickableOrders()]);
+                    await handleProductScan(); // Refresh pick options
                 }
             }
         });
@@ -293,32 +470,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function handleStageOrder() {
         if (!selectedOrderId) { Swal.fire('Error', 'No order selected.', 'error'); return; }
-
         const areaResponse = await fetchData('api/picking_api.php?action=getShippingAreas');
         if (!areaResponse?.success || !areaResponse.data || areaResponse.data.length === 0) {
             Swal.fire('Configuration Error', 'No active shipping areas have been configured.', 'error');
             return;
         }
-
         const shippingAreaOptions = areaResponse.data.reduce((opts, area) => {
             opts[area.location_id] = area.location_code;
             return opts;
         }, {});
-
-        const { value: locationId } = await Swal.fire({
-            title: 'Select Shipping Area',
-            input: 'select',
-            inputOptions: shippingAreaOptions,
-            inputPlaceholder: 'Select an area',
-            showCancelButton: true,
-            inputValidator: (value) => !value && 'You need to select a shipping area!'
-        });
-
+        const { value: locationId } = await Swal.fire({ title: 'Select Shipping Area', input: 'select', inputOptions: shippingAreaOptions, inputPlaceholder: 'Select an area', showCancelButton: true, inputValidator: (value) => !value && 'You need to select a shipping area!' });
         if (locationId) {
-            const result = await fetchData('api/picking_api.php?action=stageOrder', 'POST', {
-                order_id: selectedOrderId,
-                shipping_area_location_id: locationId
-            });
+            const result = await fetchData('api/picking_api.php?action=stageOrder', 'POST', { order_id: selectedOrderId, shipping_area_location_id: locationId });
             if (result?.success) {
                 Toast.fire({ icon: 'success', title: result.message });
                 await Promise.all([loadOrderItems(selectedOrderId), loadPickableOrders()]);
@@ -328,32 +491,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function handleAssignDriver() {
         if (!selectedOrderId) { Swal.fire('Error', 'No order selected.', 'error'); return; }
-
         const driverResponse = await fetchData('api/picking_api.php?action=getDrivers');
         if (!driverResponse?.success || !driverResponse.data || driverResponse.data.length === 0) {
             Swal.fire('Configuration Error', 'No active drivers configured for this warehouse.', 'error');
             return;
         }
-
         const driverOptions = driverResponse.data.reduce((opts, driver) => {
             opts[driver.user_id] = driver.full_name;
             return opts;
         }, {});
-
-        const { value: driverId } = await Swal.fire({
-            title: 'Assign Driver to Order',
-            input: 'select',
-            inputOptions: driverOptions,
-            inputPlaceholder: 'Select a driver',
-            showCancelButton: true,
-            inputValidator: (value) => !value && 'You need to select a driver!'
-        });
-
+        const { value: driverId } = await Swal.fire({ title: 'Assign Driver to Order', input: 'select', inputOptions: driverOptions, inputPlaceholder: 'Select a driver', showCancelButton: true, inputValidator: (value) => !value && 'You need to select a driver!' });
         if (driverId) {
-            const result = await fetchData('api/picking_api.php?action=assignDriver', 'POST', {
-                order_id: selectedOrderId,
-                driver_user_id: driverId
-            });
+            const result = await fetchData('api/picking_api.php?action=assignDriver', 'POST', { order_id: selectedOrderId, driver_user_id: driverId });
             if (result?.success) {
                 Toast.fire({ icon: 'success', title: result.message });
                 await Promise.all([loadOrderItems(selectedOrderId), loadPickableOrders()]);
@@ -398,7 +547,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
                 
-                JsBarcode(mainBarcodeSvg, sticker.sticker_code, { format: "CODE128", height: 30, displayValue: true, fontSize: 14 });
+                JsBarcode(mainBarcodeSvg, sticker.sticker_code, { format: "EAN13", height: 30, displayValue: true, fontSize: 14 });
                 JsBarcode(sideBarcodeSvg, sticker.tracking_number || sticker.order_number, { format: "CODE128", width: 1.5, height: 70, fontSize: 12, displayValue: true });
 
                 const mainBarcodeHtml = mainBarcodeSvg.outerHTML;
@@ -480,9 +629,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handlePrintPickReport() {
-        if (!selectedOrderId) {
-            Swal.fire('Error', 'No order is selected.', 'error');
-            return;
+        if (!selectedOrderId) { 
+            Swal.fire('Error', 'No order is selected.', 'error'); 
+            return; 
         }
 
         printPickReportBtn.disabled = true;
@@ -664,173 +813,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             printPickReportBtn.disabled = false;
             printPickReportBtn.innerHTML = '<i class="bi bi-file-earmark-text me-1"></i> Print Pick Report';
-        }
-    }
-
-
-    async function filterPickLocationsByProduct(productBarcode) {
-        $(pickLocationSelect).empty().append(new Option('Enter item number first', '')).trigger('change');
-        $(pickBatchNumberSelect).empty().append(new Option('Select location first', '')).prop('disabled', true);
-        $(pickDotCodeSelect).empty().append(new Option('Select batch first', '')).prop('disabled', true).trigger('change');
-        productInventoryDetails = []; 
-
-        if (!productBarcode) return;
-
-        const product = allProducts.find(p => p.barcode === productBarcode || p.sku === productBarcode);
-        if (!product) {
-            Toast.fire({ icon: 'error', title: 'Product not found in system.' });
-            return;
-        }
-
-        const isOnOrder = currentOrderItems.some(item => item.product_id == product.product_id);
-        if (!isOnOrder) {
-            Toast.fire({ icon: 'error', title: 'This product is not on the selected order.' });
-            return;
-        }
-
-        $(pickLocationSelect).empty().append(new Option('Loading locations...', '')).trigger('change');
-        
-        const response = await fetchData(`api/inventory_api.php?product_id=${product.product_id}`);
-        productInventoryDetails = (response?.success && Array.isArray(response.data)) ? response.data : [];
-
-        const locationsWithStock = [...new Set(productInventoryDetails.map(item => parseInt(item.location_id, 10)))]
-            .map(id => warehouseLocationsMap.get(id))
-            .filter(Boolean);
-
-        $(pickLocationSelect).empty().append(new Option('Select a Pick Location', ''));
-        locationsWithStock.forEach(location => {
-            const totalQty = productInventoryDetails
-                .filter(i => i.location_id == location.location_id)
-                .reduce((sum, i) => sum + i.quantity, 0);
-            if (totalQty > 0) {
-                const option = new Option(`${location.location_code} (Available: ${totalQty})`, location.location_id);
-                $(pickLocationSelect).append(option);
-            }
-        });
-
-        if ($(pickLocationSelect).find('option').length <= 1) {
-             $(pickLocationSelect).empty().append(new Option('No stock available in any location', '')).trigger('change');
-        }
-        $(pickLocationSelect).trigger('change');
-    }
-
-    function populateBatchDropdown() {
-        const selectedLocationId = pickLocationSelect.value;
-        $(pickBatchNumberSelect).empty().prop('disabled', true).trigger('change');
-        
-        if (selectedLocationId && productInventoryDetails.length > 0) {
-            const batchesForLocation = [...new Set(productInventoryDetails
-                .filter(item => item.location_id == selectedLocationId && item.quantity > 0)
-                .map(item => item.batch_number || 'N/A')
-            )];
-            
-            if (batchesForLocation.length > 0) {
-                $(pickBatchNumberSelect).append(new Option('Select a Batch', ''));
-                batchesForLocation.forEach(batch => { 
-                    const totalQty = productInventoryDetails
-                        .filter(i => i.location_id == selectedLocationId && (i.batch_number || 'N/A') === batch)
-                        .reduce((sum, i) => sum + i.quantity, 0);
-                    $(pickBatchNumberSelect).append(new Option(`${batch} (${totalQty} units)`, batch));
-                });
-                $(pickBatchNumberSelect).prop('disabled', false);
-            } else { 
-                $(pickBatchNumberSelect).append(new Option('No batches found', '')); 
-            }
-        } else { 
-            $(pickBatchNumberSelect).append(new Option('Select location first', '')); 
-        }
-        $(pickBatchNumberSelect).trigger('change');
-    }
-
-    function populateDotCodeDropdown() {
-        const selectedLocationId = pickLocationSelect.value;
-        const selectedBatch = pickBatchNumberSelect.value;
-        const $dotSelect = $(pickDotCodeSelect);
-        $dotSelect.empty().prop('disabled', true);
-
-        if (selectedLocationId && selectedBatch) {
-            const dotCodesForBatch = productInventoryDetails
-                .filter(item => 
-                    item.location_id == selectedLocationId && 
-                    (item.batch_number || 'N/A') === selectedBatch &&
-                    item.quantity > 0 &&
-                    item.dot_code
-                );
-
-            dotCodesForBatch.sort((a, b) => {
-                const yearA = parseInt(a.dot_code.substring(2), 10);
-                const weekA = parseInt(a.dot_code.substring(0, 2), 10);
-                const yearB = parseInt(b.dot_code.substring(2), 10);
-                const weekB = parseInt(b.dot_code.substring(0, 2), 10);
-                if (yearA !== yearB) return yearA - yearB;
-                return weekA - weekB;
-            });
-            
-            if (dotCodesForBatch.length > 0) {
-                $dotSelect.append(new Option('Select a DOT Code', ''));
-                const totalDots = dotCodesForBatch.length;
-                dotCodesForBatch.forEach((item, index) => {
-                    const optionText = `DOT: ${item.dot_code} (Qty: ${item.quantity})`;
-                    const newOption = new Option(optionText, item.dot_code);
-
-                    if (totalDots > 1) {
-                        if (index === 0) {
-                            newOption.dataset.badgeClass = 'bg-success';
-                            newOption.dataset.badgeText = 'Oldest';
-                        } else if (index === totalDots - 1) {
-                            newOption.dataset.badgeClass = 'bg-danger';
-                            newOption.dataset.badgeText = 'Newest';
-                        }
-                    }
-                    $dotSelect.append(newOption);
-                });
-                $dotSelect.prop('disabled', false);
-            } else {
-                $dotSelect.append(new Option('No DOTs found', ''));
-            }
-        } else {
-            $dotSelect.append(new Option('Select batch first', ''));
-        }
-        $dotSelect.trigger('change');
-        validatePickQuantity();
-    }
-    
-    function formatDotOption(option) {
-        if (!option.id) {
-            return option.text;
-        }
-        const badgeClass = option.element.dataset.badgeClass;
-        const badgeText = option.element.dataset.badgeText;
-        
-        let badgeHtml = '';
-        if (badgeClass && badgeText) {
-            badgeHtml = `<span class="badge ${badgeClass} float-end">${badgeText}</span>`;
-        }
-        
-        return $(`<div>${option.text}${badgeHtml}</div>`);
-    }
-
-    function validatePickQuantity() {
-        const quantityErrorDiv = document.getElementById('pickQuantityError');
-        quantityErrorDiv.textContent = '';
-        pickItemBtn.disabled = false;
-        const selectedLocationId = pickLocationSelect.value;
-        const selectedBatch = pickBatchNumberSelect.value;
-        const selectedDot = pickDotCodeSelect.value;
-        const enteredQty = parseInt(pickQuantityInput.value, 10);
-
-        if (!selectedLocationId || !selectedBatch || !selectedDot || isNaN(enteredQty) || enteredQty <= 0) {
-            pickItemBtn.disabled = true;
-            return;
-        }
-        const inventoryItem = productInventoryDetails.find(item => 
-            item.location_id == selectedLocationId && 
-            (item.batch_number || 'N/A') === selectedBatch &&
-            item.dot_code === selectedDot
-        );
-        if (inventoryItem && enteredQty > inventoryItem.quantity) {
-            quantityErrorDiv.textContent = `Only ${inventoryItem.quantity} available for this DOT.`;
-            pickItemBtn.disabled = true;
         }
     }
 });

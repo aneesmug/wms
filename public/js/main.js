@@ -75,7 +75,7 @@ function promptWarehouseSelection(warehouses) {
 }
 
 /**
- * UPDATED: Updates the user information display, including the profile picture.
+ * Updates the user information display, including the profile picture.
  * @param {object} authStatus - The authentication status object from the API.
  */
 function updateUserInfoDisplay(authStatus) {
@@ -194,6 +194,105 @@ function showConfirmationModal(title, body, onConfirm) {
             onConfirm();
         }
     });
+}
+
+// --- NEW ADVANCED DYNAMIC FILTER FUNCTIONALITY ---
+/**
+ * Initializes an advanced, dynamic, multi-column filter for a DataTable.
+ * @param {DataTable} table - The DataTables instance.
+ * @param {string} filterContainerId - The ID of the dropdown container for the filter UI.
+ * @param {Array<Object>} columnsConfig - Configuration for filterable columns, e.g., [{columnIndex: 1, title: 'Username'}]
+ */
+function initializeAdvancedFilter(table, filterContainerId, columnsConfig) {
+    const container = document.getElementById(filterContainerId);
+    if (!container) return;
+
+    container.addEventListener('click', (e) => e.stopPropagation());
+
+    const render = () => {
+        container.innerHTML = `
+            <div id="filter-rules-list" class="mb-2"></div>
+            <button id="add-filter-btn" class="btn btn-sm btn-outline-secondary w-100"><i class="bi bi-plus-lg"></i> Add Rule</button>
+            <hr class="my-2">
+            <div class="d-flex justify-content-end">
+                <button id="clear-filters-btn" class="btn btn-sm btn-light me-2">Clear</button>
+                <button id="apply-filters-btn" class="btn btn-sm btn-primary">Apply</button>
+            </div>
+        `;
+        addFilterRule(); // Start with one rule
+    };
+
+    const addFilterRule = () => {
+        const list = document.getElementById('filter-rules-list');
+        const ruleDiv = document.createElement('div');
+        ruleDiv.className = 'filter-rule p-2 mb-2 border rounded';
+        
+        const columnOptions = columnsConfig.map(c => `<option value="${c.columnIndex}">${c.title}</option>`).join('');
+
+        ruleDiv.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <select class="form-select form-select-sm filter-column">${columnOptions}</select>
+                <button class="btn btn-sm btn-outline-danger remove-rule-btn ms-2"><i class="bi bi-trash"></i></button>
+            </div>
+            <div class="d-flex">
+                <select class="form-select form-select-sm filter-condition me-1" style="width: 100px;">
+                    <option value="contain">Contain</option>
+                    <option value="exact">Exact</option>
+                    <option value="startsWith">Starts with</option>
+                    <option value="endsWith">Ends with</option>
+                </select>
+                <input type="text" class="form-control form-control-sm filter-value" placeholder="Keyword...">
+            </div>
+        `;
+        list.appendChild(ruleDiv);
+    };
+
+    const applyFilters = () => {
+        table.columns().search('').draw(); // Clear all previous searches first
+
+        container.querySelectorAll('.filter-rule').forEach(rule => {
+            const colIndex = rule.querySelector('.filter-column').value;
+            const condition = rule.querySelector('.filter-condition').value;
+            const value = rule.querySelector('.filter-value').value;
+
+            if (value) {
+                let regex;
+                const escapedValue = value.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'); // Escape special regex characters
+                switch(condition) {
+                    case 'exact':
+                        regex = `^${escapedValue}$`;
+                        break;
+                    case 'startsWith':
+                        regex = `^${escapedValue}`;
+                        break;
+                    case 'endsWith':
+                        regex = `${escapedValue}$`;
+                        break;
+                    case 'contain':
+                    default:
+                        regex = escapedValue;
+                        break;
+                }
+                table.column(colIndex).search(regex, true, false);
+            }
+        });
+        table.draw();
+    };
+
+    const clearFilters = () => {
+        container.querySelectorAll('.filter-value').forEach(input => input.value = '');
+        table.columns().search('').draw();
+    };
+
+    container.addEventListener('click', (e) => {
+        const target = e.target;
+        if (target.closest('#add-filter-btn')) addFilterRule();
+        if (target.closest('.remove-rule-btn')) target.closest('.filter-rule').remove();
+        if (target.closest('#apply-filters-btn')) applyFilters();
+        if (target.closest('#clear-filters-btn')) clearFilters();
+    });
+
+    render();
 }
 
 // --- Common Page Setup ---
