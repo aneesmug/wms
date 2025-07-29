@@ -15,16 +15,22 @@ if (!$inventory_id) {
     die("Invalid Inventory ID.");
 }
 
-// Fetch main inventory details, including batch number and expiry years for calculations
+// MODIFICATION: Fetch main inventory details, and join to returns/orders to get identifying numbers
 $stmt_inv = $conn->prepare("
     SELECT 
         i.inventory_id, i.quantity, i.dot_code, i.expiry_date, i.batch_number,
         p.product_name, p.sku, p.barcode AS product_barcode, p.expiry_years,
-        wl.location_code
+        wl.location_code,
+        r.return_number,
+        oo.order_number
     FROM inventory i
     JOIN products p ON i.product_id = p.product_id
     JOIN warehouse_locations wl ON i.location_id = wl.location_id
+    LEFT JOIN return_putaway_stickers rps ON i.inventory_id = rps.inventory_id
+    LEFT JOIN returns r ON rps.return_id = r.return_id
+    LEFT JOIN outbound_orders oo ON r.order_id = oo.order_id
     WHERE i.inventory_id = ? AND i.warehouse_id = ?
+    GROUP BY i.inventory_id
 ");
 $stmt_inv->bind_param("ii", $inventory_id, $current_warehouse_id);
 $stmt_inv->execute();
@@ -67,7 +73,7 @@ $current_sticker = 0;
     <style>
         @media print {
             @page {
-                size: 10cm 15cm;
+                size: 15cm 10cm landscape;
                 margin: 0;
             }
             body {
@@ -80,32 +86,51 @@ $current_sticker = 0;
             font-family: Arial, sans-serif;
         }
         .sticker {
-            width: 100mm;
-            height: 150mm;
-            border: 1px solid #000;
+            width: 150mm;
+            height: 100mm;
+            border: 2px solid #D32F2F; /* Red border for returns */
             padding: 5mm;
             box-sizing: border-box;
             page-break-after: always;
             display: flex;
             flex-direction: column;
-            font-size: 12pt;
+            font-size: 11pt; /* Slightly smaller font to fit new fields */
+            position: relative; /* Needed for absolute positioning */
         }
         .sticker:last-child {
             page-break-after: auto;
         }
-        .product-name {
+        /* MODIFICATION: Added a header stamp for returned items */
+        .return-header {
+            position: absolute;
+            top: 14mm;
+            right: 5mm;
+            font-size: 14pt;
             font-weight: bold;
-            font-size: 16pt;
+            color: #D32F2F;
+            border: 2px solid #D32F2F;
+            padding: 1mm 3mm;
+            transform: rotate(-10deg);
+            opacity: 0.8;
+        }
+        .product-name {
+            margin-top: 5mm; /* FIX: Added margin to push the content down */
+            font-weight: bold;
+            font-size: 14pt; /* Adjusted font size */
             text-align: left;
             border-bottom: 2px solid #000;
             padding-bottom: 2mm;
-            margin-bottom: 4mm;
+            margin-bottom: 3mm;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .details-grid {
             display: grid;
-            grid-template-columns: 1fr 2fr;
-            gap: 2mm 4mm;
-            font-size: 14pt;
+            /* MODIFICATION: Adjusted grid to fit more info */
+            grid-template-columns: 90px 1fr; 
+            gap: 1.5mm 4mm; /* Adjusted gap */
+            font-size: 12pt;
         }
         .details-grid > div {
             display: contents;
@@ -117,13 +142,14 @@ $current_sticker = 0;
             text-align: center;
             flex-grow: 1;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
-            margin-top: 5mm;
+            margin-top: 3mm;
         }
         svg.barcode {
             width: 90%;
-            height: 40mm;
+            height: 22mm;
         }
         .footer {
             text-align: center;
@@ -135,15 +161,24 @@ $current_sticker = 0;
 <body>
     <?php foreach ($stickers as $sticker): $current_sticker++; ?>
     <div class="sticker">
-        <div class="product-name" title="<?= htmlspecialchars($inventory_details['product_name'] ?? '') ?>">
-            <?= htmlspecialchars($inventory_details['product_name'] ?? '') ?>
-        </div>
+        <div class="return-header">RETURNED ITEM</div>
+
         <div class="details-grid">
+            <div><strong>Product:</strong></div>
+            <div><?= htmlspecialchars($inventory_details['product_name'] ?? '') ?></div>
+            
             <div><strong>SKU:</strong></div>
             <div><?= htmlspecialchars($inventory_details['sku'] ?? '') ?></div>
             
             <div><strong>Batch:</strong></div>
             <div><?= htmlspecialchars($inventory_details['batch_number'] ?? '') ?></div>
+
+            <!-- MODIFICATION: Added RMA and Order numbers -->
+            <div><strong>RMA #:</strong></div>
+            <div><?= htmlspecialchars($inventory_details['return_number'] ?? 'N/A') ?></div>
+
+            <div><strong>Orig. Order:</strong></div>
+            <div><?= htmlspecialchars($inventory_details['order_number'] ?? 'N/A') ?></div>
 
             <div><strong>Manu. DOT:</strong></div>
             <div><?= htmlspecialchars($manu_dot_formatted) ?></div>
@@ -154,8 +189,6 @@ $current_sticker = 0;
             <div><strong>Location:</strong></div>
             <div><?= htmlspecialchars($inventory_details['location_code'] ?? '') ?></div>
 
-            <div><strong>Item BC:</strong></div>
-            <div><?= htmlspecialchars($inventory_details['product_barcode'] ?? '') ?></div>
         </div>
         <div class="barcode-container">
             <svg class="barcode"

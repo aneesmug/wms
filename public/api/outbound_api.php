@@ -3,7 +3,7 @@
 
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../helpers/auth_helper.php';
-require_once __DIR__ . '/../helpers/order_helper.php'; // <-- FIX: Include the new helper file
+require_once __DIR__ . '/../helpers/order_helper.php';
 
 $conn = getDbConnection();
 ob_start();
@@ -37,6 +37,8 @@ switch ($method) {
         authorize_user_role(['operator', 'manager']);
         if ($action === 'createOrder') {
             handleCreateOutboundOrder($conn, $current_warehouse_id, $current_user_id);
+        } elseif ($action === 'updateOrder') { // New action
+            handleUpdateOrder($conn, $current_warehouse_id, $current_user_id);
         } elseif ($action === 'addItem') {
             handleAddItemToOrder($conn, $current_warehouse_id);
         } elseif ($action === 'shipOrder') {
@@ -58,6 +60,52 @@ switch ($method) {
     default:
         sendJsonResponse(['success' => false, 'message' => 'Method Not Allowed'], 405);
         break;
+}
+
+function handleUpdateOrder($conn, $warehouse_id, $user_id) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $order_id = filter_var($input['order_id'] ?? 0, FILTER_VALIDATE_INT);
+    $customer_id = filter_var($input['customer_id'] ?? 0, FILTER_VALIDATE_INT);
+    $reference_number = sanitize_input($input['reference_number'] ?? null);
+    $required_ship_date = sanitize_input($input['required_ship_date'] ?? '');
+    $delivery_note = sanitize_input($input['delivery_note'] ?? null);
+
+    if (!$order_id || !$customer_id || empty($required_ship_date)) {
+        sendJsonResponse(['success' => false, 'message' => 'Order ID, Customer, and Required Ship Date are mandatory.'], 400);
+        return;
+    }
+
+    $conn->begin_transaction();
+    try {
+        $stmt_check = $conn->prepare("SELECT status FROM outbound_orders WHERE order_id = ? AND warehouse_id = ?");
+        $stmt_check->bind_param("ii", $order_id, $warehouse_id);
+        $stmt_check->execute();
+        $order = $stmt_check->get_result()->fetch_assoc();
+        $stmt_check->close();
+
+        if (!$order) {
+            throw new Exception("Order not found or does not belong to this warehouse.");
+        }
+        if (!in_array($order['status'], ['New', 'Pending Pick', 'Partially Picked'])) {
+            throw new Exception("Cannot edit an order with status '{$order['status']}'.");
+        }
+
+        $stmt = $conn->prepare("UPDATE outbound_orders SET customer_id = ?, reference_number = ?, required_ship_date = ?, delivery_note = ? WHERE order_id = ?");
+        $stmt->bind_param("isssi", $customer_id, $reference_number, $required_ship_date, $delivery_note, $order_id);
+        
+        if (!$stmt->execute()) {
+            throw new Exception("Failed to update order details: " . $stmt->error);
+        }
+        $stmt->close();
+
+        logOrderHistory($conn, $order_id, 'Updated', $user_id, 'Order details have been updated.');
+        $conn->commit();
+        sendJsonResponse(['success' => true, 'message' => 'Order details updated successfully.']);
+
+    } catch (Exception $e) {
+        $conn->rollback();
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 400);
+    }
 }
 
 function handleGetPickReport($conn, $warehouse_id) {
@@ -89,28 +137,10 @@ function handleGetPickReport($conn, $warehouse_id) {
 
     $stmt_items = $conn->prepare("
         SELECT 
-            oi.product_id,
-            p.sku,
-            p.product_name,
-            p.barcode,
-            oi.ordered_quantity,
-            oi.picked_quantity,
-            (SELECT wl.location_code 
-             FROM inventory i 
-             JOIN warehouse_locations wl ON i.location_id = wl.location_id
-             WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0
-             ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC 
-             LIMIT 1) as location_code,
-            (SELECT i.batch_number 
-             FROM inventory i 
-             WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0
-             ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC 
-             LIMIT 1) as batch_number,
-            (SELECT i.dot_code 
-             FROM inventory i 
-             WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0
-             ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC 
-             LIMIT 1) as dot_code
+            oi.product_id, p.sku, p.product_name, p.barcode, oi.ordered_quantity, oi.picked_quantity,
+            (SELECT wl.location_code FROM inventory i JOIN warehouse_locations wl ON i.location_id = wl.location_id WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC LIMIT 1) as location_code,
+            (SELECT i.batch_number FROM inventory i WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC LIMIT 1) as batch_number,
+            (SELECT i.dot_code FROM inventory i WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC LIMIT 1) as dot_code
         FROM outbound_items oi
         JOIN products p ON oi.product_id = p.product_id
         WHERE oi.order_id = ?
@@ -128,13 +158,23 @@ function handleGetOutbound($conn, $warehouse_id) {
         $order_id = filter_var($_GET['order_id'], FILTER_VALIDATE_INT);
         if(!$order_id) { sendJsonResponse(['success' => false, 'message' => 'Invalid Order ID.'], 400); return; }
         
-        $stmt = $conn->prepare("
-            SELECT oo.*, c.customer_name, sl.location_code as shipping_area_code 
+        $sql = "
+            SELECT 
+                oo.*, c.customer_name, sl.location_code as shipping_area_code,
+                picker.full_name as picker_name,
+                shipper.full_name as shipper_name,
+                driver.full_name as driver_name
             FROM outbound_orders oo 
             JOIN customers c ON oo.customer_id = c.customer_id 
             LEFT JOIN warehouse_locations sl ON oo.shipping_area_location_id = sl.location_id
+            LEFT JOIN users picker ON oo.picked_by = picker.user_id
+            LEFT JOIN users shipper ON oo.shipped_by = shipper.user_id
+            LEFT JOIN outbound_order_assignments ooa ON oo.order_id = ooa.order_id
+            LEFT JOIN users driver ON ooa.driver_user_id = driver.user_id
             WHERE oo.order_id = ? AND oo.warehouse_id = ?
-        ");
+        ";
+        
+        $stmt = $conn->prepare($sql);
         $stmt->bind_param("ii", $order_id, $warehouse_id);
         $stmt->execute();
         $order = $stmt->get_result()->fetch_assoc();
@@ -161,7 +201,6 @@ function handleGetOutbound($conn, $warehouse_id) {
         sendJsonResponse(['success' => true, 'data' => $order]);
     } else {
         $customer_id_filter = filter_input(INPUT_GET, 'customer_id', FILTER_VALIDATE_INT);
-
         $sql = "
             SELECT oo.order_id, oo.order_number, oo.reference_number, oo.status, oo.required_ship_date, oo.tracking_number, c.customer_name, sl.location_code as shipping_area_code
             FROM outbound_orders oo 
@@ -170,27 +209,19 @@ function handleGetOutbound($conn, $warehouse_id) {
         ";
         $params = [];
         $types = "";
-
         if ($customer_id_filter) {
             $sql .= " WHERE oo.customer_id = ?";
             $params[] = $customer_id_filter;
             $types .= "i";
         } else {
-            if (!$warehouse_id) {
-                sendJsonResponse(['success' => true, 'data' => []]);
-                return;
-            }
+            if (!$warehouse_id) { sendJsonResponse(['success' => true, 'data' => []]); return; }
             $sql .= " WHERE oo.warehouse_id = ?";
             $params[] = $warehouse_id;
             $types .= "i";
         }
         $sql .= " ORDER BY oo.order_date DESC";
-
         $stmt = $conn->prepare($sql);
-        if (!empty($params)) {
-            $stmt->bind_param($types, ...$params);
-        }
-        
+        if (!empty($params)) { $stmt->bind_param($types, ...$params); }
         $stmt->execute();
         $orders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();

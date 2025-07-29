@@ -37,16 +37,33 @@ switch ($method) {
         break;
 }
 
-// **MODIFICATION START**: New helper function to update original order status
+function calculateExpiryDateForReturn($dot_code, $expiry_years) {
+    if (empty($dot_code) || strlen($dot_code) !== 4 || !is_numeric($dot_code) || $expiry_years === null || !is_numeric($expiry_years)) {
+        return null;
+    }
+    $week = (int)substr($dot_code, 0, 2);
+    $year = (int)substr($dot_code, 2, 2);
+    $full_year = 2000 + $year;
+    if ($week < 1 || $week > 53) {
+        return null;
+    }
+    try {
+        $manufacture_date = new DateTime();
+        $manufacture_date->setISODate($full_year, $week);
+        $manufacture_date->add(new DateInterval("P{$expiry_years}Y"));
+        return $manufacture_date->format('Y-m-d');
+    } catch (Exception $e) {
+        return null;
+    }
+}
+
 function updateOriginalOrderStatusAfterReturn($conn, $order_id, $user_id) {
-    // Get total picked quantity from the original order
     $stmt_picked = $conn->prepare("SELECT SUM(picked_quantity) as total_picked FROM outbound_items WHERE order_id = ?");
     $stmt_picked->bind_param("i", $order_id);
     $stmt_picked->execute();
     $total_picked = $stmt_picked->get_result()->fetch_assoc()['total_picked'] ?? 0;
     $stmt_picked->close();
 
-    // Get total returned quantity from all returns for this order
     $stmt_returned = $conn->prepare("
         SELECT SUM(ri.expected_quantity) as total_returned 
         FROM return_items ri
@@ -58,13 +75,9 @@ function updateOriginalOrderStatusAfterReturn($conn, $order_id, $user_id) {
     $total_returned = $stmt_returned->get_result()->fetch_assoc()['total_returned'] ?? 0;
     $stmt_returned->close();
 
-    $new_status = 'Shipped'; // Default
+    $new_status = 'Shipped';
     if ($total_returned > 0) {
-        if ($total_returned >= $total_picked) {
-            $new_status = 'Returned';
-        } else {
-            $new_status = 'Partially Returned';
-        }
+        $new_status = ($total_returned >= $total_picked) ? 'Returned' : 'Partially Returned';
     }
 
     $stmt_update = $conn->prepare("UPDATE outbound_orders SET status = ? WHERE order_id = ?");
@@ -74,7 +87,6 @@ function updateOriginalOrderStatusAfterReturn($conn, $order_id, $user_id) {
 
     logOrderHistory($conn, $order_id, $new_status, $user_id, "Order status updated after processing return.");
 }
-// **MODIFICATION END**
 
 function handleGetReturns($conn, $warehouse_id) {
     if (isset($_GET['return_id'])) {
@@ -111,12 +123,16 @@ function handleGetReturns($conn, $warehouse_id) {
         $items = $stmt_items->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt_items->close();
         
+        // This query joins through the return_putaway_stickers table
+        // to ensure that only inventory items created for THIS specific return are fetched.
         $stmt_putaways = $conn->prepare("
-            SELECT 
+            SELECT
                 i.inventory_id, i.quantity, i.batch_number, i.source_inbound_item_id, wl.location_code
             FROM inventory i
             JOIN warehouse_locations wl ON i.location_id = wl.location_id
-            WHERE i.receipt_id IS NULL AND i.source_inbound_item_id IN (SELECT return_item_id FROM return_items WHERE return_id = ?)
+            JOIN return_putaway_stickers rps ON i.inventory_id = rps.inventory_id
+            WHERE rps.return_id = ?
+            GROUP BY i.inventory_id, i.quantity, i.batch_number, i.source_inbound_item_id, wl.location_code
         ");
         $stmt_putaways->bind_param("i", $return_id);
         $stmt_putaways->execute();
@@ -158,7 +174,6 @@ function handleGetReturns($conn, $warehouse_id) {
     }
 }
 
-// **MODIFICATION START**: Reworked to handle partial returns from a list of items
 function handleCreateReturn($conn, $user_id) {
     $input = json_decode(file_get_contents('php://input'), true);
     $order_id = filter_var($input['order_id'] ?? 0, FILTER_VALIDATE_INT);
@@ -183,7 +198,6 @@ function handleCreateReturn($conn, $user_id) {
             throw new Exception("Cannot create a return for an order with status '{$order['status']}'.");
         }
 
-        // Create the main return record
         $stmt_return = $conn->prepare("INSERT INTO returns (order_id, customer_id, return_number, reason, created_by) VALUES (?, ?, '', ?, ?)");
         $stmt_return->bind_param("iisi", $order_id, $order['customer_id'], $reason, $user_id);
         $stmt_return->execute();
@@ -196,28 +210,20 @@ function handleCreateReturn($conn, $user_id) {
         $stmt_update_num->execute();
         $stmt_update_num->close();
 
-        // Loop through items and add them to the return
         foreach ($items_to_return as $item_data) {
             $outbound_item_id = filter_var($item_data['outbound_item_id'], FILTER_VALIDATE_INT);
             $quantity = filter_var($item_data['quantity'], FILTER_VALIDATE_INT);
 
-            if (!$outbound_item_id || !$quantity || $quantity <= 0) {
-                throw new Exception("Invalid data for an item to be returned.");
-            }
+            if (!$outbound_item_id || !$quantity || $quantity <= 0) throw new Exception("Invalid data for an item to be returned.");
 
-            // Get original outbound item details to validate quantity and get product_id
             $stmt_out_item = $conn->prepare("SELECT product_id, picked_quantity FROM outbound_items WHERE outbound_item_id = ? AND order_id = ?");
             $stmt_out_item->bind_param("ii", $outbound_item_id, $order_id);
             $stmt_out_item->execute();
             $original_item = $stmt_out_item->get_result()->fetch_assoc();
             $stmt_out_item->close();
 
-            if (!$original_item) {
-                throw new Exception("An item to be returned was not found on the original order.");
-            }
-            if ($quantity > $original_item['picked_quantity']) {
-                throw new Exception("Return quantity for an item cannot exceed the shipped quantity.");
-            }
+            if (!$original_item) throw new Exception("An item to be returned was not found on the original order.");
+            if ($quantity > $original_item['picked_quantity']) throw new Exception("Return quantity for an item cannot exceed the shipped quantity.");
 
             $stmt_items = $conn->prepare("INSERT INTO return_items (return_id, product_id, outbound_item_id, expected_quantity) VALUES (?, ?, ?, ?)");
             $stmt_items->bind_param("iiii", $return_id, $original_item['product_id'], $outbound_item_id, $quantity);
@@ -226,9 +232,7 @@ function handleCreateReturn($conn, $user_id) {
         }
 
         updateOriginalOrderStatusAfterReturn($conn, $order_id, $user_id);
-
         logOrderHistory($conn, $order_id, 'Return Initiated', $user_id, "Return created with RMA: $return_number.");
-
         $conn->commit();
         sendJsonResponse(['success' => true, 'message' => "Return #$return_number created successfully."], 201);
     } catch (Exception $e) {
@@ -236,7 +240,6 @@ function handleCreateReturn($conn, $user_id) {
         sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 400);
     }
 }
-// **MODIFICATION END**
 
 function handleProcessItem($conn, $warehouse_id, $user_id) {
     $input = json_decode(file_get_contents('php://input'), true);
@@ -252,18 +255,33 @@ function handleProcessItem($conn, $warehouse_id, $user_id) {
     
     $conn->begin_transaction();
     try {
-        $stmt_item = $conn->prepare("SELECT ri.*, r.return_id, r.order_id, p.expiry_years FROM return_items ri JOIN returns r ON ri.return_id = r.return_id JOIN products p ON ri.product_id = p.product_id WHERE ri.return_item_id = ?");
+        $stmt_item = $conn->prepare("
+            SELECT 
+                ri.*, 
+                r.return_id, 
+                r.order_id, 
+                p.expiry_years,
+                (SELECT oip.dot_code FROM outbound_item_picks oip WHERE oip.outbound_item_id = ri.outbound_item_id LIMIT 1) as dot_code
+            FROM return_items ri
+            JOIN returns r ON ri.return_id = r.return_id
+            JOIN products p ON ri.product_id = p.product_id
+            WHERE ri.return_item_id = ?
+        ");
         $stmt_item->bind_param("i", $return_item_id);
         $stmt_item->execute();
         $item = $stmt_item->get_result()->fetch_assoc();
         $stmt_item->close();
 
-        if (!$item) throw new Exception("Return item not found.");
+        if (!$item) throw new Exception("Return item not found or could not be traced to original shipment details.");
         if (($item['processed_quantity'] + $quantity) > $item['expected_quantity']) {
             throw new Exception("Processing quantity exceeds expected quantity.");
         }
 
+        $calculated_expiry_date = calculateExpiryDateForReturn($item['dot_code'], $item['expiry_years']);
+        $unit_cost = null;
         $new_inventory_id = null;
+        $location_id = null; 
+
         if ($condition === 'Good') {
             if (empty($location_barcode)) throw new Exception("Location barcode is required for 'Good' items.");
             
@@ -285,7 +303,7 @@ function handleProcessItem($conn, $warehouse_id, $user_id) {
             ");
             $stmt_inv_insert->bind_param("iiiissssd", 
                 $warehouse_id, $item['product_id'], $return_item_id, $location_id, $quantity, 
-                $new_batch_number, $item['expiry_date'], $item['dot_code'], $item['unit_cost']
+                $new_batch_number, $calculated_expiry_date, $item['dot_code'], $unit_cost
             );
 
             if (!$stmt_inv_insert->execute()) {
@@ -303,7 +321,7 @@ function handleProcessItem($conn, $warehouse_id, $user_id) {
             $stmt_sticker = $conn->prepare("INSERT INTO return_putaway_stickers (inventory_id, return_id, unique_barcode) VALUES (?, ?, ?)");
             for ($i = 0; $i < $quantity; $i++) {
                 $unique_id = strtoupper(bin2hex(random_bytes(3)));
-                $barcode_value = "RET-{$item['dot_code']}-{$unique_id}";
+                $barcode_value = "RET-".($item['dot_code'] ?? 'NA')."-{$unique_id}";
                 $stmt_sticker->bind_param("iis", $new_inventory_id, $item['return_id'], $barcode_value);
                 if (!$stmt_sticker->execute()) {
                     throw new Exception("Failed to generate sticker barcode: " . $stmt_sticker->error);

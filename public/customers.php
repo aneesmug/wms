@@ -11,9 +11,7 @@
     <link href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" />
-    <!-- SweetAlert2 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
-    <!-- Custom CSS -->
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="bg-light">
@@ -26,10 +24,6 @@
         <header class="bg-white shadow-sm border-bottom">
             <div class="container-fluid px-4">
                 <div class="d-flex justify-content-between align-items-center py-3">
-                    <!-- This button toggles the offcanvas menu on mobile -->
-                    <button class="btn btn-outline-secondary d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
-                        <i class="bi bi-list"></i>
-                    </button>
                     <h1 class="h4 mb-0 text-dark mx-auto mx-md-0">Customer Management</h1>
                     <span id="currentWarehouseNameDisplay" class="text-muted"></span>
                 </div>
@@ -50,11 +44,11 @@
                                         <table id="customersTable" class="table table-hover" style="width:100%">
                                             <thead>
                                                 <tr>
+                                                    <th>Customer Code</th>
                                                     <th>Customer Name</th>
                                                     <th>Contact</th>
-                                                    <th>Email</th>
                                                     <th>Phone</th>
-                                                    <th>City</th>
+                                                    <th>Total Orders</th>
                                                     <th class="text-end">Actions</th>
                                                 </tr>
                                             </thead>

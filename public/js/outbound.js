@@ -4,7 +4,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
     const selectedOrderNumberDisplay = document.getElementById('selectedOrderNumberDisplay');
     const trackingNumberDisplay = document.getElementById('trackingNumberDisplay');
-    // MODIFICATION: Added Proof of Delivery display element
     const proofOfDeliveryDisplay = document.getElementById('proofOfDeliveryDisplay');
     const orderProcessingArea = document.getElementById('orderProcessingArea');
     const currentOrderIdInput = document.getElementById('currentOrderId');
@@ -17,9 +16,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusFilter = document.getElementById('statusFilter');
     const showCreateOrderModalBtn = document.getElementById('showCreateOrderModalBtn');
     const printPickReportBtn = document.getElementById('printPickReportBtn');
+    const editOrderBtn = document.getElementById('editOrderBtn');
     
     // --- State Variables ---
     let selectedOrderId = null;
+    let selectedOrderDetails = null;
     let allProducts = [];
     let allCustomers = [];
     let ordersTable = null;
@@ -43,11 +44,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Event Listeners ---
     if (showCreateOrderModalBtn) showCreateOrderModalBtn.addEventListener('click', handleShowCreateOrderModal);
+    if (editOrderBtn) editOrderBtn.addEventListener('click', handleShowEditOrderModal);
     if (shipOrderBtn) shipOrderBtn.addEventListener('click', handleShipOrder);
     if (cancelOrderBtn) cancelOrderBtn.addEventListener('click', handleCancelOrder);
     if (statusFilter) statusFilter.addEventListener('change', filterOrdersByStatus);
     if (printPickReportBtn) printPickReportBtn.addEventListener('click', handlePrintPickReport);
-
 
     async function initializePage() {
         if (!currentWarehouseId) {
@@ -142,12 +143,9 @@ document.addEventListener('DOMContentLoaded', () => {
             preConfirm: () => {
                 const customerId = document.getElementById('swal-customer').value;
                 const requiredShipDate = document.getElementById('swal-ship-date').value;
-                const deliveryNote = document.getElementById('swal-delivery-note').value;
-                const referenceNumber = document.getElementById('swal-reference-number').value;
-                
                 if (!customerId) Swal.showValidationMessage('Please select a customer.');
                 else if (!requiredShipDate) Swal.showValidationMessage('Please select a required ship date.');
-                else return { customer_id: customerId, required_ship_date: requiredShipDate, delivery_note: deliveryNote, reference_number: referenceNumber };
+                else return { customer_id: customerId, required_ship_date: requiredShipDate, delivery_note: document.getElementById('swal-delivery-note').value, reference_number: document.getElementById('swal-reference-number').value };
                 return false;
             }
         }).then(async (result) => {
@@ -166,10 +164,10 @@ document.addEventListener('DOMContentLoaded', () => {
         
         shipOrderBtn.classList.add('d-none');
         printPickReportBtn.classList.add('d-none');
+        if (editOrderBtn) editOrderBtn.classList.add('d-none');
         orderItemsTableBody.innerHTML = `<tr><td colspan="9" class="text-center p-4">Loading items...</td></tr>`;
         trackingNumberDisplay.innerHTML = '';
         if(shippingAreaDisplay) shippingAreaDisplay.innerHTML = '';
-        // MODIFICATION: Clear Proof of Delivery display on load
         if(proofOfDeliveryDisplay) proofOfDeliveryDisplay.innerHTML = '';
 
         try {
@@ -177,12 +175,16 @@ document.addEventListener('DOMContentLoaded', () => {
             orderItemsTableBody.innerHTML = '';
 
             if (response?.success && response.data) {
+                selectedOrderDetails = response.data;
                 const order = response.data;
                 const canManage = ['operator', 'manager'].includes(currentWarehouseRole);
-                const isOrderMutable = !['Shipped', 'Delivered', 'Cancelled', 'Out for Delivery', 'Assigned'].includes(order.status);
+                const isOrderMutable = ['New', 'Pending Pick', 'Partially Picked', 'Picked', 'Ready for Pickup'].includes(order.status);
                 
                 managementActionsArea.style.display = (canManage) ? 'block' : 'none';
                 cancelOrderBtn.style.display = (canManage && isOrderMutable) ? 'inline-block' : 'none';
+                if (editOrderBtn) {
+                    editOrderBtn.style.display = (canManage && isOrderMutable) ? 'inline-block' : 'none';
+                }
 
                 if (['Picked', 'Ready for Pickup', 'Assigned'].includes(order.status) && canManage) {
                     shipOrderBtn.classList.remove('d-none');
@@ -201,13 +203,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     document.getElementById('copyTrackingBtn').addEventListener('click', () => copyToClipboard(order.tracking_number));
                 }
                 
-                // MODIFICATION: Display Proof of Delivery link if available
                 if (order.status === 'Delivered' && order.delivery_photo_path) {
-                    proofOfDeliveryDisplay.innerHTML = `
-                        <strong>Proof of Delivery:</strong>
-                        <a href="${order.delivery_photo_path}" target="_blank" class="btn btn-sm btn-outline-info ms-2">
-                            <i class="bi bi-camera-fill me-1"></i> View Photo
-                        </a>`;
+                    proofOfDeliveryDisplay.innerHTML = `<strong>Proof of Delivery:</strong> <a href="${order.delivery_photo_path}" target="_blank" class="btn btn-sm btn-outline-info ms-2"><i class="bi bi-camera-fill me-1"></i> View Photo</a>`;
                 }
 
                 if (addItemContainer) {
@@ -233,7 +230,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     let itemActionButtons = '';
                     if (canManage && isOrderMutable) {
-                         itemActionButtons = `<button class="btn btn-sm btn-outline-primary edit-item-btn" title="Edit Ordered Quantity" data-item-id="${item.outbound_item_id}" data-ordered-qty="${item.ordered_quantity}"><i class="bi bi-pencil-square"></i></button> <button class="btn btn-sm btn-outline-danger delete-item-btn" title="Delete Ordered Item" data-item-id="${item.outbound_item_id}" ${item.picked_quantity > 0 ? 'disabled' : ''}><i class="bi bi-trash"></i></button>`;
+                         const isDisabled = item.picked_quantity > 0 ? 'disabled' : '';
+                         itemActionButtons = `<button class="btn btn-sm btn-outline-primary edit-item-btn" title="Edit Ordered Quantity" data-item-id="${item.outbound_item_id}" data-ordered-qty="${item.ordered_quantity}" ${isDisabled}><i class="bi bi-pencil-square"></i></button> <button class="btn btn-sm btn-outline-danger delete-item-btn" title="Delete Ordered Item" data-item-id="${item.outbound_item_id}" ${isDisabled}><i class="bi bi-trash"></i></button>`;
                     }
                     
                     itemRow.innerHTML = `<td>${item.sku}</td><td>${item.product_name}</td><td>${item.barcode}</td><td>${item.ordered_quantity}</td><td>${item.picked_quantity}</td><td colspan="3"></td><td class="text-center">${itemActionButtons}</td>`;
@@ -264,6 +262,52 @@ document.addEventListener('DOMContentLoaded', () => {
             if(orderProcessingArea) orderProcessingArea.classList.remove('d-none');
             loadOrderItems(selectedOrderId);
             if(btn.classList.contains('select-order-btn')) Toast.fire({ icon: 'info', title: `Selected Order: ${orderNumber}` });
+        });
+    }
+
+    async function handleShowEditOrderModal() {
+        if (!selectedOrderDetails) {
+            Swal.fire('Error', 'Order details not loaded yet.', 'error');
+            return;
+        }
+
+        const customerOptions = allCustomers.map(customer =>
+            `<option value="${customer.customer_id}" ${customer.customer_id == selectedOrderDetails.customer_id ? 'selected' : ''}>${customer.customer_name}</option>`
+        ).join('');
+
+        Swal.fire({
+            title: `Edit Order #${selectedOrderDetails.order_number}`,
+            html: `<div class="p-2 text-start">
+                    <div class="mb-3"><label for="swal-customer" class="form-label">Customer</label><select id="swal-customer" class="form-select">${customerOptions}</select></div>
+                    <div class="mb-3"><label for="swal-reference-number" class="form-label">Reference Number</label><input type="text" id="swal-reference-number" class="form-control" value="${selectedOrderDetails.reference_number || ''}"></div>
+                    <div class="mb-3"><label for="swal-ship-date" class="form-label">Required Ship Date</label><input type="date" id="swal-ship-date" class="form-control" value="${selectedOrderDetails.required_ship_date || ''}"></div>
+                    <div class="mb-3"><label for="swal-delivery-note" class="form-label">Delivery Note</label><textarea id="swal-delivery-note" class="form-control" rows="3">${selectedOrderDetails.delivery_note || ''}</textarea></div>
+                </div>`,
+            showCancelButton: true,
+            confirmButtonText: 'Save Changes',
+            preConfirm: () => {
+                const customerId = document.getElementById('swal-customer').value;
+                const requiredShipDate = document.getElementById('swal-ship-date').value;
+                if (!customerId) Swal.showValidationMessage('Please select a customer.');
+                else if (!requiredShipDate) Swal.showValidationMessage('Please select a required ship date.');
+                else return {
+                    order_id: selectedOrderId,
+                    customer_id: customerId,
+                    required_ship_date: requiredShipDate,
+                    delivery_note: document.getElementById('swal-delivery-note').value,
+                    reference_number: document.getElementById('swal-reference-number').value
+                };
+                return false;
+            }
+        }).then(async (result) => {
+            if (result.isConfirmed && result.value) {
+                const apiResult = await fetchData('api/outbound_api.php?action=updateOrder', 'POST', result.value);
+                if (apiResult?.success) {
+                    Toast.fire({ icon: 'success', title: apiResult.message });
+                    await loadOutboundOrders();
+                    await loadOrderItems(selectedOrderId);
+                }
+            }
         });
     }
     
@@ -298,7 +342,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function addOrderItemActionListeners(orderId) {
-        document.querySelectorAll('.edit-item-btn').forEach(button => button.addEventListener('click', (event) => { const btn = event.target.closest('button'); handleUpdateOrderItem(btn.dataset.itemId, btn.dataset.orderedQty, orderId); }));
+        document.querySelectorAll('.edit-item-btn').forEach(button => button.addEventListener('click', (event) => { const btn = event.target.closest('button'); if (!btn.disabled) handleUpdateOrderItem(btn.dataset.itemId, btn.dataset.orderedQty, orderId); }));
         document.querySelectorAll('.delete-item-btn').forEach(button => button.addEventListener('click', (event) => { const btn = event.target.closest('button'); if (!btn.disabled) handleDeleteOrderItem(btn.dataset.itemId, orderId); }));
     }
 
@@ -353,9 +397,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const formatProduct = (product) => {
                     if (!product.id) return product.text;
                     const stock = parseInt($(product.element).data('stock'), 10);
+                    const barcode = $(product.element).data('barcode');
                     const badgeClass = stock > 0 ? 'bg-success' : 'bg-danger';
                     const stockBadge = `<span class="badge ${badgeClass} float-end">Stock: ${stock}</span>`;
-                    return $(`<div>${product.text}${stockBadge}</div>`);
+                    return $(`<div>${product.text}<br><small class="text-muted">Barcode: ${barcode}</small>${stockBadge}</div>`);
                 };
 
                 $select.html('<option value=""></option>');
@@ -364,6 +409,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const optionText = `${product.sku} - ${product.product_name}`;
                         const newOption = new Option(optionText, product.barcode, false, false);
                         newOption.dataset.stock = product.total_quantity;
+                        newOption.dataset.barcode = product.barcode;
                         if (parseInt(product.total_quantity, 10) <= 0) {
                             newOption.disabled = true;
                         }
@@ -376,8 +422,26 @@ document.addEventListener('DOMContentLoaded', () => {
                     theme: 'bootstrap-5',
                     dropdownParent: $('.swal2-container'),
                     templateResult: formatProduct,
-                    templateSelection: formatProduct,
-                    escapeMarkup: m => m
+                    templateSelection: (data) => {
+                        if (!data.id) { return data.text; }
+                        const product = allProducts.find(p => p.barcode === data.id);
+                        return product ? `${product.sku} - ${product.product_name}` : data.text;
+                    },
+                    escapeMarkup: m => m,
+                    matcher: (params, data) => {
+                        if ($.trim(params.term) === '') return data;
+                        if (typeof data.text === 'undefined') return null;
+                        
+                        const term = params.term.toUpperCase();
+                        const product = allProducts.find(p => p.barcode === data.id);
+                        if (!product) return null;
+
+                        const textToSearch = `${product.sku} ${product.product_name} ${product.barcode}`.toUpperCase();
+                        if (textToSearch.indexOf(term) > -1) {
+                            return data;
+                        }
+                        return null;
+                    }
                 });
 
                 const validateStock = () => {
@@ -434,7 +498,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     Toast.fire({ icon: 'success', title: 'Item added successfully!' });
                     await loadOrderItems(selectedOrderId);
                     await loadOutboundOrders();
-                    await loadProductsForDropdown(); // Refresh products to get updated stock
+                    await loadProductsForDropdown();
                 }
             }
         });
@@ -552,7 +616,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 `;
             }
-
 
             const printFrame = document.createElement('iframe');
             printFrame.style.display = 'none';
