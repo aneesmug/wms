@@ -19,10 +19,10 @@ $permissions = [
         'locations.php', 'batch_search.php', 'picking.php', 'returns.php' // <-- Added returns page
     ],
     'picker' => [
-        'dashboard.php', 'inventory.php', 'picking.php'
+        'dashboard.php', 'inventory.php', 'picking.php',
     ],
     'viewer' => [
-        'dashboard.php', 'inventory.php', 'reports.php', 'inbound_report.php', 'returns.php' // <-- Added returns page
+        'dashboard.php', 'inventory.php', 'products.php', 'reports.php', 'returns.php', 'inbound.php', 'outbound.php', 'customers.php',
     ],
     'driver' => [
         'delivery.php'
