@@ -22,53 +22,57 @@ if (!$current_warehouse_id) {
     exit;
 }
 
-$method = $_SERVER['REQUEST_METHOD'];
 $action = $_GET['action'] ?? '';
 
-// Route requests based on the HTTP method and action parameter.
-switch ($method) {
-    case 'GET':
-        authorize_user_role(['picker', 'operator', 'manager']);
-        if ($action === 'getOrdersForPicking') {
-            handleGetOrdersForPicking($conn, $current_warehouse_id);
-        } elseif ($action === 'getOrderDetails') {
-            handleGetOrderDetails($conn, $current_warehouse_id);
-        } elseif ($action === 'getDotsForProduct') {
-            handleGetDotsForProduct($conn, $current_warehouse_id);
-        } elseif ($action === 'getLocationsForDot') {
-            handleGetLocationsForDot($conn, $current_warehouse_id);
-        } elseif ($action === 'getBatchesForLocationDot') {
-            handleGetBatchesForLocationDot($conn, $current_warehouse_id);
-        } elseif ($action === 'getPickReport') {
-            handleGetPickReport($conn, $current_warehouse_id);
-        } elseif ($action === 'getPickStickers') {
-            handleGetPickStickers($conn, $current_warehouse_id);
-        } elseif ($action === 'getShippingAreas') {
-            handleGetShippingAreas($conn, $current_warehouse_id);
-        } elseif ($action === 'getDrivers') {
-            handleGetDrivers($conn, $current_warehouse_id);
-        } else {
-            sendJsonResponse(['success' => false, 'message' => 'Invalid GET action for picking.'], 400);
-        }
+// Authorize all actions in this file for users with appropriate roles.
+authorize_user_role(['picker', 'operator', 'manager']);
+
+// Route requests based on the action parameter.
+switch ($action) {
+    case 'getOrdersForPicking':
+        handleGetOrdersForPicking($conn, $current_warehouse_id);
         break;
-    case 'POST':
-        authorize_user_role(['picker', 'operator', 'manager']);
-        if ($action === 'pickItem') {
-            handlePickItem($conn, $current_warehouse_id, $current_user_id);
-        } elseif ($action === 'unpickItem') {
-            handleUnpickItem($conn, $current_warehouse_id, $current_user_id);
-        } elseif ($action === 'stageOrder') {
-            handleStageOrder($conn, $current_warehouse_id, $current_user_id);
-        } elseif ($action === 'assignDriver') {
-            handleAssignDriver($conn, $current_warehouse_id, $current_user_id);
-        } else {
-            sendJsonResponse(['success' => false, 'message' => 'Invalid POST action for picking.'], 400);
-        }
+    case 'getOrderDetails':
+        handleGetOrderDetails($conn, $current_warehouse_id);
+        break;
+    case 'getDotsForProduct':
+        handleGetDotsForProduct($conn, $current_warehouse_id);
+        break;
+    case 'getLocationsForDot':
+        handleGetLocationsForDot($conn, $current_warehouse_id);
+        break;
+    case 'getBatchesForLocationDot':
+        handleGetBatchesForLocationDot($conn, $current_warehouse_id);
+        break;
+    case 'getPickReport':
+        handleGetPickReport($conn, $current_warehouse_id);
+        break;
+    case 'getPickStickers':
+        handleGetPickStickers($conn, $current_warehouse_id);
+        break;
+    case 'getShippingAreas':
+        handleGetShippingAreas($conn, $current_warehouse_id);
+        break;
+    case 'getDrivers':
+        handleGetDrivers($conn, $current_warehouse_id);
+        break;
+    case 'pickItem':
+        handlePickItem($conn, $current_warehouse_id, $current_user_id);
+        break;
+    case 'unpickItem':
+        handleUnpickItem($conn, $current_warehouse_id, $current_user_id);
+        break;
+    case 'stageOrder':
+        handleStageOrder($conn, $current_warehouse_id, $current_user_id);
+        break;
+    case 'assignDriver':
+        handleAssignDriver($conn, $current_warehouse_id, $current_user_id);
         break;
     default:
-        sendJsonResponse(['success' => false, 'message' => 'Method Not Allowed'], 405);
+        sendJsonResponse(['success' => false, 'message' => 'Invalid picking action provided.'], 400);
         break;
 }
+
 
 /**
  * Fetches available DOT codes for a given product, sorted by manufacturing date (FIFO).
@@ -224,6 +228,20 @@ function handlePickItem($conn, $warehouse_id, $user_id) {
             $stmt_sticker->bind_param("is", $pick_id, $sticker_code);
             $stmt_sticker->execute();
             $stmt_sticker->close();
+        }
+
+        // Check if this is the first pick for the order. If so, set the 'picked_by' user.
+        $stmt_check_picker = $conn->prepare("SELECT picked_by FROM outbound_orders WHERE order_id = ?");
+        $stmt_check_picker->bind_param("i", $order_id);
+        $stmt_check_picker->execute();
+        $order_picker = $stmt_check_picker->get_result()->fetch_assoc();
+        $stmt_check_picker->close();
+
+        if ($order_picker && is_null($order_picker['picked_by'])) {
+            $stmt_set_picker = $conn->prepare("UPDATE outbound_orders SET picked_by = ? WHERE order_id = ?");
+            $stmt_set_picker->bind_param("ii", $user_id, $order_id);
+            $stmt_set_picker->execute();
+            $stmt_set_picker->close();
         }
 
         // Update order and item status
@@ -514,9 +532,15 @@ function handleGetPickReport($conn, $warehouse_id) {
         return;
     }
 
+    // Get Order Header Details
     $stmt_order = $conn->prepare("
-        SELECT oo.order_number, oo.reference_number, oo.required_ship_date, c.customer_name, c.address_line1, c.address_line2, c.city, w.warehouse_name
-        FROM outbound_orders oo JOIN customers c ON oo.customer_id = c.customer_id JOIN warehouses w ON oo.warehouse_id = w.warehouse_id
+        SELECT 
+            oo.order_number, oo.reference_number, oo.required_ship_date,
+            c.customer_name, c.address_line1, c.address_line2, c.city,
+            w.warehouse_name
+        FROM outbound_orders oo
+        JOIN customers c ON oo.customer_id = c.customer_id
+        JOIN warehouses w ON oo.warehouse_id = w.warehouse_id
         WHERE oo.order_id = ? AND oo.warehouse_id = ?
     ");
     $stmt_order->bind_param("ii", $order_id, $warehouse_id);
@@ -529,17 +553,32 @@ function handleGetPickReport($conn, $warehouse_id) {
         return;
     }
 
+    // Get Order Items and suggest a pick location based on FIFO (oldest dot_code)
     $stmt_items = $conn->prepare("
         SELECT 
-            oi.product_id, p.sku, p.product_name, p.barcode, oi.ordered_quantity, oi.picked_quantity,
-            (SELECT wl.location_code FROM inventory i JOIN warehouse_locations wl ON i.location_id = wl.location_id
-             WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0
-             ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC LIMIT 1) as location_code,
-            (SELECT i.batch_number FROM inventory i WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0
-             ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC LIMIT 1) as batch_number,
-            (SELECT i.dot_code FROM inventory i WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0
-             ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC LIMIT 1) as dot_code
-        FROM outbound_items oi JOIN products p ON oi.product_id = p.product_id
+            oi.product_id,
+            p.sku,
+            p.product_name,
+            p.barcode,
+            oi.ordered_quantity,
+            (SELECT wl.location_code 
+             FROM inventory i 
+             JOIN warehouse_locations wl ON i.location_id = wl.location_id
+             WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 AND i.dot_code IS NOT NULL
+             ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC 
+             LIMIT 1) as location_code,
+            (SELECT i.batch_number 
+             FROM inventory i 
+             WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 AND i.dot_code IS NOT NULL
+             ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC 
+             LIMIT 1) as batch_number,
+            (SELECT i.dot_code 
+             FROM inventory i 
+             WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 AND i.dot_code IS NOT NULL
+             ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC 
+             LIMIT 1) as dot_code
+        FROM outbound_items oi
+        JOIN products p ON oi.product_id = p.product_id
         WHERE oi.order_id = ?
     ");
     $stmt_items->bind_param("iiii", $warehouse_id, $warehouse_id, $warehouse_id, $order_id);
@@ -550,10 +589,7 @@ function handleGetPickReport($conn, $warehouse_id) {
     sendJsonResponse(['success' => true, 'data' => ['order_details' => $order_details, 'items' => $items]]);
 }
 
-/**
- * Updates the picked quantities on outbound items and the overall status of an outbound order.
- * This function is now defined here to be accessible within this API file.
- */
+
 function updateOutboundItemAndOrderStatus($conn, $order_id, $user_id) {
     // Update picked quantity for each item on the order
     $sql_update_items = "

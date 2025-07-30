@@ -424,14 +424,30 @@ document.addEventListener('DOMContentLoaded', () => {
         if (result?.success) {
             Toast.fire({ icon: 'success', title: result.message });
             const pickedBarcode = pickItemNumberInput.value.trim();
+            const pickedProductId = product.product_id;
+
             pickItemNumberInput.value = ''; 
             pickQuantityInput.value = '1';
             
             await loadOrderItems(selectedOrderId);
             await loadPickableOrders();
-            // Rescan the product to refresh the dropdowns for the next pick
-            pickItemNumberInput.value = pickedBarcode;
-            await handleProductScan();
+
+            // Check if there are more of this item to pick before rescanning.
+            // This prevents the confusing "fully picked" warning immediately after a successful pick.
+            const orderItem = currentOrderItems.find(item => item.product_id == pickedProductId);
+            const remainingToPick = orderItem ? (orderItem.ordered_quantity - orderItem.picked_quantity) : 0;
+
+            if (remainingToPick > 0) {
+                // If more are needed, rescan the product to refresh dropdowns for the next pick.
+                pickItemNumberInput.value = pickedBarcode;
+                await handleProductScan();
+            } else {
+                // If the item is now fully picked, just reset the dependent dropdowns
+                // to prepare for the next, different item scan.
+                $(pickDotCodeSelect).empty().append(new Option('Enter item number first', '')).prop('disabled', true).trigger('change');
+                $(pickLocationSelect).empty().append(new Option('Select DOT first', '')).prop('disabled', true).trigger('change');
+                $(pickBatchNumberSelect).empty().append(new Option('Select location first', '')).prop('disabled', true).trigger('change');
+            }
         }
     }
     
@@ -547,7 +563,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
                 
-                JsBarcode(mainBarcodeSvg, sticker.sticker_code, { format: "EAN13", height: 30, displayValue: true, fontSize: 14 });
+                JsBarcode(mainBarcodeSvg, sticker.sticker_code, { format: "CODE128", height: 30, displayValue: true, fontSize: 14 });
                 JsBarcode(sideBarcodeSvg, sticker.tracking_number || sticker.order_number, { format: "CODE128", width: 1.5, height: 70, fontSize: 12, displayValue: true });
 
                 const mainBarcodeHtml = mainBarcodeSvg.outerHTML;
