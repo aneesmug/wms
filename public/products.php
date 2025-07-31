@@ -59,7 +59,7 @@
                                             <th>SKU</th>
                                             <th>Product Name</th>
                                             <th>Tire Type</th>
-                                            <th>Barcode</th>
+                                            <th>Article No</th>
                                             <th>UOM</th>
                                             <th class="text-end">Stock</th>
                                             <th class="text-center">Actions</th>

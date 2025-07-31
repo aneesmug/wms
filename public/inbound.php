@@ -1,3 +1,6 @@
+<?php
+// 003-inbound.php
+?>
 <!DOCTYPE html>
 <html lang="en" class="h-100">
 <head>
@@ -65,9 +68,12 @@
                                     <table id="inboundReceiptsTable" class="table table-hover" style="width:100%">
                                         <thead>
                                             <tr>
-                                                <th>Receipt ID</th> <!-- Hidden for sorting -->
+                                                <th>Receipt ID</th> <!-- Hidden -->
                                                 <th>Receipt No.</th>
                                                 <th>Supplier</th>
+                                                <th>B/L No.</th> <!-- Hidden -->
+                                                <th>Container No.</th> <!-- Hidden -->
+                                                <th>Serial No.</th> <!-- Hidden -->
                                                 <th>Expected Date</th>
                                                 <th>Status</th>
                                                 <th>Actions</th>
@@ -92,8 +98,8 @@
                             <div class="card-body">
                                  <div class="row g-3">
                                     <div class="col-12">
-                                        <label for="scanBarcodeInput" class="form-label">Product</label>
-                                        <select id="scanBarcodeInput" name="scanBarcodeInput" class="form-select" style="width: 100%;"></select>
+                                        <label for="scanarticle_noInput" class="form-label">Product</label>
+                                        <select id="scanarticle_noInput" name="scanarticle_noInput" class="form-select" style="width: 100%;"></select>
                                     </div>
                                     <div class="col-md-6">
                                         <label for="itemQuantity" class="form-label">Quantity</label>

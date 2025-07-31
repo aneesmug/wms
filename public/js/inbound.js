@@ -1,7 +1,8 @@
+// 007-inbound.js
 $(document).ready(function() {
     // --- DOM Elements ---
     const processingSection = $('#processingSection');
-    const productSelect = $('#scanBarcodeInput');
+    const productSelect = $('#scanarticle_noInput');
     const itemQuantityInput = $('#itemQuantity');
     const unitCostInput = $('#unitCost');
     const inboundBatchNumberInput = $('#inboundBatchNumber');
@@ -58,7 +59,6 @@ $(document).ready(function() {
         handleCancelReceipt(receiptId);
     });
 
-    // --- NEW Event Listeners for Edit/Delete ---
     putawayCandidatesList.on('click', '.edit-received-btn', function(e) {
         e.stopPropagation(); // Prevent the main item click event
         const itemData = $(this).closest('.list-group-item').data('item');
@@ -137,7 +137,6 @@ $(document).ready(function() {
         receiveItemBtn.prop('disabled', false);
     }
 
-    // --- MODIFIED FUNCTION ---
     async function loadPutawayCandidates(receiptId) {
         if (!putawayCandidatesList) return;
         
@@ -179,15 +178,11 @@ $(document).ready(function() {
         }
     }
 
-    // --- All other functions like handleCandidateSelection, handleReceiveItem, etc., remain here ---
-    // ...
-    // The following functions are included for completeness.
-
     function handleCandidateSelection(item, availableQty) {
         resetProcessingForm();
         
         selectedInboundItemId = item.inbound_item_id;
-        productSelect.val(item.barcode).trigger('change').prop('disabled', true);
+        productSelect.val(item.article_no).trigger('change').prop('disabled', true);
         itemQuantityInput.val(availableQty);
         inboundBatchNumberInput.val(item.batch_number).prop('disabled', true);
         unitCostInput.val(item.unit_cost || '').prop('disabled', true);
@@ -218,14 +213,14 @@ $(document).ready(function() {
 
         const data = {
             receipt_id: currentReceiptId, 
-            barcode: productSelect.val(), 
+            article_no: productSelect.val(), 
             received_quantity: parseInt(itemQuantityInput.val(), 10),
             unit_cost: parseFloat(unitCostInput.val()) || null,
             batch_number: inboundBatchNumberInput.val().trim() || null, 
             dot_code: dotCode
         };
 
-        if (!data.barcode) {
+        if (!data.article_no) {
             Swal.fire('Error!', 'You must select a product.', 'error');
             return;
         }
@@ -256,10 +251,10 @@ $(document).ready(function() {
         const data = {
             receipt_id: currentReceiptId,
             inbound_item_id: selectedInboundItemId,
-            location_barcode: scanLocationInput.val(),
+            location_article_no: scanLocationInput.val(),
             putaway_quantity: parseInt(itemQuantityInput.val(), 10),
         };
-        if (!data.location_barcode) {
+        if (!data.location_article_no) {
             Swal.fire('Error!', 'Location is required for putaway.', 'error');
             return;
         }
@@ -303,7 +298,13 @@ $(document).ready(function() {
         table = inboundReceiptsTable.DataTable({
             data: response.success ? response.data : [],
             columns: [
-                { data: 'receipt_id', visible: false }, { data: 'receipt_number' }, { data: 'supplier_name', defaultContent: 'N/A' }, { data: 'expected_arrival_date' },
+                { data: 'receipt_id', visible: false }, 
+                { data: 'receipt_number' }, 
+                { data: 'supplier_name', defaultContent: 'N/A' }, 
+                { data: 'bl_number', defaultContent: 'N/A', visible: false }, 
+                { data: 'container_number', defaultContent: 'N/A', visible: false },
+                { data: 'serial_number', defaultContent: 'N/A', visible: false }, 
+                { data: 'expected_arrival_date' },
                 { data: 'status', render: function(data) {
                     const statusMap = {'Completed': 'bg-success', 'Received': 'bg-primary', 'Partially Received': 'bg-info text-dark', 'Partially Putaway': 'bg-warning text-dark', 'Pending': 'bg-secondary', 'Cancelled': 'bg-danger'};
                     return `<span class="badge ${statusMap[data] || 'bg-light text-dark'}">${data}</span>`;
@@ -326,7 +327,7 @@ $(document).ready(function() {
             initComplete: function(settings, json) {
                 $('#statusFilter').on('change', function() {
                     const searchValue = $(this).val();
-                    table.column(4).search(searchValue ? '^' + searchValue + '$' : '', true, false).draw();
+                    table.column(7).search(searchValue ? '^' + searchValue + '$' : '', true, false).draw();
                 });
             }
         });
@@ -359,15 +360,15 @@ $(document).ready(function() {
             const productData = response.data.map(product => {
                 const hasExpiry = product.expiry_years !== null && product.expiry_years > 0;
                 return {
-                    id: product.barcode,
-                    text: `${product.product_name} (Barcode: ${product.barcode})`,
+                    id: product.article_no,
+                    text: `${product.product_name} (Article No: ${product.article_no})`,
                     disabled: !hasExpiry,
                     product: product
                 };
             });
             
             productSelect.select2({
-                placeholder: 'Search for a product by name or barcode',
+                placeholder: 'Search for a product by name or article no',
                 theme: "bootstrap-5",
                 data: productData,
                 templateResult: formatProductOption,
@@ -490,7 +491,10 @@ $(document).ready(function() {
             html: `
                 <form id="swal-receiveShipmentForm" class="row g-3 text-start needs-validation" novalidate>
                     <div class="col-12"><label for="swal-supplierSelect" class="form-label">Supplier</label><select id="swal-supplierSelect" class="form-select" required>${supplierOptionsHtml}</select></div>
-                    <div class="col-12"><label for="swal-expectedArrivalDate" class="form-label">Expected Arrival</label><input type="date" id="swal-expectedArrivalDate" class="form-control" required></div>
+                    <div class="col-md-6"><label for="swal-blNumber" class="form-label">B/L Number</label><input type="text" id="swal-blNumber" class="form-control" required></div>
+                    <div class="col-md-6"><label for="swal-containerNumber" class="form-label">Container No.</label><input type="text" id="swal-containerNumber" class="form-control" required></div>
+                    <div class="col-md-6"><label for="swal-serialNumber" class="form-label">Serial No.</label><input type="text" id="swal-serialNumber" class="form-control" required></div>
+                    <div class="col-md-6"><label for="swal-expectedArrivalDate" class="form-label">Expected Arrival</label><input type="date" id="swal-expectedArrivalDate" class="form-control" required></div>
                 </form>
             `,
             confirmButtonText: 'Create Receipt',
@@ -501,12 +505,39 @@ $(document).ready(function() {
             },
             preConfirm: () => {
                 const supplierId = $('#swal-supplierSelect').val();
+                const blNumber = $('#swal-blNumber').val().trim();
+                const containerNumber = $('#swal-containerNumber').val().trim();
+                const serialNumber = $('#swal-serialNumber').val().trim();
                 const expectedArrivalDate = $('#swal-expectedArrivalDate').val();
-                if (!supplierId || !expectedArrivalDate) {
-                    Swal.showValidationMessage(`Please fill out all fields`);
+
+                if (!supplierId) {
+                    Swal.showValidationMessage(`Supplier is required.`);
                     return false;
                 }
-                return { supplier_id: supplierId, expected_arrival_date: expectedArrivalDate };
+                if (!blNumber) {
+                    Swal.showValidationMessage(`B/L Number is required.`);
+                    return false;
+                }
+                if (!containerNumber) {
+                    Swal.showValidationMessage(`Container No. is required.`);
+                    return false;
+                }
+                if (!serialNumber) {
+                    Swal.showValidationMessage(`Serial No. is required.`);
+                    return false;
+                }
+                if (!expectedArrivalDate) {
+                    Swal.showValidationMessage(`Expected Arrival Date is required.`);
+                    return false;
+                }
+
+                return { 
+                    supplier_id: supplierId, 
+                    expected_arrival_date: expectedArrivalDate,
+                    bl_number: blNumber,
+                    container_number: containerNumber,
+                    serial_number: serialNumber
+                };
             }
         }).then(async (result) => {
             if (result.isConfirmed) {
@@ -521,6 +552,7 @@ $(document).ready(function() {
         });
     }
 
+    // MODIFIED: handleViewDetails to clarify batch numbers
     async function handleViewDetails(receiptId) {
         const response = await fetchData(`api/inbound_api.php?receipt_id=${receiptId}`);
 
@@ -537,8 +569,8 @@ $(document).ready(function() {
                 tableHtml += `<tr class="fw-bold">
                     <td>${item.sku}</td>
                     <td>${item.product_name}</td>
-                    <td>${item.barcode || 'N/A'}</td>
-                    <td>${item.batch_number || 'N/A'}</td>
+                    <td>${item.article_no || 'N/A'}</td>
+                    <td><strong>Received Batch:</strong><br>${item.batch_number || 'N/A'}</td>
                     <td>${item.received_quantity}</td>
                     <td>(${item.putaway_quantity})</td>
                     <td></td>
@@ -550,7 +582,7 @@ $(document).ready(function() {
                             <td colspan="3" class="text-end fst-italic py-1">
                                 ↳ Putaway to <strong>${putaway.location_code}</strong>
                             </td>
-                            <td class="py-1">${putaway.batch_number}</td>
+                            <td class="py-1"><strong>Putaway Batch:</strong><br>${putaway.batch_number}</td>
                             <td class="py-1">-</td>
                             <td class="py-1">${putaway.quantity}</td>
                             <td class="text-center py-1">
@@ -568,10 +600,19 @@ $(document).ready(function() {
 
         const modalHtml = `<div class="text-start">
             <div class="mb-3 p-2 rounded bg-light border">
-                <strong>Supplier:</strong> ${receipt.supplier_name || 'N/A'}<br>
-                <strong>Status:</strong> ${receipt.status}<br>
-                <strong>Expected:</strong> ${receipt.expected_arrival_date || 'N/A'}<br>
-                <strong>Arrived:</strong> ${receipt.actual_arrival_date || 'N/A'}
+                <div class="row">
+                    <div class="col-md-6">
+                        <strong>Supplier:</strong> ${receipt.supplier_name || 'N/A'}<br>
+                        <strong>Status:</strong> ${receipt.status}<br>
+                        <strong>Expected:</strong> ${receipt.expected_arrival_date || 'N/A'}<br>
+                        <strong>Arrived:</strong> ${receipt.actual_arrival_date || 'N/A'}
+                    </div>
+                    <div class="col-md-6">
+                        <strong>B/L No:</strong> ${receipt.bl_number || 'N/A'}<br>
+                        <strong>Container No:</strong> ${receipt.container_number || 'N/A'}<br>
+                        <strong>Serial No:</strong> ${receipt.serial_number || 'N/A'}
+                    </div>
+                </div>
             </div>
             <div class="table-responsive">
                 <table class="table table-sm table-bordered">
@@ -579,8 +620,8 @@ $(document).ready(function() {
                         <tr>
                             <th>SKU</th>
                             <th>Product Name</th>
-                            <th>Barcode</th>
-                            <th>Batch Number</th>
+                            <th>Article No</th>
+                            <th>Batch Details</th>
                             <th>Received Qty</th>
                             <th>Putaway Qty</th>
                             <th>Actions</th>
@@ -610,7 +651,6 @@ $(document).ready(function() {
         });
     }
 
-    // --- NEW FUNCTION ---
     function handleEditReceivedItemClick(item) {
         const dotOptionsHtml = dotCodeOptions.map(opt => `<option value="${opt.id}">${opt.text}</option>`).join('');
         
@@ -664,7 +704,6 @@ $(document).ready(function() {
         });
     }
 
-    // --- NEW FUNCTION ---
     function handleDeleteReceivedItemClick(item) {
         Swal.fire({
             title: 'Are you sure?',

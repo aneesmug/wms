@@ -19,7 +19,7 @@ if (!$inventory_id) {
 $stmt_inv = $conn->prepare("
     SELECT 
         i.inventory_id, i.quantity, i.dot_code, i.expiry_date, i.batch_number,
-        p.product_name, p.sku, p.barcode AS product_barcode, p.expiry_years,
+        p.product_name, p.sku, p.article_no AS product_article_no, p.expiry_years,
         wl.location_code,
         r.return_number,
         oo.order_number
@@ -138,7 +138,7 @@ $current_sticker = 0;
         .details-grid strong {
             font-weight: bold;
         }
-        .barcode-container {
+        .article_no-container {
             text-align: center;
             flex-grow: 1;
             display: flex;
@@ -147,7 +147,7 @@ $current_sticker = 0;
             justify-content: center;
             margin-top: 3mm;
         }
-        svg.barcode {
+        svg.article_no {
             width: 90%;
             height: 22mm;
         }
@@ -190,8 +190,8 @@ $current_sticker = 0;
             <div><?= htmlspecialchars($inventory_details['location_code'] ?? '') ?></div>
 
         </div>
-        <div class="barcode-container">
-            <svg class="barcode"
+        <div class="article_no-container">
+            <svg class="article_no"
                 jsbarcode-format="CODE128"
                 jsbarcode-value="<?= htmlspecialchars($sticker['unique_barcode'] ?? '') ?>"
                 jsbarcode-textmargin="0"
@@ -209,7 +209,7 @@ $current_sticker = 0;
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
     <script>
         document.addEventListener("DOMContentLoaded", function() {
-            JsBarcode(".barcode").init();
+            JsBarcode(".article_no").init();
             window.print();
             setTimeout(function() { window.close(); }, 100);
         });

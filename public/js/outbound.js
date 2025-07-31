@@ -234,7 +234,7 @@ document.addEventListener('DOMContentLoaded', () => {
                          itemActionButtons = `<button class="btn btn-sm btn-outline-primary edit-item-btn" title="Edit Ordered Quantity" data-item-id="${item.outbound_item_id}" data-ordered-qty="${item.ordered_quantity}" ${isDisabled}><i class="bi bi-pencil-square"></i></button> <button class="btn btn-sm btn-outline-danger delete-item-btn" title="Delete Ordered Item" data-item-id="${item.outbound_item_id}" ${isDisabled}><i class="bi bi-trash"></i></button>`;
                     }
                     
-                    itemRow.innerHTML = `<td>${item.sku}</td><td>${item.product_name}</td><td>${item.barcode}</td><td>${item.ordered_quantity}</td><td>${item.picked_quantity}</td><td colspan="3"></td><td class="text-center">${itemActionButtons}</td>`;
+                    itemRow.innerHTML = `<td>${item.sku}</td><td>${item.product_name}</td><td>${item.article_no}</td><td>${item.ordered_quantity}</td><td>${item.picked_quantity}</td><td colspan="3"></td><td class="text-center">${itemActionButtons}</td>`;
 
                     if (item.picks && Array.isArray(item.picks)) {
                         item.picks.forEach(pick => {
@@ -397,19 +397,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 const formatProduct = (product) => {
                     if (!product.id) return product.text;
                     const stock = parseInt($(product.element).data('stock'), 10);
-                    const barcode = $(product.element).data('barcode');
+                    const article_no = $(product.element).data('article_no');
                     const badgeClass = stock > 0 ? 'bg-success' : 'bg-danger';
                     const stockBadge = `<span class="badge ${badgeClass} float-end">Stock: ${stock}</span>`;
-                    return $(`<div>${product.text}<br><small class="text-muted">Barcode: ${barcode}</small>${stockBadge}</div>`);
+                    return $(`<div>${product.text}<br><small class="text-muted">Article No: ${article_no}</small>${stockBadge}</div>`);
                 };
 
                 $select.html('<option value=""></option>');
                 if (allProducts.length > 0) {
                     allProducts.forEach(product => {
                         const optionText = `${product.sku} - ${product.product_name}`;
-                        const newOption = new Option(optionText, product.barcode, false, false);
+                        const newOption = new Option(optionText, product.article_no, false, false);
                         newOption.dataset.stock = product.total_quantity;
-                        newOption.dataset.barcode = product.barcode;
+                        newOption.dataset.article_no = product.article_no;
                         if (parseInt(product.total_quantity, 10) <= 0) {
                             newOption.disabled = true;
                         }
@@ -418,13 +418,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 $select.select2({
-                    placeholder: 'Search by Name, SKU, or Barcode...',
+                    placeholder: 'Search by Name, SKU, or Article No...',
                     theme: 'bootstrap-5',
                     dropdownParent: $('.swal2-container'),
                     templateResult: formatProduct,
                     templateSelection: (data) => {
                         if (!data.id) { return data.text; }
-                        const product = allProducts.find(p => p.barcode === data.id);
+                        const product = allProducts.find(p => p.article_no === data.id);
                         return product ? `${product.sku} - ${product.product_name}` : data.text;
                     },
                     escapeMarkup: m => m,
@@ -433,10 +433,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (typeof data.text === 'undefined') return null;
                         
                         const term = params.term.toUpperCase();
-                        const product = allProducts.find(p => p.barcode === data.id);
+                        const product = allProducts.find(p => p.article_no === data.id);
                         if (!product) return null;
 
-                        const textToSearch = `${product.sku} ${product.product_name} ${product.barcode}`.toUpperCase();
+                        const textToSearch = `${product.sku} ${product.product_name} ${product.article_no}`.toUpperCase();
                         if (textToSearch.indexOf(term) > -1) {
                             return data;
                         }
@@ -470,13 +470,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 validateStock(); 
             },
             preConfirm: () => {
-                const productBarcode = $('#modalProductSelect').val();
+                const productarticle_no = $('#modalProductSelect').val();
                 const quantity = $('#modalQuantityInput').val();
                 const orderedQuantity = parseInt(quantity, 10);
                 const selectedOption = $('#modalProductSelect').find('option:selected');
                 const availableStock = parseInt(selectedOption.data('stock'), 10);
 
-                if (!productBarcode) {
+                if (!productarticle_no) {
                     Swal.showValidationMessage('You must select a product.');
                     return false;
                 }
@@ -488,7 +488,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     Swal.showValidationMessage(`Quantity cannot exceed available stock of ${availableStock}.`);
                     return false;
                 }
-                return { product_barcode: productBarcode, ordered_quantity: orderedQuantity };
+                return { product_article_no: productarticle_no, ordered_quantity: orderedQuantity };
             }
         }).then(async (result) => {
             if (result.isConfirmed && result.value) {
@@ -540,7 +540,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <td>${globalIndex + 1}</td>
                                 <td>${item.product_name}</td>
                                 <td>${item.sku}</td>
-                                <td><div class="item-barcode-container" id="item-barcode-${globalIndex}"></div></td>
+                                <td><div class="item-article_no-container" id="item-article_no-${globalIndex}"></div></td>
                                 <td>${item.ordered_quantity}</td>
                                 <td>${item.location_code || ''}</td>
                                 <td>${item.batch_number || ''}</td>
@@ -580,7 +580,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                             <strong>Order Number:</strong> ${order_details.order_number}<br>
                                             <strong>Date:</strong> ${new Date().toLocaleDateString()}<br>
                                             <strong>Reference:</strong> ${order_details.reference_number || 'N/A'}<br>
-                                            <div class="order-barcode-container mt-2" id="order-barcode-page-${page}"></div>
+                                            <div class="order-article_no-container mt-2" id="order-article_no-page-${page}"></div>
                                         </div>
                                     </div>
                                 </div>
@@ -593,7 +593,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                             <th>#</th>
                                             <th>Article Description</th>
                                             <th>Article No</th>
-                                            <th>Barcode</th>
+                                            <th>Article No-</th>
                                             <th>Qty</th>
                                             <th>Location</th>
                                             <th>Batch</th>
@@ -635,8 +635,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                 .report-container { border: 2px solid #000; padding: 15px; flex-grow: 1; display: flex; flex-direction: column; }
                                 .header-section, .details-section { border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 10px; flex-shrink: 0; }
                                 .header-logo { max-height: 50px; width: auto; }
-                                .order-barcode-container svg { height: 40px; width: 100%; }
-                                .item-barcode-container svg { height: 35px; width: 100%; margin: 0; }
+                                .order-article_no-container svg { height: 40px; width: 100%; }
+                                .item-article_no-container svg { height: 35px; width: 100%; margin: 0; }
                                 .table th, .table td { vertical-align: middle; font-size: 0.8rem; text-align: center; }
                                 .table th { background-color: #e9ecef !important; }
                                 .table td:nth-child(2) { text-align: left; }
@@ -651,11 +651,11 @@ document.addEventListener('DOMContentLoaded', () => {
             `);
             
             for (let page = 0; page < totalPages; page++) {
-                const orderBarcodeContainer = printFrame.contentDocument.getElementById(`order-barcode-page-${page}`);
-                if (orderBarcodeContainer) {
+                const orderarticle_noContainer = printFrame.contentDocument.getElementById(`order-article_no-page-${page}`);
+                if (orderarticle_noContainer) {
                     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-                    JsBarcode(svg, order_details.order_number, { format: "CODE128", displayValue: false, height: 40, margin: 0 });
-                    orderBarcodeContainer.appendChild(svg);
+                    Jsbarcode(svg, order_details.order_number, { format: "CODE128", displayValue: false, height: 40, margin: 0 });
+                    orderarticle_noContainer.appendChild(svg);
                 }
 
                 const start = page * itemsPerPage;
@@ -664,11 +664,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 pageItems.forEach((item, index) => {
                     const globalIndex = start + index;
-                    const itemBarcodeContainer = printFrame.contentDocument.getElementById(`item-barcode-${globalIndex}`);
-                    if (itemBarcodeContainer && item.barcode) {
+                    const itemarticle_noContainer = printFrame.contentDocument.getElementById(`item-article_no-${globalIndex}`);
+                    if (itemarticle_noContainer && item.article_no) {
                         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-                        JsBarcode(svg, item.barcode, { format: "CODE128", displayValue: false, height: 35, margin: 2, fontSize: 10 });
-                        itemBarcodeContainer.appendChild(svg);
+                        Jsbarcode(svg, item.article_no, { format: "CODE128", displayValue: false, height: 35, margin: 2, fontSize: 10 });
+                        itemarticle_noContainer.appendChild(svg);
                     }
                 });
             }

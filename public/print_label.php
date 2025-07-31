@@ -1,3 +1,6 @@
+<?php
+// 002-print_label.php
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -31,8 +34,8 @@
         .label-grid {
             display: grid;
             grid-template-columns: auto 1fr;
-            grid-template-rows: auto auto auto auto auto auto 1fr; /* Added a row */
-            gap: 3px 15px; /* Adjusted gap */
+            grid-template-rows: auto auto auto auto auto auto 1fr; /* Main layout structure */
+            gap: 3px 15px;
             width: 100%;
             height: 100%;
             font-size: 12pt;
@@ -117,8 +120,8 @@
                 <div class="label">Location:</div>
                 <div class="location value"></div>
 
-                <div class="label">Item BC:</div>
-                <div class="itemBarcode value"></div>
+                <div class="label">Unique ID:</div>
+                <div class="uniqueId value"></div>
 
                 <div class="barcode-container">
                     <svg class="barcode-svg"></svg>
@@ -169,40 +172,55 @@
                     const expiry_years = parseInt(data.expiry_years, 10) || 0;
                     const expiry_year = manu_year + expiry_years;
                     const expiry_dot_display = `${manu_dot_raw.substring(0, 2)}/${String(expiry_year).padStart(2, '0')}`;
+                    
+                    const mainBarcodeValue = data.product_article_no;
 
                     stickers.forEach((sticker, index) => {
                         const clone = template.firstElementChild.cloneNode(true);
                         
-                        const barcodeValue = sticker.unique_barcode;
+                        const uniqueIdText = sticker.unique_barcode;
                         const stickerCountText = `${index + 1} / ${totalStickers}`;
 
                         clone.querySelector('.product-name').textContent = data.product_name;
                         clone.querySelector('.sku').textContent = data.sku;
-                        clone.querySelector('.batchNumber').textContent = data.batch_number; // Add batch number
+                        clone.querySelector('.batchNumber').textContent = data.batch_number;
                         clone.querySelector('.dotCode').textContent = manu_dot_display;
                         clone.querySelector('.expiryDot').textContent = expiry_dot_display;
                         clone.querySelector('.location').textContent = data.location_code;
-                        clone.querySelector('.itemBarcode').textContent = data.product_barcode;
+                        clone.querySelector('.uniqueId').textContent = uniqueIdText;
                         clone.querySelector('.sticker-count').textContent = stickerCountText;
 
                         document.body.appendChild(clone);
 
-                        JsBarcode(clone.querySelector('.barcode-svg'), barcodeValue, {
-                            format: "CODE128",
-                            lineColor: "#000",
-                            width: 3,
-                            height: 60,
-                            displayValue: true,
-                            fontSize: 18
-                        });
+                        if (mainBarcodeValue) {
+                            JsBarcode(clone.querySelector('.barcode-svg'), mainBarcodeValue, {
+                                format: "CODE128",
+                                lineColor: "#000",
+                                width: 3,
+                                height: 60,
+                                displayValue: true,
+                                fontSize: 18
+                            });
+                        }
                     });
 
                     loadingEl.style.display = 'none';
                     
-                    window.parent.document.getElementById('print-frame').contentWindow.print();
+                    // MODIFIED: Use a short timeout to allow the browser to render the new labels before showing the print dialog.
+                    // This can make the UI feel more responsive, especially with many labels.
                     setTimeout(() => {
-                         window.parent.document.getElementById('print-frame').remove();
-                    }, 500);
+                        const printFrame = window.parent.document.getElementById('print-frame');
+                        if (printFrame) {
+                            printFrame.contentWindow.print();
+                            // Give the user more time to interact with the print dialog before removing the iframe.
+                            setTimeout(() => {
+                                const finalFrame = window.parent.document.getElementById('print-frame');
+                                if (finalFrame) {
+                                    finalFrame.remove();
+                                }
+                            }, 3000); // Increased to 3 seconds
+                        }
+                    }, 100); // 100ms delay should be sufficient for rendering.
                     
                 } else {
                     loadingEl.style.display = 'none';

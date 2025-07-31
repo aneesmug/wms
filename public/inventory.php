@@ -46,7 +46,7 @@
                         <div class="card-body">
                             <div class="row g-3 align-items-end">
                                 <div class="col-md-4">
-                                    <label for="searchProductInput" class="form-label">Product Barcode/SKU</label>
+                                    <label for="searchProductInput" class="form-label">Product Article No/SKU</label>
                                     <input type="text" id="searchProductInput" name="searchProductInput" placeholder="Scan or type product..." class="form-control">
                                 </div>
                                 <div class="col-md-3">
@@ -76,7 +76,7 @@
                                         <tr>
                                             <th>SKU</th>
                                             <th>Product Name</th>
-                                            <th>Barcode</th>
+                                            <th>Article No</th>
                                             <th>Location</th>
                                             <th>Quantity</th>
                                             <th>Batch/DOT/Expiry</th>

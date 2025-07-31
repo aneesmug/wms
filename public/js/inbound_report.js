@@ -67,7 +67,7 @@ $(document).ready(function() {
                                 <td><em>(${item.putaway_quantity || 0})</em></td>
                                 <td>
                                     <svg class="barcode"
-                                      jsbarcode-value="${item.barcode}"
+                                      jsbarcode-value="${item.article_no}"
                                       jsbarcode-textmargin="0"
                                       jsbarcode-fontoptions="bold"
                                       jsbarcode-height="40">
@@ -121,7 +121,7 @@ $(document).ready(function() {
                                             <th>Batch Number</th>
                                             <th>Received Qty</th>
                                             <th>Putaway Qty</th>
-                                            <th>Barcode</th>
+                                            <th>Article No</th>
                                         </tr>
                                     </thead>
                                     <tbody>

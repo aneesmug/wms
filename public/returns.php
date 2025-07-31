@@ -71,7 +71,7 @@
                                             <tr>
                                                 <th>SKU</th>
                                                 <th>Product</th>
-                                                <th>Barcode</th>
+                                                <th>Article No</th>
                                                 <th>Expected</th>
                                                 <th>Processed</th>
                                                 <th>Condition</th>

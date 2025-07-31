@@ -65,7 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
             responsive: true, searching: false, lengthChange: true,
             pageLength: 10, order: [[1, 'asc']],
             columns: [
-                { data: 'sku' }, { data: 'product_name' }, { data: 'barcode' },
+                { data: 'sku' }, { data: 'product_name' }, { data: 'article_no' },
                 { data: 'location' }, { data: 'quantity' }, { data: 'batch_expiry' },
                 { data: 'last_moved' }, { data: 'actions', orderable: false, searchable: false }
             ],
@@ -127,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadInventory() {
         if (!currentWarehouseId) return;
         $('.dataTables_processing', inventoryDataTable.table().container()).show();
-        const product_search_barcode = searchProductInput.value.trim();
+        const product_search_article_no = searchProductInput.value.trim();
         const location_search_code = searchLocationSelect.value;
         // MODIFICATION: Get the selected tire type ID
         const tire_type_id = searchTireTypeSelect.value;
@@ -135,12 +135,12 @@ document.addEventListener('DOMContentLoaded', () => {
         let url = 'api/inventory_api.php?';
         const queryParams = [];
 
-        if (product_search_barcode) {
-            const product = allProducts.find(p => p.barcode === product_search_barcode || p.sku === product_search_barcode);
+        if (product_search_article_no) {
+            const product = allProducts.find(p => p.article_no === product_search_article_no || p.sku === product_search_article_no);
             if (product) {
                 queryParams.push(`product_id=${product.product_id}`);
             } else {
-                Toast.fire({ icon: 'warning', title: `Product "${product_search_barcode}" not found.` });
+                Toast.fire({ icon: 'warning', title: `Product "${product_search_article_no}" not found.` });
                 inventoryDataTable.clear().draw();
                 $('.dataTables_processing', inventoryDataTable.table().container()).hide();
                 return;
@@ -203,13 +203,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return {
                 sku: item.sku || '<span class="text-danger">Missing Product</span>',
                 product_name: item.product_name || '<span class="text-danger">Missing Product</span>',
-                barcode: item.barcode || 'N/A',
+                article_no: item.article_no || 'N/A',
                 location: item.location_code || '<span class="text-danger">Missing Location</span>',
                 quantity: item.quantity,
                 batch_expiry: batchExpiry,
                 last_moved: lastMovedDate,
                 actions: canAdjust ? `<button class="btn btn-sm btn-info text-white adjust-btn" 
-                                data-product-id="${item.product_id}" data-product-barcode="${item.barcode || ''}" 
+                                data-product-id="${item.product_id}" data-product-article_no="${item.article_no || ''}" 
                                 data-location-code="${item.location_code || ''}" data-batch-number="${item.batch_number || ''}"
                                 data-dot-code="${item.dot_code || ''}" data-current-quantity="${item.quantity}"
                                 title="Adjust/Transfer">
@@ -224,7 +224,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function openAdjustmentModal(event) {
         const button = event.currentTarget;
         const productId = button.dataset.productId;
-        const productBarcode = button.dataset.productBarcode;
+        const productArticle_no = button.dataset.productArticle_no;
         const locationCode = button.dataset.locationCode;
         const batchNumber = button.dataset.batchNumber;
         const dotCode = button.dataset.dotCode;
@@ -249,8 +249,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label for="swalAdjustProductBarcode" class="form-label">Product Barcode</label>
-                        <input type="text" id="swalAdjustProductBarcode" class="form-control" value="${productBarcode}" readonly>
+                        <label for="swalAdjustProductarticle_no" class="form-label">Product Article No</label>
+                        <input type="text" id="swalAdjustProductarticle_no" class="form-control" value="${productArticle_no}" readonly>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
@@ -378,9 +378,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 return {
                     action_type: actionType,
                     product_id: popup.querySelector('#swalProductId').value,
-                    current_location_barcode: popup.querySelector('#swalAdjustCurrentLocation').value,
+                    current_location_article_no: popup.querySelector('#swalAdjustCurrentLocation').value,
                     quantity_change: quantity,
-                    new_location_barcode: $('#swalAdjustNewLocation').val(),
+                    new_location_article_no: $('#swalAdjustNewLocation').val(),
                     to_warehouse_id: $('#swalDestWarehouse').val(),
                     batch_number: popup.querySelector('#swalAdjustBatchNumber').value,
                     dot_code: popup.querySelector('#swalAdjustDotCode').value,

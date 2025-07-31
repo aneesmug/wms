@@ -1,3 +1,4 @@
+// 008-locations.js
 // public/js/locations.js
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -17,7 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Event Listeners ---
     if (addNewLocationBtn) addNewLocationBtn.addEventListener('click', () => openLocationModal());
-    if (addNewLocationTypeBtn) addNewLocationTypeBtn.addEventListener('click', openLocationTypeModal);
+    if (addNewLocationTypeBtn) addNewLocationTypeBtn.addEventListener('click', () => openLocationTypeModal());
     if (locationTypeFilter) locationTypeFilter.addEventListener('change', applyTypeFilter);
     if (locationsTableBody) locationsTableBody.addEventListener('click', handleTableButtonClick);
     if (locationTypesTableBody) locationTypesTableBody.addEventListener('click', handleTypeTableButtonClick);
@@ -157,9 +158,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // MODIFIED: Corrected the error when creating a new location type.
     function openLocationTypeModal(typeId = null) {
         const isUpdating = !!typeId;
-        const typeData = isUpdating ? locationTypes.find(t => t.type_id == typeId) : {};
+        const typeData = isUpdating ? locationTypes.find(t => t.type_id == typeId) : null;
 
         Swal.fire({
             title: isUpdating ? 'Edit Location Type' : 'Add New Location Type',
@@ -167,11 +169,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 <form id="swalLocationTypeForm" class="text-start">
                     <div class="mb-3">
                         <label for="swalTypeName" class="form-label">Type Name*</label>
-                        <input type="text" id="swalTypeName" class="form-control" value="${typeData.type_name || ''}" required>
+                        <input type="text" id="swalTypeName" class="form-control" value="${typeData ? typeData.type_name : ''}" required>
                     </div>
                     <div class="mb-3">
                         <label for="swalTypeDescription" class="form-label">Description</label>
-                        <textarea id="swalTypeDescription" class="form-control" rows="3">${typeData.type_description || ''}</textarea>
+                        <textarea id="swalTypeDescription" class="form-control" rows="3">${typeData ? typeData.type_description : ''}</textarea>
                     </div>
                 </form>`,
             showCancelButton: true,
@@ -190,7 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }).then(async (result) => {
             if (result.isConfirmed) {
-                const url = isUpdating ? `api/locations_api.php?action=update_type` : `api/locations_api.php?action=create_type`;
+                const url = isUpdating ? `api/locations_api.php` : `api/locations_api.php?action=create_type`;
                 const method = isUpdating ? 'PUT' : 'POST';
                 const saveResult = await fetchData(url, method, result.value);
 
@@ -293,7 +295,7 @@ document.addEventListener('DOMContentLoaded', () => {
             confirmButtonText: 'Yes, delete it!'
         }).then(async (result) => {
             if (result.isConfirmed) {
-                const deleteResult = await fetchData(`api/locations_api.php?action=delete_type&id=${typeId}`, 'DELETE');
+                const deleteResult = await fetchData(`api/locations_api.php?id=${typeId}`, 'DELETE');
                 if (deleteResult?.success) {
                     await Swal.fire('Deleted!', 'The location type has been deleted.', 'success');
                     await initializePage();

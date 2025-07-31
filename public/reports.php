@@ -68,7 +68,7 @@
                                             <option value="inventoryAging">Inventory Aging</option>
                                             <option value="deadStock">Dead Stock Report</option>
                                             <option value="expiringStock">Expiring Stock Report</option>
-                                            <option value="productMovement" data-filter-required="true" data-filter-label="SKU / Barcode" data-filter-placeholder="Enter Product SKU/Barcode...">Product Movement</option>
+                                            <option value="productMovement" data-filter-required="true" data-filter-label="SKU / Article No" data-filter-placeholder="Enter Product SKU/Article No...">Product Movement</option>
                                         </optgroup>
                                         
                                         <optgroup label="Performance & User Activity">

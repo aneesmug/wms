@@ -97,7 +97,7 @@
                                         <h6 class="mb-3">Pick Items</h6>
                                         <div class="row g-3">
                                             <div class="col-md-3">
-                                                <label for="pickItemNumberInput" class="form-label">Item Barcode/SKU</label>
+                                                <label for="pickItemNumberInput" class="form-label">Item Article No/SKU</label>
                                                 <input type="text" id="pickItemNumberInput" class="form-control" placeholder="Scan or enter...">
                                             </div>
                                             <div class="col-md-2">

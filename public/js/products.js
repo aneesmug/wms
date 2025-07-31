@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 { data: 'sku' },
                 { data: 'product_name' },
                 { data: 'tire_type_name', defaultContent: '<em>N/A</em>' },
-                { data: 'barcode', defaultContent: '<em>N/A</em>' },
+                { data: 'article_no', defaultContent: '<em>N/A</em>' },
                 { data: 'unit_of_measure', defaultContent: '<em>N/A</em>' },
                 { data: 'total_quantity', className: 'text-end' },
                 {
@@ -126,8 +126,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                      <div class="row">
                         <div class="col-md-3 mb-3">
-                            <label for="barcode" class="form-label">Barcode</label>
-                            <input type="text" id="barcode" class="form-control" value="${productData?.barcode || ''}">
+                            <label for="article_no" class="form-label">Article No</label>
+                            <input type="text" id="article_no" class="form-control" value="${productData?.article_no || ''}">
                         </div>
                         <div class="col-md-3 mb-3">
                             <label for="weight" class="form-label">Weight (kg)</label>
@@ -162,7 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     unit_of_measure: Swal.getPopup().querySelector('#unit_of_measure').value,
                     weight: Swal.getPopup().querySelector('#weight').value || null,
                     volume: Swal.getPopup().querySelector('#volume').value || null,
-                    barcode: Swal.getPopup().querySelector('#barcode').value,
+                    article_no: Swal.getPopup().querySelector('#article_no').value,
                     tire_type_id: Swal.getPopup().querySelector('#tire_type_id').value || null,
                     expiry_years: Swal.getPopup().querySelector('#expiry_years').value || null, // MODIFIED
                 };

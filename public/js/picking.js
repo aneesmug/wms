@@ -240,10 +240,10 @@ document.addEventListener('DOMContentLoaded', () => {
         $(pickBatchNumberSelect).empty().append(new Option('Select location first', '')).prop('disabled', true).trigger('change');
         productInventoryDetails = [];
 
-        const productBarcode = pickItemNumberInput.value.trim();
-        if (!productBarcode) return;
+        const productarticle_no = pickItemNumberInput.value.trim();
+        if (!productarticle_no) return;
 
-        const product = allProducts.find(p => p.barcode === productBarcode || p.sku === productBarcode);
+        const product = allProducts.find(p => p.article_no === productarticle_no || p.sku === productarticle_no);
         if (!product) {
             Toast.fire({ icon: 'error', title: 'Product not found.' });
             return;
@@ -291,15 +291,15 @@ document.addEventListener('DOMContentLoaded', () => {
         $(pickLocationSelect).empty().append(new Option('Loading...', '')).prop('disabled', true).trigger('change');
         $(pickBatchNumberSelect).empty().append(new Option('Select Location first', '')).prop('disabled', true).trigger('change');
         
-        const productBarcode = pickItemNumberInput.value.trim();
+        const productarticle_no = pickItemNumberInput.value.trim();
         const selectedDot = pickDotCodeSelect.value;
         
-        if (!productBarcode || !selectedDot) {
+        if (!productarticle_no || !selectedDot) {
             $(pickLocationSelect).empty().append(new Option('Select DOT first', '')).prop('disabled', true).trigger('change');
             return;
         }
         
-        const product = allProducts.find(p => p.barcode === productBarcode || p.sku === productBarcode);
+        const product = allProducts.find(p => p.article_no === productarticle_no || p.sku === productarticle_no);
         if (!product) return;
 
         const response = await fetchData(`api/picking_api.php?action=getLocationsForDot&product_id=${product.product_id}&dot_code=${selectedDot}`);
@@ -324,16 +324,16 @@ document.addEventListener('DOMContentLoaded', () => {
     async function handleLocationSelect() {
         $(pickBatchNumberSelect).empty().append(new Option('Loading...', '')).prop('disabled', true).trigger('change');
 
-        const productBarcode = pickItemNumberInput.value.trim();
+        const productarticle_no = pickItemNumberInput.value.trim();
         const selectedDot = pickDotCodeSelect.value;
         const selectedLocationId = pickLocationSelect.value;
 
-        if (!productBarcode || !selectedDot || !selectedLocationId) {
+        if (!productarticle_no || !selectedDot || !selectedLocationId) {
             $(pickBatchNumberSelect).empty().append(new Option('Select Location first', '')).prop('disabled', true).trigger('change');
             return;
         }
 
-        const product = allProducts.find(p => p.barcode === productBarcode || p.sku === productBarcode);
+        const product = allProducts.find(p => p.article_no === productarticle_no || p.sku === productarticle_no);
         if (!product) return;
 
         const response = await fetchData(`api/picking_api.php?action=getBatchesForLocationDot&product_id=${product.product_id}&dot_code=${selectedDot}&location_id=${selectedLocationId}`);
@@ -378,7 +378,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Check against remaining quantity to pick for this item on the order
-        const product = allProducts.find(p => p.barcode === pickItemNumberInput.value.trim() || p.sku === pickItemNumberInput.value.trim());
+        const product = allProducts.find(p => p.article_no === pickItemNumberInput.value.trim() || p.sku === pickItemNumberInput.value.trim());
         if (product) {
             const orderItem = currentOrderItems.find(oi => oi.product_id == product.product_id);
             if (orderItem) {
@@ -399,10 +399,10 @@ document.addEventListener('DOMContentLoaded', () => {
     async function handlePickItem() {
         if (!selectedOrderId) { Swal.fire('Error', 'Please select an order first.', 'error'); return; }
         
-        const productBarcode = pickItemNumberInput.value.trim();
-        const product = allProducts.find(p => p.barcode === productBarcode || p.sku === productBarcode);
+        const productarticle_no = pickItemNumberInput.value.trim();
+        const product = allProducts.find(p => p.article_no === productarticle_no || p.sku === productarticle_no);
         if (!product) {
-            Swal.fire('Error', 'Could not find product details for the entered barcode/SKU.', 'error');
+            Swal.fire('Error', 'Could not find product details for the entered article_no/SKU.', 'error');
             return;
         }
 
@@ -423,7 +423,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const result = await fetchData('api/picking_api.php?action=pickItem', 'POST', data);
         if (result?.success) {
             Toast.fire({ icon: 'success', title: result.message });
-            const pickedBarcode = pickItemNumberInput.value.trim();
+            const pickedarticle_no = pickItemNumberInput.value.trim();
             const pickedProductId = product.product_id;
 
             pickItemNumberInput.value = ''; 
@@ -439,7 +439,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (remainingToPick > 0) {
                 // If more are needed, rescan the product to refresh dropdowns for the next pick.
-                pickItemNumberInput.value = pickedBarcode;
+                pickItemNumberInput.value = pickedarticle_no;
                 await handleProductScan();
             } else {
                 // If the item is now fully picked, just reset the dependent dropdowns
@@ -547,11 +547,11 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.appendChild(generatorContainer);
 
             for (const sticker of stickers) {
-                const mainBarcodeSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-                const sideBarcodeSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                const mainarticle_noSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+                const sidearticle_noSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
                 
-                generatorContainer.appendChild(mainBarcodeSvg);
-                generatorContainer.appendChild(sideBarcodeSvg);
+                generatorContainer.appendChild(mainarticle_noSvg);
+                generatorContainer.appendChild(sidearticle_noSvg);
 
                 let shelfLife = 'N/A';
                 if (sticker.dot_code && sticker.expiry_years) {
@@ -563,11 +563,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
                 
-                JsBarcode(mainBarcodeSvg, sticker.sticker_code, { format: "CODE128", height: 30, displayValue: true, fontSize: 14 });
-                JsBarcode(sideBarcodeSvg, sticker.tracking_number || sticker.order_number, { format: "CODE128", width: 1.5, height: 70, fontSize: 12, displayValue: true });
+                JsBarcode(mainarticle_noSvg, sticker.sticker_code, { format: "CODE128", height: 30, displayValue: true, fontSize: 14 });
+                JsBarcode(sidearticle_noSvg, sticker.tracking_number || sticker.order_number, { format: "CODE128", width: 1.5, height: 70, fontSize: 12, displayValue: true });
 
-                const mainBarcodeHtml = mainBarcodeSvg.outerHTML;
-                const sideBarcodeHtml = sideBarcodeSvg.outerHTML;
+                const mainarticle_noHtml = mainarticle_noSvg.outerHTML;
+                const sidearticle_noHtml = sidearticle_noSvg.outerHTML;
 
                 const from_address = [sticker.warehouse_name, sticker.warehouse_address, sticker.warehouse_city].filter(Boolean).join('<br>');
                 const to_address = [sticker.customer_name, sticker.address_line1, sticker.address_line2, `${sticker.city || ''} ${sticker.state || ''}`, sticker.zip_code, sticker.country].filter(Boolean).join('<br>');
@@ -582,14 +582,14 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="product-block">
                                 <p>Order: ${sticker.order_number} <br /> Shelf Life: ${shelfLife}</p>
                                 <p class="product-name">${sticker.product_name}</p>
-                                <p class="product-sku">${sticker.barcode} &nbsp;&nbsp;&nbsp; ${sticker.item_sequence} / ${sticker.item_total}</p>
+                                <p class="product-sku">${sticker.article_no} &nbsp;&nbsp;&nbsp; ${sticker.item_sequence} / ${sticker.item_total}</p>
                             </div>
-                            <div class="barcode-block">
-                                ${mainBarcodeHtml}
+                            <div class="article_no-block">
+                                ${mainarticle_noHtml}
                             </div>
                         </div>
                         <div class="sticker-side-content">
-                            <div class="side-barcode-block">${sideBarcodeHtml}</div>
+                            <div class="side-article_no-block">${sidearticle_noHtml}</div>
                         </div>
                     </div>`;
             }
@@ -618,8 +618,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                 .product-block { flex-grow: 1; text-align: left; font-size: 10pt; }
                                 .product-name { font-size: 12pt; font-weight: bold; margin-top: 5px; }
                                 .product-sku { font-weight: bold; font-size: 10pt; margin-top: 4px; }
-                                .barcode-block { flex-shrink: 0; text-align: center; padding-top: 5px; }
-                                .side-barcode-block { transform: rotate(-90deg); }
+                                .article_no-block { flex-shrink: 0; text-align: center; padding-top: 5px; }
+                                .side-article_no-block { transform: rotate(-90deg); }
                             }
                         </style>
                     </head>
@@ -680,7 +680,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <td>${globalIndex + 1}</td>
                                 <td>${item.product_name}</td>
                                 <td>${item.sku}</td>
-                                <td><div class="item-barcode-container" id="item-barcode-${globalIndex}"></div></td>
+                                <td><div class="item-article_no-container" id="item-article_no-${globalIndex}"></div></td>
                                 <td>${item.ordered_quantity}</td>
                                 <td>${item.location_code || ''}</td>
                                 <td>${item.batch_number || ''}</td>
@@ -720,7 +720,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                             <strong>Order Number:</strong> ${order_details.order_number}<br>
                                             <strong>Date:</strong> ${new Date().toLocaleDateString()}<br>
                                             <strong>Reference:</strong> ${order_details.reference_number || 'N/A'}<br>
-                                            <div class="order-barcode-container mt-2" id="order-barcode-page-${page}"></div>
+                                            <div class="order-article_no-container mt-2" id="order-article_no-page-${page}"></div>
                                         </div>
                                     </div>
                                 </div>
@@ -733,7 +733,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                             <th>#</th>
                                             <th>Article Description</th>
                                             <th>Article No</th>
-                                            <th>Barcode</th>
+                                            <th>article_no</th>
                                             <th>Qty</th>
                                             <th>Location</th>
                                             <th>Batch</th>
@@ -776,8 +776,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                 .report-container { border: 2px solid #000; padding: 15px; height: 100%; display: flex; flex-direction: column; }
                                 .header-section, .details-section { border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 10px; flex-shrink: 0; }
                                 .header-logo { max-height: 60px; width: auto; }
-                                .order-barcode-container svg { height: 40px; width: 100%; }
-                                .item-barcode-container svg { height: 35px; width: 100%; margin: 0; }
+                                .order-article_no-container svg { height: 40px; width: 100%; }
+                                .item-article_no-container svg { height: 35px; width: 100%; margin: 0; }
                                 .table th, .table td { vertical-align: middle; font-size: 0.8rem; text-align: center; }
                                 .table th { background-color: #e9ecef !important; }
                                 .table td:nth-child(2) { text-align: left; }
@@ -792,11 +792,11 @@ document.addEventListener('DOMContentLoaded', () => {
             `);
             
             for (let page = 0; page < totalPages; page++) {
-                const orderBarcodeContainer = printFrame.contentDocument.getElementById(`order-barcode-page-${page}`);
-                if (orderBarcodeContainer) {
+                const orderarticle_noContainer = printFrame.contentDocument.getElementById(`order-article_no-page-${page}`);
+                if (orderarticle_noContainer) {
                     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
                     JsBarcode(svg, order_details.order_number, { format: "CODE128", displayValue: false, height: 40, margin: 0 });
-                    orderBarcodeContainer.appendChild(svg);
+                    orderarticle_noContainer.appendChild(svg);
                 }
 
                 const start = page * itemsPerPage;
@@ -805,11 +805,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 pageItems.forEach((item, index) => {
                     const globalIndex = start + index;
-                    const itemBarcodeContainer = printFrame.contentDocument.getElementById(`item-barcode-${globalIndex}`);
-                    if (itemBarcodeContainer && item.barcode) {
+                    const itemarticle_noContainer = printFrame.contentDocument.getElementById(`item-article_no-${globalIndex}`);
+                    if (itemarticle_noContainer && item.article_no) {
                         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-                        JsBarcode(svg, item.barcode, { format: "CODE128", displayValue: false, height: 35, margin: 2, fontSize: 10 });
-                        itemBarcodeContainer.appendChild(svg);
+                        JsBarcode(svg, item.article_no, { format: "CODE128", displayValue: false, height: 35, margin: 2, fontSize: 10 });
+                        itemarticle_noContainer.appendChild(svg);
                     }
                 });
             }

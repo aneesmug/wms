@@ -253,7 +253,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <tr>
                             <td>${item.sku}</td>
                             <td>${item.product_name}</td>
-                            <td>${item.barcode || 'N/A'}</td>
+                            <td>${item.article_no || 'N/A'}</td>
                             <td class="text-center">${item.ordered_quantity}</td>
                             <td class="text-center">${item.picked_quantity}</td>
                         </tr>`).join('');
@@ -283,7 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 ${order.delivery_photo_path ? `<p><strong>Proof of Delivery:</strong> <a href="${order.delivery_photo_path}" target="_blank">View Photo</a></p>` : ''}
                                 <h6 class="mt-4">Items</h6>
                                 <table class="table table-sm table-bordered">
-                                    <thead><tr><th>SKU</th><th>Product</th><th>Barcode</th><th>Ordered</th><th>Picked</th></tr></thead>
+                                    <thead><tr><th>SKU</th><th>Product</th><th>Article No</th><th>Ordered</th><th>Picked</th></tr></thead>
                                     <tbody>${itemsHtml}</tbody>
                                 </table>
                             </div>
@@ -309,7 +309,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <tr>
                             <td>${item.sku}</td>
                             <td>${item.product_name}</td>
-                            <td>${item.barcode || 'N/A'}</td>
+                            <td>${item.article_no || 'N/A'}</td>
                             <td class="text-center">${item.expected_quantity}</td>
                             <td class="text-center">${item.processed_quantity}</td>
                             <td>${item.condition || 'N/A'}</td>
@@ -324,7 +324,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <p><strong>Reason:</strong> ${ret.reason || 'N/A'}</p>
                                 <h6 class="mt-4">Items</h6>
                                 <table class="table table-sm table-bordered">
-                                    <thead><tr><th>SKU</th><th>Product</th><th>Barcode</th><th>Expected</th><th>Processed</th><th>Condition</th></tr></thead>
+                                    <thead><tr><th>SKU</th><th>Product</th><th>Article No</th><th>Expected</th><th>Processed</th><th>Condition</th></tr></thead>
                                     <tbody>${itemsHtml}</tbody>
                                 </table>
                             </div>

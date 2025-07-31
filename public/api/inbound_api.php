@@ -1,4 +1,5 @@
 <?php
+// 007-inbound_api.php
 // api/inbound.php
 
 require_once __DIR__ . '/../config/config.php';
@@ -71,9 +72,9 @@ switch ($method) {
             handlePutawayItem($conn, $current_warehouse_id);
         } elseif ($action === 'cancelReceipt') {
             handleCancelReceipt($conn, $current_warehouse_id);
-        } elseif ($action === 'updateReceivedItem') { // NEW ACTION
+        } elseif ($action === 'updateReceivedItem') { 
             handleUpdateReceivedItem($conn, $current_warehouse_id);
-        } elseif ($action === 'deleteReceivedItem') { // NEW ACTION
+        } elseif ($action === 'deleteReceivedItem') { 
             handleDeleteReceivedItem($conn, $current_warehouse_id);
         } else {
             sendJsonResponse(['success' => false, 'message' => 'Invalid POST action'], 400);
@@ -236,7 +237,7 @@ function handleGetInventoryLabelData($conn, $warehouse_id) {
     $stmt = $conn->prepare("
         SELECT 
             i.inventory_id, i.quantity, i.dot_code, i.expiry_date, i.batch_number,
-            p.product_name, p.sku, p.barcode AS product_barcode, p.expiry_years,
+            p.product_name, p.sku, p.article_no AS product_article_no, p.expiry_years,
             wl.location_code, ir.receipt_number
         FROM inventory i
         JOIN products p ON i.product_id = p.product_id
@@ -320,12 +321,12 @@ function handleGetProductsWithInventory($conn, $warehouse_id) {
             p.product_id,
             p.sku,
             p.product_name,
-            p.barcode,
+            p.article_no,
             p.expiry_years,
             COALESCE(SUM(i.quantity), 0) AS total_stock
         FROM products p
         LEFT JOIN inventory i ON p.product_id = i.product_id AND i.warehouse_id = ?
-        GROUP BY p.product_id, p.sku, p.product_name, p.barcode, p.expiry_years
+        GROUP BY p.product_id, p.sku, p.product_name, p.article_no, p.expiry_years
         ORDER BY p.product_name ASC
     ";
     $stmt = $conn->prepare($sql);
@@ -359,7 +360,7 @@ function handleGetReportData($conn, $warehouse_id) {
         return;
     }
 
-    $stmt_items = $conn->prepare("SELECT ii.*, p.sku, p.product_name, p.barcode FROM inbound_items ii JOIN products p ON ii.product_id = p.product_id WHERE ii.receipt_id = ? AND ii.expected_quantity > 0");
+    $stmt_items = $conn->prepare("SELECT ii.*, p.sku, p.product_name, p.article_no FROM inbound_items ii JOIN products p ON ii.product_id = p.product_id WHERE ii.receipt_id = ? AND ii.expected_quantity > 0");
     $stmt_items->bind_param("i", $receipt_id);
     $stmt_items->execute();
     $main_items = $stmt_items->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -390,7 +391,7 @@ function handleGetReportData($conn, $warehouse_id) {
                 $report_items[] = [
                     'sku' => $item['sku'],
                     'product_name' => $item['product_name'],
-                    'barcode' => $item['barcode'],
+                    'article_no' => $item['article_no'],
                     'status' => 'Putaway',
                     'batch_number' => $detail['batch_number'],
                     'expected_quantity' => 0,
@@ -419,6 +420,8 @@ function handleGetAvailableLocations($conn, $warehouse_id) {
             (wl.max_capacity_units - COALESCE(inv_sum.total_quantity, 0)) as available_capacity
         FROM 
             warehouse_locations wl
+        JOIN 
+            location_types lt ON wl.location_type_id = lt.type_id
         LEFT JOIN 
             (SELECT location_id, SUM(quantity) as total_quantity 
              FROM inventory 
@@ -427,6 +430,7 @@ function handleGetAvailableLocations($conn, $warehouse_id) {
             wl.location_id = inv_sum.location_id
         WHERE 
             wl.warehouse_id = ? AND wl.is_active = 1
+            AND lt.type_name NOT IN ('shipping_bay', 'staging_area', 'shipping_area', 'bin')
         HAVING
             available_capacity IS NOT NULL AND available_capacity > 0
         ORDER BY 
@@ -470,7 +474,7 @@ function handleGetInbound($conn, $warehouse_id) {
 
         $stmt_items = $conn->prepare("
             SELECT 
-                ii.*, p.sku, p.product_name, p.barcode
+                ii.*, p.sku, p.product_name, p.article_no
             FROM inbound_items ii 
             JOIN products p ON ii.product_id = p.product_id 
             WHERE ii.receipt_id = ?
@@ -525,10 +529,14 @@ function handleCreateReceipt($conn, $warehouse_id) {
 
     $supplier_id = filter_var($input['supplier_id'] ?? null, FILTER_VALIDATE_INT);
     $expected_arrival_date = sanitize_input($input['expected_arrival_date'] ?? '');
+    $bl_number = sanitize_input($input['bl_number'] ?? '');
+    $container_number = sanitize_input($input['container_number'] ?? '');
+    $serial_number = sanitize_input($input['serial_number'] ?? '');
+    
     $received_by = $_SESSION['user_id'];
 
-    if (empty($supplier_id) || empty($expected_arrival_date)) {
-        sendJsonResponse(['success' => false, 'message' => 'Supplier and Expected Arrival Date are required.'], 400);
+    if (empty($supplier_id) || empty($expected_arrival_date) || empty($bl_number) || empty($container_number) || empty($serial_number)) {
+        sendJsonResponse(['success' => false, 'message' => 'Please fill out all fields: Supplier, B/L, Container, Serial No, and Expected Arrival.'], 400);
         return;
     }
     
@@ -543,8 +551,18 @@ function handleCreateReceipt($conn, $warehouse_id) {
             $stmt_check->close();
         } while ($result_check->num_rows > 0);
 
-        $stmt = $conn->prepare("INSERT INTO inbound_receipts (warehouse_id, receipt_number, supplier_id, expected_arrival_date, status, received_by) VALUES (?, ?, ?, ?, 'Pending', ?)");
-        $stmt->bind_param("isisi", $warehouse_id, $receipt_number, $supplier_id, $expected_arrival_date, $received_by);
+        $stmt = $conn->prepare("
+            INSERT INTO inbound_receipts (
+                warehouse_id, receipt_number, supplier_id, expected_arrival_date, 
+                bl_number, container_number, serial_number,
+                status, received_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending', ?)
+        ");
+        $stmt->bind_param("isissssi", 
+            $warehouse_id, $receipt_number, $supplier_id, $expected_arrival_date,
+            $bl_number, $container_number, $serial_number,
+            $received_by
+        );
         
         if (!$stmt->execute()) {
              throw new Exception('Failed to create receipt in database.');
@@ -564,12 +582,12 @@ function handleReceiveItem($conn, $warehouse_id) {
     $input = json_decode(file_get_contents('php://input'), true);
     
     if (empty($input['receipt_id'])) { sendJsonResponse(['success' => false, 'message' => 'Receipt ID is missing.'], 400); return; }
-    if (empty($input['barcode'])) { sendJsonResponse(['success' => false, 'message' => 'Product barcode is missing.'], 400); return; }
+    if (empty($input['article_no'])) { sendJsonResponse(['success' => false, 'message' => 'Product article no is missing.'], 400); return; }
     if (!isset($input['received_quantity']) || !is_numeric($input['received_quantity']) || $input['received_quantity'] <= 0) { sendJsonResponse(['success' => false, 'message' => 'A valid, positive quantity is required.'], 400); return; }
     if (empty($input['dot_code'])) { sendJsonResponse(['success' => false, 'message' => 'DOT Code (WWYY) is a required field.'], 400); return; }
 
     $receipt_id = (int)$input['receipt_id'];
-    $barcode = trim($input['barcode']);
+    $article_no = trim($input['article_no']);
     $received_quantity = (int)$input['received_quantity'];
     $dot_code = trim($input['dot_code']);
     $unit_cost = isset($input['unit_cost']) && is_numeric($input['unit_cost']) ? (float)$input['unit_cost'] : null;
@@ -577,13 +595,13 @@ function handleReceiveItem($conn, $warehouse_id) {
     $conn->begin_transaction();
 
     try {
-        $stmt_prod = $conn->prepare("SELECT product_id, expiry_years FROM products WHERE barcode = ?");
-        $stmt_prod->bind_param("s", $barcode);
+        $stmt_prod = $conn->prepare("SELECT product_id, expiry_years FROM products WHERE article_no = ?");
+        $stmt_prod->bind_param("s", $article_no);
         $stmt_prod->execute();
         $product = $stmt_prod->get_result()->fetch_assoc();
         $stmt_prod->close();
         if (!$product) {
-            throw new Exception("Product not found for the given barcode.");
+            throw new Exception("Product not found for the given article no.");
         }
         $product_id = $product['product_id'];
         $expiry_years = $product['expiry_years'];
@@ -662,12 +680,13 @@ function handleReceiveItem($conn, $warehouse_id) {
     }
 }
 
+// MODIFIED: handlePutawayItem to add stricter checks
 function handlePutawayItem($conn, $warehouse_id) {
     $input = json_decode(file_get_contents('php://input'), true);
     
     $receipt_id = (int)($input['receipt_id'] ?? 0);
     $inbound_item_id = (int)($input['inbound_item_id'] ?? 0);
-    $location_barcode = trim($input['location_barcode'] ?? '');
+    $location_article_no = trim($input['location_article_no'] ?? '');
     $putaway_quantity = (int)($input['putaway_quantity'] ?? 0);
 
     if ($putaway_quantity <= 0) {
@@ -710,7 +729,7 @@ function handlePutawayItem($conn, $warehouse_id) {
             }
             $final_location_id = $bin_location_data['location_id'];
         } else {
-            if (empty($location_barcode)) {
+            if (empty($location_article_no)) {
                  throw new Exception("Location is required for non-expired items.");
             }
             
@@ -723,7 +742,7 @@ function handlePutawayItem($conn, $warehouse_id) {
                 WHERE wl.location_code = ? AND wl.warehouse_id = ? AND wl.is_active = 1
                 GROUP BY wl.location_id, wl.max_capacity_units
             ");
-            $stmt_loc->bind_param("si", $location_barcode, $warehouse_id);
+            $stmt_loc->bind_param("si", $location_article_no, $warehouse_id);
             $stmt_loc->execute();
             $location_data = $stmt_loc->get_result()->fetch_assoc();
             $stmt_loc->close();
@@ -735,7 +754,7 @@ function handlePutawayItem($conn, $warehouse_id) {
             if (isset($location_data['max_capacity_units'])) {
                 $available_capacity = $location_data['max_capacity_units'] - $location_data['current_usage'];
                 if ($putaway_quantity > $available_capacity) {
-                    throw new Exception("Not enough space in location '{$location_barcode}'. Available capacity: {$available_capacity} units.");
+                    throw new Exception("Not enough space in location '{$location_article_no}'. Available capacity: {$available_capacity} units.");
                 }
             }
             
@@ -746,6 +765,9 @@ function handlePutawayItem($conn, $warehouse_id) {
         $stmt->bind_param("ii", $putaway_quantity, $inbound_item_id);
         if (!$stmt->execute()) {
             throw new Exception("Failed to update source item record: " . $stmt->error);
+        }
+        if ($stmt->affected_rows === 0) {
+            throw new Exception("Critical error: Failed to update the putaway quantity on the source item. The item may not exist or the quantity was unchanged.");
         }
         $stmt->close();
         
@@ -795,10 +817,10 @@ function handlePutawayItem($conn, $warehouse_id) {
         $stmt_sticker = $conn->prepare("INSERT INTO inbound_putaway_stickers (inventory_id, receipt_id, unique_barcode) VALUES (?, ?, ?)");
         for ($i = 0; $i < $putaway_quantity; $i++) {
             $unique_id = strtoupper(bin2hex(random_bytes(3)));
-            $barcode_value = "INB-{$item['dot_code']}-{$unique_id}";
-            $stmt_sticker->bind_param("iis", $new_inventory_id, $receipt_id, $barcode_value);
+            $article_no_value = "INB-{$item['dot_code']}-{$unique_id}";
+            $stmt_sticker->bind_param("iis", $new_inventory_id, $receipt_id, $article_no_value);
             if (!$stmt_sticker->execute()) {
-                throw new Exception("Failed to generate sticker barcode: " . $stmt_sticker->error);
+                throw new Exception("Failed to generate sticker article no: " . $stmt_sticker->error);
             }
         }
         $stmt_sticker->close();

@@ -290,7 +290,7 @@ function handleGetOrderDetails($conn, $warehouse_id) {
     $stmt->close();
     if (!$order) { sendJsonResponse(['success' => false, 'message' => 'Outbound order not found.'], 404); return; }
     
-    $stmt_items = $conn->prepare("SELECT oi.*, p.sku, p.product_name, p.barcode FROM outbound_items oi JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = ?");
+    $stmt_items = $conn->prepare("SELECT oi.*, p.sku, p.product_name, p.article_no FROM outbound_items oi JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = ?");
     $stmt_items->bind_param("i", $order_id);
     $stmt_items->execute();
     $items = $stmt_items->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -482,7 +482,7 @@ function handleGetPickStickers($conn, $warehouse_id) {
             ops.sticker_code,
             oo.order_number, oo.tracking_number,
             c.customer_name, c.address_line1, c.address_line2, c.city, c.state, c.zip_code, c.country,
-            p.product_name, p.barcode, p.expiry_years,
+            p.product_name, p.article_no, p.expiry_years,
             oip.dot_code,
             w.warehouse_name, w.address as warehouse_address, w.city as warehouse_city,
             (SELECT SUM(oi_inner.ordered_quantity) FROM outbound_items oi_inner WHERE oi_inner.order_id = oo.order_id) as item_total,
@@ -510,13 +510,13 @@ function handleGetPickStickers($conn, $warehouse_id) {
     $final_stickers = [];
     $item_sequences = [];
     foreach ($stickers_data as $sticker) {
-        $barcode = $sticker['barcode'];
-        if (!isset($item_sequences[$barcode])) {
-            $item_sequences[$barcode] = $sticker['preceding_items_qty'];
+        $article_no = $sticker['article_no'];
+        if (!isset($item_sequences[$article_no])) {
+            $item_sequences[$article_no] = $sticker['preceding_items_qty'];
         }
         
-        $item_sequences[$barcode]++;
-        $sticker['item_sequence'] = $item_sequences[$barcode];
+        $item_sequences[$article_no]++;
+        $sticker['item_sequence'] = $item_sequences[$article_no];
         
         $final_stickers[] = $sticker;
     }
@@ -559,7 +559,7 @@ function handleGetPickReport($conn, $warehouse_id) {
             oi.product_id,
             p.sku,
             p.product_name,
-            p.barcode,
+            p.article_no,
             oi.ordered_quantity,
             (SELECT wl.location_code 
              FROM inventory i 

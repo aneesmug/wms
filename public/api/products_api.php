@@ -69,7 +69,7 @@ function handleGetProducts($conn, $warehouse_id) {
     $sql = "
         SELECT 
             p.product_id, p.sku, p.product_name, p.description,
-            p.unit_of_measure, p.weight, p.volume, p.barcode,
+            p.unit_of_measure, p.weight, p.volume, p.article_no,
             p.tire_type_id, p.expiry_years, -- MODIFIED: Added expiry_years
             tt.tire_type_name,
             COALESCE(inv.total_quantity, 0) AS total_quantity
@@ -113,7 +113,7 @@ function handleCreateProduct($conn) {
         return;
     }
 
-    $stmt = $conn->prepare("INSERT INTO products (sku, product_name, description, unit_of_measure, weight, volume, barcode, tire_type_id, expiry_years) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt = $conn->prepare("INSERT INTO products (sku, product_name, description, unit_of_measure, weight, volume, article_no, tire_type_id, expiry_years) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $stmt->bind_param(
         "ssssddsis", // MODIFIED: Added 's' for expiry_years
         $sku,
@@ -122,7 +122,7 @@ function handleCreateProduct($conn) {
         sanitize_input($input['unit_of_measure'] ?? null),
         filter_var($input['weight'] ?? null, FILTER_VALIDATE_FLOAT, FILTER_NULL_ON_FAILURE),
         filter_var($input['volume'] ?? null, FILTER_VALIDATE_FLOAT, FILTER_NULL_ON_FAILURE),
-        sanitize_input($input['barcode'] ?? null),
+        sanitize_input($input['article_no'] ?? null),
         filter_var($input['tire_type_id'] ?? null, FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE),
         filter_var($input['expiry_years'] ?? null, FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE) // MODIFIED
     );
@@ -131,7 +131,7 @@ function handleCreateProduct($conn) {
         sendJsonResponse(['success' => true, 'message' => 'Product created successfully', 'product_id' => $stmt->insert_id], 201);
     } else {
         if ($conn->errno == 1062) {
-            sendJsonResponse(['success' => false, 'message' => 'A product with this SKU or Barcode already exists.'], 409);
+            sendJsonResponse(['success' => false, 'message' => 'A product with this SKU or article_no already exists.'], 409);
         } else {
             sendJsonResponse(['success' => false, 'message' => 'Failed to create product', 'error' => $stmt->error], 500);
         }
@@ -148,7 +148,7 @@ function handleUpdateProduct($conn) {
         return;
     }
 
-    $fields = ['sku', 'product_name', 'description', 'unit_of_measure', 'weight', 'volume', 'barcode', 'tire_type_id', 'expiry_years']; // MODIFIED
+    $fields = ['sku', 'product_name', 'description', 'unit_of_measure', 'weight', 'volume', 'article_no', 'tire_type_id', 'expiry_years']; // MODIFIED
     $set_clauses = [];
     $bind_params = [];
     $bind_types = "";
@@ -185,7 +185,7 @@ function handleUpdateProduct($conn) {
         sendJsonResponse(['success' => true, 'message' => 'Product updated successfully.'], 200);
     } else {
         if ($conn->errno == 1062) {
-            sendJsonResponse(['success' => false, 'message' => 'Update failed: This SKU or Barcode is already in use.'], 409);
+            sendJsonResponse(['success' => false, 'message' => 'Update failed: This SKU or Article no is already in use.'], 409);
         } else {
             sendJsonResponse(['success' => false, 'message' => 'Failed to update product.', 'error' => $stmt->error], 500);
         }

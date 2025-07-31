@@ -112,7 +112,7 @@ function handleGetReturns($conn, $warehouse_id) {
         }
 
         $stmt_items = $conn->prepare("
-            SELECT ri.*, p.sku, p.product_name, p.barcode, wl.location_code as putaway_location_code
+            SELECT ri.*, p.sku, p.product_name, p.article_no, wl.location_code as putaway_location_code
             FROM return_items ri
             JOIN products p ON ri.product_id = p.product_id
             LEFT JOIN warehouse_locations wl ON ri.putaway_location_id = wl.location_id
@@ -283,7 +283,7 @@ function handleProcessItem($conn, $warehouse_id, $user_id) {
         $location_id = null; 
 
         if ($condition === 'Good') {
-            if (empty($location_barcode)) throw new Exception("Location barcode is required for 'Good' items.");
+            if (empty($location_barcode)) throw new Exception("Location Article No is required for 'Good' items.");
             
             $stmt_loc = $conn->prepare("SELECT location_id FROM warehouse_locations WHERE location_code = ? AND warehouse_id = ? AND is_active = 1");
             $stmt_loc->bind_param("si", $location_barcode, $warehouse_id);
@@ -324,7 +324,7 @@ function handleProcessItem($conn, $warehouse_id, $user_id) {
                 $barcode_value = "RET-".($item['dot_code'] ?? 'NA')."-{$unique_id}";
                 $stmt_sticker->bind_param("iis", $new_inventory_id, $item['return_id'], $barcode_value);
                 if (!$stmt_sticker->execute()) {
-                    throw new Exception("Failed to generate sticker barcode: " . $stmt_sticker->error);
+                    throw new Exception("Failed to generate sticker Article No: " . $stmt_sticker->error);
                 }
             }
             $stmt_sticker->close();

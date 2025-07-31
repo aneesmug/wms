@@ -103,7 +103,7 @@ function handleGetInventory($conn, $warehouse_id) {
         SELECT
             i.inventory_id, i.quantity, i.batch_number, i.dot_code, i.last_moved_at,
             i.product_id, 
-            p.sku, p.product_name, p.barcode, p.expiry_years, p.tire_type_id,
+            p.sku, p.product_name, p.article_no, p.expiry_years, p.tire_type_id,
             wl.location_id, wl.location_code,
             lt.type_name AS location_type
         FROM inventory i
@@ -163,16 +163,16 @@ function handleInventoryAdjustment($conn, $input, $warehouse_id) {
 
 function adjustInventoryQuantity($conn, $input, $warehouse_id) {
     $product_id = filter_var($input['product_id'] ?? 0, FILTER_VALIDATE_INT);
-    $location_barcode = sanitize_input($input['current_location_barcode'] ?? '');
+    $location_article_no = sanitize_input($input['current_location_article_no'] ?? '');
     $quantity_change = filter_var($input['quantity_change'] ?? 0, FILTER_VALIDATE_INT);
     $batch_number = sanitize_input($input['batch_number'] ?? null) ?: null;
     $dot_code = sanitize_input($input['dot_code'] ?? null) ?: null;
 
-    if (empty($product_id) || empty($location_barcode) || $quantity_change === 0) {
+    if (empty($product_id) || empty($location_article_no) || $quantity_change === 0) {
         throw new Exception("Product, location, and a non-zero quantity are required.");
     }
     
-    $location_data = getLocationDataFromBarcode($conn, $location_barcode, $warehouse_id);
+    $location_data = getLocationDataFromarticle_no($conn, $location_article_no, $warehouse_id);
     $location_id = $location_data['location_id'];
 
     if ($quantity_change > 0 && $location_data['max_capacity_units'] !== null) {
@@ -182,7 +182,7 @@ function adjustInventoryQuantity($conn, $input, $warehouse_id) {
         $current_total_qty = $stmt_total->get_result()->fetch_assoc()['total'];
         $stmt_total->close();
         if (($current_total_qty + $quantity_change) > $location_data['max_capacity_units']) {
-            throw new Exception("Adding {$quantity_change} units to {$location_barcode} exceeds its total capacity of {$location_data['max_capacity_units']}. Current stock: {$current_total_qty}.");
+            throw new Exception("Adding {$quantity_change} units to {$location_article_no} exceeds its total capacity of {$location_data['max_capacity_units']}. Current stock: {$current_total_qty}.");
         }
     }
 
@@ -210,20 +210,20 @@ function adjustInventoryQuantity($conn, $input, $warehouse_id) {
 
 function transferInventory($conn, $input, $warehouse_id) {
     $product_id = filter_var($input['product_id'] ?? 0, FILTER_VALIDATE_INT);
-    $from_location_barcode = sanitize_input($input['current_location_barcode'] ?? '');
-    $to_location_barcode = sanitize_input($input['new_location_barcode'] ?? '');
+    $from_location_article_no = sanitize_input($input['current_location_article_no'] ?? '');
+    $to_location_article_no = sanitize_input($input['new_location_article_no'] ?? '');
     $quantity = filter_var($input['quantity_change'] ?? 0, FILTER_VALIDATE_INT);
     $batch_number = sanitize_input($input['batch_number'] ?? null) ?: null;
     $dot_code = sanitize_input($input['dot_code'] ?? null) ?: null;
 
-    if (empty($from_location_barcode) || empty($to_location_barcode) || $quantity <= 0) {
+    if (empty($from_location_article_no) || empty($to_location_article_no) || $quantity <= 0) {
         throw new Exception("From/to locations and a positive quantity are required for transfer.");
     }
-    if ($from_location_barcode === $to_location_barcode) {
+    if ($from_location_article_no === $to_location_article_no) {
         throw new Exception("Cannot transfer to the same location.");
     }
 
-    $from_location_id = getLocationDataFromBarcode($conn, $from_location_barcode, $warehouse_id)['location_id'];
+    $from_location_id = getLocationDataFromarticle_no($conn, $from_location_article_no, $warehouse_id)['location_id'];
     
     $stmt_find = $conn->prepare("SELECT quantity FROM inventory WHERE product_id = ? AND location_id = ? AND batch_number <=> ? AND dot_code <=> ? AND warehouse_id = ?");
     $stmt_find->bind_param("iissi", $product_id, $from_location_id, $batch_number, $dot_code, $warehouse_id);
@@ -235,8 +235,8 @@ function transferInventory($conn, $input, $warehouse_id) {
         throw new Exception("Insufficient stock for this batch/DOT to perform transfer. Available: " . ($source_item['quantity'] ?? 0));
     }
 
-    adjustInventoryQuantity($conn, ['product_id' => $product_id, 'current_location_barcode' => $from_location_barcode, 'quantity_change' => -$quantity, 'batch_number' => $batch_number, 'dot_code' => $dot_code], $warehouse_id);
-    adjustInventoryQuantity($conn, ['product_id' => $product_id, 'current_location_barcode' => $to_location_barcode, 'quantity_change' => $quantity, 'batch_number' => $batch_number, 'dot_code' => $dot_code], $warehouse_id);
+    adjustInventoryQuantity($conn, ['product_id' => $product_id, 'current_location_article_no' => $from_location_article_no, 'quantity_change' => -$quantity, 'batch_number' => $batch_number, 'dot_code' => $dot_code], $warehouse_id);
+    adjustInventoryQuantity($conn, ['product_id' => $product_id, 'current_location_article_no' => $to_location_article_no, 'quantity_change' => $quantity, 'batch_number' => $batch_number, 'dot_code' => $dot_code], $warehouse_id);
 }
 
 function handleInterWarehouseTransfer($conn, $input, $from_warehouse_id) {
@@ -264,7 +264,7 @@ function handleInterWarehouseTransfer($conn, $input, $from_warehouse_id) {
         adjustInventoryQuantity($conn, $source_input, $from_warehouse_id);
         
         $destination_input = $input;
-        $destination_input['current_location_barcode'] = $input['new_location_barcode'];
+        $destination_input['current_location_article_no'] = $input['new_location_article_no'];
         adjustInventoryQuantity($conn, $destination_input, $to_warehouse_id);
 
         $conn->commit();
@@ -277,7 +277,7 @@ function handleInterWarehouseTransfer($conn, $input, $from_warehouse_id) {
     }
 }
 
-function getLocationDataFromBarcode($conn, $location_code, $warehouse_id) {
+function getLocationDataFromarticle_no($conn, $location_code, $warehouse_id) {
     $stmt = $conn->prepare("SELECT location_id, max_capacity_units FROM warehouse_locations WHERE location_code = ? AND warehouse_id = ? AND is_active = 1");
     $stmt->bind_param("si", $location_code, $warehouse_id);
     $stmt->execute();

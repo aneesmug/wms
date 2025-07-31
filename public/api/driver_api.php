@@ -272,7 +272,7 @@ function handleGetOrderDetailsForScan($conn, $driver_id) {
 
     $stmt_items = $conn->prepare("
         SELECT 
-            oi.product_id, p.sku, p.product_name, p.barcode, oi.ordered_quantity,
+            oi.product_id, p.sku, p.product_name, p.article_no, oi.ordered_quantity,
             (SELECT SUM(quantity_scanned) FROM outbound_driver_scans WHERE order_id = oi.order_id AND product_id = oi.product_id AND scanned_by_driver_id = ?) as scanned_quantity
         FROM outbound_items oi
         JOIN products p ON oi.product_id = p.product_id

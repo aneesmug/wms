@@ -136,7 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
             mainRow.innerHTML = `
                 <td>${item.sku}</td>
                 <td>${item.product_name}</td>
-                <td>${item.barcode || 'N/A'}</td>
+                <td>${item.article_no || 'N/A'}</td>
                 <td>${item.expected_quantity}</td>
                 <td>${item.processed_quantity}</td>
                 <td>${item.condition || 'N/A'}</td>
@@ -311,7 +311,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     return_item_id: returnItemId,
                     quantity: parseInt(quantity),
                     condition: condition,
-                    location_barcode: locationCode
+                    location_article_no: locationCode
                 };
             }
         });

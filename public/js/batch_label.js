@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const quantityEl = document.getElementById('quantity');
     const sourceReceiptEl = document.getElementById('sourceReceipt');
     const expiryDateEl = document.getElementById('expiryDate');
-    const barcodeEl = document.getElementById('barcode');
+    const barcodeEl = document.getElementById('article_no');
     const printBtn = document.getElementById('printBtn');
     const labelContainer = document.getElementById('labelContainer');
 

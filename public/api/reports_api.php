@@ -320,10 +320,10 @@ function getOutboundHistory($conn, $warehouse_id) {
 }
 
 function getProductMovement($conn, $warehouse_id) {
-    $sku_or_barcode = sanitize_input($_GET['filter'] ?? null);
-    if (empty($sku_or_barcode)) { sendJsonResponse(['success' => false, 'message' => 'SKU or Barcode is required for this report.'], 400); return; }
-    $product_id_stmt = $conn->prepare("SELECT product_id FROM products WHERE sku = ? OR barcode = ?");
-    $product_id_stmt->bind_param("ss", $sku_or_barcode, $sku_or_barcode);
+    $sku_or_article_no = sanitize_input($_GET['filter'] ?? null);
+    if (empty($sku_or_article_no)) { sendJsonResponse(['success' => false, 'message' => 'SKU or Article No is required for this report.'], 400); return; }
+    $product_id_stmt = $conn->prepare("SELECT product_id FROM products WHERE sku = ? OR article_no = ?");
+    $product_id_stmt->bind_param("ss", $sku_or_article_no, $sku_or_article_no);
     $product_id_stmt->execute();
     $product_result = $product_id_stmt->get_result()->fetch_assoc();
     $product_id_stmt->close();

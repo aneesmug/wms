@@ -100,7 +100,7 @@
                                             <tr>
                                                 <th>SKU</th>
                                                 <th>Product</th>
-                                                <th>Barcode</th>
+                                                <th>Article No</th>
                                                 <th>Ordered</th>
                                                 <th>Picked</th>
                                                 <th>Batch</th>

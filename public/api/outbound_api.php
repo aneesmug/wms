@@ -137,7 +137,7 @@ function handleGetPickReport($conn, $warehouse_id) {
 
     $stmt_items = $conn->prepare("
         SELECT 
-            oi.product_id, p.sku, p.product_name, p.barcode, oi.ordered_quantity, oi.picked_quantity,
+            oi.product_id, p.sku, p.product_name, p.article_no, oi.ordered_quantity, oi.picked_quantity,
             (SELECT wl.location_code FROM inventory i JOIN warehouse_locations wl ON i.location_id = wl.location_id WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC LIMIT 1) as location_code,
             (SELECT i.batch_number FROM inventory i WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC LIMIT 1) as batch_number,
             (SELECT i.dot_code FROM inventory i WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC LIMIT 1) as dot_code
@@ -181,7 +181,7 @@ function handleGetOutbound($conn, $warehouse_id) {
         $stmt->close();
         if (!$order) { sendJsonResponse(['success' => false, 'message' => 'Outbound order not found.'], 404); return; }
         
-        $stmt_items = $conn->prepare("SELECT oi.*, p.sku, p.product_name, p.barcode FROM outbound_items oi JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = ?");
+        $stmt_items = $conn->prepare("SELECT oi.*, p.sku, p.product_name, p.article_no FROM outbound_items oi JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = ?");
         $stmt_items->bind_param("i", $order_id);
         $stmt_items->execute();
         $items = $stmt_items->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -428,9 +428,9 @@ function handleCreateOutboundOrder($conn, $warehouse_id, $user_id) {
 function handleAddItemToOrder($conn, $warehouse_id) {
     $input = json_decode(file_get_contents('php://input'), true);
     $order_id = (int)$input['order_id'];
-    $product_barcode = trim($input['product_barcode'] ?? '');
+    $product_article_no = trim($input['product_article_no'] ?? '');
     $ordered_quantity = filter_var($input['ordered_quantity'] ?? 0, FILTER_VALIDATE_INT);
-    if (empty($order_id) || empty($product_barcode) || $ordered_quantity <= 0) { sendJsonResponse(['success' => false, 'message' => 'Order ID, Product Barcode, and Quantity are required.'], 400); return; }
+    if (empty($order_id) || empty($product_article_no) || $ordered_quantity <= 0) { sendJsonResponse(['success' => false, 'message' => 'Order ID, Product Article No, and Quantity are required.'], 400); return; }
     $conn->begin_transaction();
     try {
         $stmt = $conn->prepare("SELECT order_id FROM outbound_orders WHERE order_id = ? AND warehouse_id = ?");
@@ -438,12 +438,12 @@ function handleAddItemToOrder($conn, $warehouse_id) {
         $stmt->execute();
         if (!$stmt->get_result()->fetch_assoc()) { throw new Exception("Order not found or does not belong to selected warehouse."); }
         $stmt->close();
-        $stmt = $conn->prepare("SELECT product_id FROM products WHERE barcode = ?");
-        $stmt->bind_param("s", $product_barcode);
+        $stmt = $conn->prepare("SELECT product_id FROM products WHERE article_no = ?");
+        $stmt->bind_param("s", $product_article_no);
         $stmt->execute();
         $product_data = $stmt->get_result()->fetch_assoc();
         $stmt->close();
-        if (!$product_data) { throw new Exception("Product not found with the provided barcode."); }
+        if (!$product_data) { throw new Exception("Product not found with the provided Article No."); }
         $product_id = $product_data['product_id'];
         $stmt = $conn->prepare("SELECT outbound_item_id, ordered_quantity FROM outbound_items WHERE order_id = ? AND product_id = ?");
         $stmt->bind_param("ii", $order_id, $product_id);
