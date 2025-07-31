@@ -83,8 +83,10 @@
 
             /* Ensure background colors are printed */
             body {
-                -webkit-print-color-adjust: exact;
-                color-adjust: exact;
+                color-adjust: exact;               /* ⚠️ Deprecated (may trigger warnings) */
+                -webkit-print-color-adjust: exact; /* Chrome/Safari/Edge */
+                -moz-print-color-adjust: exact;    /* Firefox */
+                print-color-adjust: exact;         /* Standard */
             }
         }
     </style>
