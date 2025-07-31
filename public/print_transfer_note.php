@@ -29,7 +29,11 @@
 
         @media print {
             .no-print { display: none; }
-            body { -webkit-print-color-adjust: exact; }
+            body {
+                -webkit-print-color-adjust: exact; /* Chrome, Safari, Edge */
+                -moz-print-color-adjust: exact;    /* Firefox */
+                print-color-adjust: exact;         /* Standard */
+            }
         }
         @import url('https://fonts.googleapis.com/css2?family=Libre+Barcode+39&display=swap');
     </style>
