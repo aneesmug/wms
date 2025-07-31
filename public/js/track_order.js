@@ -1,94 +1,118 @@
-// public/js/track_order.js
-
-document.addEventListener('DOMContentLoaded', () => {
+/**
+ * js/track_order.js
+ * Handles the public order tracking functionality with a redesigned timeline view.
+ */
+document.addEventListener('DOMContentLoaded', function() {
     const trackingForm = document.getElementById('trackingForm');
-    const orderNumberInput = document.getElementById('orderNumberInput');
-    const customerEmailInput = document.getElementById('customerEmailInput');
-    const trackingResult = document.getElementById('trackingResult');
-    const resultHeader = document.getElementById('resultHeader');
-    const resultStatus = document.getElementById('resultStatus');
-    const trackingHistoryList = document.getElementById('trackingHistoryList');
 
     if (trackingForm) {
-        trackingForm.addEventListener('submit', handleTrackOrder);
-    }
+        trackingForm.addEventListener('submit', function(e) {
+            e.preventDefault();
 
-    async function handleTrackOrder(event) {
-        event.preventDefault();
-        trackingResult.classList.add('d-none');
-        trackingHistoryList.innerHTML = '';
+            const trackBtn = document.getElementById('trackBtn');
+            const btnSpinner = trackBtn.querySelector('.spinner-border');
+            const trackingNumberInput = document.getElementById('trackingNumber');
+            const trackingResultDiv = document.getElementById('trackingResult');
+            const trackingTimelineDiv = document.getElementById('trackingTimeline');
 
-        const data = {
-            order_number: orderNumberInput.value.trim(),
-            customer_email: customerEmailInput.value.trim()
-        };
-
-        if (!data.order_number || !data.customer_email) {
-            showMessageBox('Please enter both Order Number and Email.', 'error');
-            return;
-        }
-
-        const submitButton = trackingForm.querySelector('button[type="submit"]');
-        submitButton.disabled = true;
-        submitButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Tracking...';
-
-        try {
-            const response = await fetch('public_tracking_api.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-            });
-            const result = await response.json();
-            if (!response.ok || !result.success) {
-                showMessageBox(result.message || 'An error occurred.', 'error');
+            const trackingNumber = trackingNumberInput.value.trim();
+            if (!trackingNumber) {
+                showError('Invalid Input', 'Please enter a tracking number.');
                 return;
             }
-            displayTrackingInfo(result.data);
-        } catch (error) {
-            showMessageBox('Could not connect to the tracking service.', 'error');
-        } finally {
-            submitButton.disabled = false;
-            submitButton.textContent = 'Track Order';
-        }
-    }
 
-    function displayTrackingInfo(data) {
-        resultHeader.textContent = `Tracking Order #${data.order_number}`;
-        
-        let statusHtml = `<p class="lead">Current Status: <span class="fw-bold text-primary">${data.current_status}</span></p>`;
-        if (['Shipped', 'Out for Delivery'].includes(data.current_status)) {
-            statusHtml += `<p class="mt-2 text-muted small"><i class="bi bi-info-circle-fill me-1"></i> A <strong>6-digit confirmation code</strong> is required upon delivery. This code has been sent to the email address associated with your account.</p>`;
-        }
-        resultStatus.innerHTML = statusHtml;
+            // Show loading state
+            trackBtn.disabled = true;
+            btnSpinner.classList.remove('d-none');
+            trackingResultDiv.classList.add('d-none');
+            trackingTimelineDiv.innerHTML = '';
 
-        if (data.history && data.history.length > 0) {
-            trackingHistoryList.innerHTML = ''; 
-            data.history.forEach(item => {
-                const li = document.createElement('li');
-                li.className = 'list-group-item d-flex justify-content-between align-items-start';
-                const date = new Date(item.created_at);
-                
-                let icon = 'bi-card-list';
-                let color = 'bg-secondary';
-                if (item.status === 'Shipped') { icon = 'bi-box-seam'; color = 'bg-info'; }
-                if (item.status === 'Out for Delivery') { icon = 'bi-truck'; color = 'bg-primary'; }
-                if (item.status === 'Delivered') { icon = 'bi-check2-circle'; color = 'bg-success'; }
-                if (item.status === 'Delivery Attempted') { icon = 'bi-exclamation-triangle-fill'; color = 'bg-danger'; }
-
-                li.innerHTML = `
-                  <div class="d-flex align-items-center">
-                      <span class="badge ${color} p-2 me-3" style="font-size: 1.2rem;"><i class="bi ${icon}"></i></span>
-                      <div class="ms-2 me-auto">
-                          <div class="fw-bold">${item.status}</div>
-                          <small class="text-muted">${item.notes || 'Status updated.'}</small>
-                      </div>
-                  </div>
-                  <span class="text-muted small">${date.toLocaleString()}</span>`;
-                trackingHistoryList.appendChild(li);
-            });
-        } else {
-            trackingHistoryList.innerHTML = '<li class="list-group-item">No detailed history available.</li>';
-        }
-        trackingResult.classList.remove('d-none');
+            fetch(`api/public_tracking_api.php?tracking_number=${trackingNumber}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success' && data.order) {
+                        displayTrackingInfo(data.order);
+                        trackingResultDiv.classList.remove('d-none');
+                    } else {
+                        showError('Not Found', data.message || 'The requested tracking number was not found.');
+                        trackingResultDiv.classList.add('d-none');
+                    }
+                })
+                .catch(error => {
+                    console.error('Tracking Error:', error);
+                    showError('Oops...', 'An error occurred while fetching tracking data.');
+                    trackingResultDiv.classList.add('d-none');
+                })
+                .finally(() => {
+                    // Hide loading state
+                    trackBtn.disabled = false;
+                    btnSpinner.classList.add('d-none');
+                });
+        });
     }
 });
+
+/**
+ * Populates the DOM with the tracking information.
+ * @param {object} order - The order object received from the API.
+ */
+function displayTrackingInfo(order) {
+    const orderStatusEl = document.getElementById('orderStatus');
+    const expectedDeliveryEl = document.getElementById('expectedDelivery');
+    const trackingTimelineDiv = document.getElementById('trackingTimeline');
+
+    orderStatusEl.textContent = order.status || 'N/A';
+    expectedDeliveryEl.textContent = order.expected_delivery_date ? new Date(order.expected_delivery_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'Not available';
+
+    let timelineHtml = '';
+    if (order.history && order.history.length > 0) {
+        order.history.forEach((item, index) => {
+            timelineHtml += createTimelineItem(item, index === 0);
+        });
+    } else {
+        timelineHtml = '<p>No tracking history available for this order.</p>';
+    }
+    trackingTimelineDiv.innerHTML = timelineHtml;
+}
+
+/**
+ * Creates the HTML for a single timeline item.
+ * @param {object} item - A single history item.
+ * @param {boolean} isLatest - True if this is the most recent history item.
+ * @returns {string} The HTML string for the timeline item.
+ */
+function createTimelineItem(item, isLatest) {
+    const d = new Date(item.timestamp);
+    const formattedDate = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const formattedTime = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+    const iconClass = getIconForStatus(item.status_update);
+    const activeClass = isLatest ? 'active' : '';
+
+    return `
+        <div class="timeline-item ${activeClass}">
+            <div class="timeline-icon">
+                <i class="bi ${iconClass}"></i>
+            </div>
+            <div class="timeline-content">
+                <h6 class="mb-0">${item.status_update}</h6>
+                <p class="text-muted mb-0">${formattedDate} at ${formattedTime}</p>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Returns a Bootstrap icon class based on the order status text.
+ * @param {string} status - The status text from the order history.
+ * @returns {string} A Bootstrap icon class name.
+ */
+function getIconForStatus(status) {
+    const s = status.toLowerCase();
+    if (s.includes('delivered')) return 'bi-check-circle-fill';
+    if (s.includes('delivery')) return 'bi-truck';
+    if (s.includes('shipped') || s.includes('outbound')) return 'bi-box-arrow-up';
+    if (s.includes('picked') || s.includes('picking')) return 'bi-person-walking';
+    if (s.includes('new') || s.includes('created')) return 'bi-file-earmark-text';
+    return 'bi-record-circle'; // Default icon
+}

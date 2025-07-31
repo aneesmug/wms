@@ -1,57 +1,53 @@
 <?php
-// public_tracking.php
-header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: POST");
-header("Access-Control-Max-Age: 3600");
-header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
-
-require_once __DIR__ . '/api/config/config.php';
+/**
+ * api/public_tracking_api.php
+ * Provides a public endpoint to fetch order details and history using a tracking number.
+ * This version includes its own database connection to bypass potential include path issues.
+ */
+// Set required headers
+header('Content-Type: application/json');
+// --- Robust File Inclusion for Helper ---
+// We still need the helper function.
+require_once __DIR__ . '/../config/config.php';
+require_once dirname(__DIR__) . '/helpers/order_helper.php';
 
 $conn = getDbConnection();
-$input = json_decode(file_get_contents("php://input"));
+ob_start();
 
-$order_number = sanitize_input($input->order_number ?? '');
-$customer_email = sanitize_input($input->customer_email ?? '');
+// Initialize the response array
+$response = ['status' => 'error', 'message' => 'Invalid request.'];
 
-if (empty($order_number) || empty($customer_email)) {
-    http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Order Number and Customer Email are required.']);
-    exit;
+// **Critical Check:** Ensure the database connection is valid before proceeding.
+if ($conn->connect_error) {
+    error_log("Direct DB connection failed in public_tracking_api.php: " . $conn->connect_error);
+    $response['message'] = 'A connection error occurred with the tracking service.';
+    echo json_encode($response);
+    exit(); // Stop execution immediately
 }
 
-try {
-    $stmt = $conn->prepare("SELECT oo.order_id, oo.status as current_status, c.customer_name FROM outbound_orders oo JOIN customers c ON oo.customer_id = c.customer_id WHERE oo.order_number = ? AND c.email = ?");
-    $stmt->bind_param("ss", $order_number, $customer_email);
-    $stmt->execute();
-    $order = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
+// Check if a tracking number is provided and not empty
+if (isset($_GET['tracking_number']) && !empty(trim($_GET['tracking_number']))) {
+    $trackingNumber = trim($_GET['tracking_number']);
 
-    if (!$order) {
-        http_response_code(404);
-        echo json_encode(['success' => false, 'message' => 'Order not found or email does not match.']);
-        exit;
+    // Use the helper function to get order data
+    $orderData = get_order_by_tracking_number($trackingNumber, $conn);
+
+    if ($orderData) {
+        // Success response if order is found
+        $response = [
+            'status' => 'success',
+            'order' => $orderData
+        ];
+    } else {
+        // Not found response
+        $response['message'] = 'Tracking number not found.';
     }
-
-    $stmt = $conn->prepare("SELECT status, notes, created_at FROM order_history WHERE order_id = ? ORDER BY created_at ASC");
-    $stmt->bind_param("i", $order['order_id']);
-    $stmt->execute();
-    $history = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    $stmt->close();
-
-    http_response_code(200);
-    echo json_encode([
-        'success' => true,
-        'data' => [
-            'order_number' => $order_number,
-            'customer_name' => $order['customer_name'],
-            'current_status' => $order['current_status'],
-            'history' => $history
-        ]
-    ]);
-
-} catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'An internal error occurred.']);
+} else {
+    $response['message'] = 'Please provide a valid tracking number.';
 }
+
+// Close the database connection
 $conn->close();
+
+// Send the final JSON response
+echo json_encode($response);

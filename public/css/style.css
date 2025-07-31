@@ -31,19 +31,23 @@ body {
     justify-content: space-between;
     font-size: 1rem;
     font-weight: 500;
-    color: white; /* Default text color */
+    color: white;
+    /* Default text color */
 }
 
 .message-box.info {
-    background-color: #3B82F6; /* Blue-500 */
+    background-color: #3B82F6;
+    /* Blue-500 */
 }
 
 .message-box.success {
-    background-color: #22C55E; /* Green-500 */
+    background-color: #22C55E;
+    /* Green-500 */
 }
 
 .message-box.error {
-    background-color: #EF4444; /* Red-500 */
+    background-color: #EF4444;
+    /* Red-500 */
 }
 
 .message-box button {
@@ -69,27 +73,35 @@ table {
     border-collapse: collapse;
 }
 
-th, td {
+th,
+td {
     padding: 12px 20px;
     text-align: left;
-    border-bottom: 1px solid #e5e7eb; /* gray-200 */
+    border-bottom: 1px solid #e5e7eb;
+    /* gray-200 */
 }
 
 thead th {
-    background-color: #f9fafb; /* gray-50 */
+    background-color: #f9fafb;
+    /* gray-50 */
     font-weight: 600;
-    color: #4b5563; /* gray-700 */
+    color: #4b5563;
+    /* gray-700 */
     text-transform: uppercase;
-    font-size: 0.75rem; /* text-xs */
-    letter-spacing: 0.05em; /* tracking-wider */
+    font-size: 0.75rem;
+    /* text-xs */
+    letter-spacing: 0.05em;
+    /* tracking-wider */
 }
 
 tbody tr:nth-child(even) {
-    background-color: #f9fafb; /* Slightly different background for even rows */
+    background-color: #f9fafb;
+    /* Slightly different background for even rows */
 }
 
 tbody tr:hover {
-    background-color: #eff6ff; /* blue-50 */
+    background-color: #eff6ff;
+    /* blue-50 */
 }
 
 /* Form element focus states (consistent with Tailwind's ring focus) */
@@ -97,8 +109,10 @@ input:focus,
 select:focus,
 textarea:focus {
     outline: none;
-    border-color: #6366F1; /* indigo-500 */
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.5); /* indigo-500 with opacity */
+    border-color: #6366F1;
+    /* indigo-500 */
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.5);
+    /* indigo-500 with opacity */
 }
 
 /* General button styling */
@@ -107,12 +121,19 @@ button {
 }
 
 button:active {
-    transform: translateY(1px); /* Slight press effect */
+    transform: translateY(1px);
+    /* Slight press effect */
 }
 
 /* Adjustments for responsive tables if needed (example) */
 @media screen and (max-width: 768px) {
-    table, thead, tbody, th, td, tr {
+
+    table,
+    thead,
+    tbody,
+    th,
+    td,
+    tr {
         display: block;
     }
 
@@ -187,17 +208,20 @@ button:active {
 
 /* Desktop Submenu Styles */
 .sidebar .dropdown-menu {
-    background-color: #343a40; /* Dark background */
+    background-color: #343a40;
+    /* Dark background */
     border-radius: 0.5rem;
     border: none;
-    box-shadow: 0 0.5rem 1.5rem rgba(0,0,0,0.15);
+    box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.15);
     margin-left: 12px !important;
     padding: 0;
-    overflow: hidden; /* Ensures child elements conform to border-radius */
+    overflow: hidden;
+    /* Ensures child elements conform to border-radius */
 }
 
 .sidebar .dropdown-header {
-    background-color: #495057; /* Lighter background for header */
+    background-color: #495057;
+    /* Lighter background for header */
     color: white;
     padding: 0.75rem 1.5rem;
     font-size: 1rem;
@@ -207,7 +231,8 @@ button:active {
 .sidebar .dropdown-item {
     padding: 0.75rem 1.5rem;
     font-weight: 500;
-    color: #adb5bd; /* Lighter text color for dark background */
+    color: #adb5bd;
+    /* Lighter text color for dark background */
     display: flex;
     align-items: center;
 }
@@ -216,7 +241,8 @@ button:active {
     margin-right: 0.75rem;
 }
 
-.sidebar .dropdown-item.active, .sidebar .dropdown-item:active {
+.sidebar .dropdown-item.active,
+.sidebar .dropdown-item:active {
     background-color: #0d6efd;
     color: white;
 }
@@ -232,16 +258,21 @@ button:active {
     padding: 0.75rem 1rem;
     color: #adb5bd;
 }
+
 .offcanvas-body .nav-link .bi {
     margin-right: 0.75rem;
 }
-.offcanvas-body .nav-link.active, .offcanvas-body .nav-link:hover {
+
+.offcanvas-body .nav-link.active,
+.offcanvas-body .nav-link:hover {
     color: white;
 }
+
 .offcanvas-body .collapse .nav-link {
     background-color: #2c3136;
     padding-left: 2.5rem;
 }
+
 .offcanvas-body .navigation-header {
     font-size: 0.75rem;
     color: #6c757d;
@@ -249,18 +280,22 @@ button:active {
     letter-spacing: .08rem;
     padding: 1.5rem 1rem 0.5rem;
 }
+
 .offcanvas-body .user-profile {
     text-align: center;
     padding: 1rem;
 }
+
 .offcanvas-body .user-profile img {
     width: 70px;
     height: 70px;
 }
+
 .offcanvas-body .user-profile h5 {
     margin-top: 0.5rem;
     margin-bottom: 0.25rem;
 }
+
 .offcanvas-body .user-profile p {
     font-size: 0.875rem;
     color: #adb5bd;
@@ -270,16 +305,123 @@ button:active {
     z-index: 9999 !important;
 }
 
-#adjustForm input[readonly]{
-    font-weight: bold; 
+#adjustForm input[readonly] {
+    font-weight: bold;
     background-color: #e9ecef;
 }
 
 .bg-purple {
     color: #fff;
-    background-color: #6f42c1; /* Bootstrap's purple */
+    background-color: #6f42c1;
+    /* Bootstrap's purple */
 }
+
 .bg-orange {
     color: #000;
-    background-color: #fd7e14; /* Bootstrap's orange */
+    background-color: #fd7e14;
+    /* Bootstrap's orange */
+}
+
+
+/* --- Redesigned Order Tracking Page --- */
+.tracking-container-redesigned {
+    max-width: 700px;
+    width: 100%;
+}
+
+.tracking-container-redesigned .logo {
+    max-width: 220px;
+    margin-bottom: 1rem;
+}
+
+.tracking-container-redesigned .input-group-text {
+    background-color: #e9ecef;
+    border-right: none;
+}
+
+.tracking-container-redesigned .form-control {
+    border-left: none;
+}
+
+.status-new {
+    color: #007bff;
+}
+
+.status-picked {
+    color: #ffc107;
+}
+
+.status-shipped {
+    color: #17a2b8;
+}
+
+.status-out-for-delivery {
+    color: #fd7e14;
+}
+
+.status-delivered {
+    color: #28a745;
+}
+
+.status-cancelled {
+    color: #dc3545;
+}
+
+/* Timeline Component */
+.timeline {
+    position: relative;
+    padding-left: 40px;
+    border-left: 2px solid #e9ecef;
+}
+
+.timeline-item {
+    position: relative;
+    margin-bottom: 25px;
+}
+
+.timeline-item:last-child {
+    margin-bottom: 0;
+}
+
+.timeline-icon {
+    position: absolute;
+    left: -52px;
+    top: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: #adb5bd;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    border: 2px solid #f4f6f9;
+}
+
+.timeline-item.active .timeline-icon {
+    background-color: #007bff;
+    /* Highlight color for the latest status */
+}
+
+.timeline-content {
+    padding-left: 15px;
+}
+
+.timeline-content h6 {
+    font-weight: 600;
+}
+
+.timeline-item.active .timeline-content h6 {
+    color: #007bff;
+}
+
+/* Original Tracking Page Styles (kept for compatibility if needed) */
+.tracking-container {
+    max-width: 600px;
+    margin: auto;
+    padding: 2rem;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }

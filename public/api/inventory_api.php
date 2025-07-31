@@ -57,19 +57,25 @@ function handleGetLocationStock($conn, $warehouse_id) {
         sendJsonResponse(['success' => false, 'message' => 'Product ID is required to check location stock.'], 400);
         return;
     }
+    
     $sql = "
         SELECT 
             wl.location_id, wl.location_code, wl.max_capacity_units,
             (SELECT COALESCE(SUM(inv.quantity), 0) FROM inventory inv WHERE inv.location_id = wl.location_id) AS occupied_capacity
         FROM warehouse_locations wl
-        WHERE wl.warehouse_id = ? AND wl.is_active = 1
+        LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
+        WHERE wl.warehouse_id = ? 
+          AND wl.is_active = 1
+          AND (lt.type_name IS NULL OR lt.type_name NOT IN ('shipping_area', 'staging_area', 'shipping_bay'))
         ORDER BY wl.location_code ASC
     ";
+
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("i", $warehouse_id);
     $stmt->execute();
     $locations = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
+
     foreach ($locations as &$location) {
         $max_cap = $location['max_capacity_units'];
         $occupied = $location['occupied_capacity'];
@@ -90,18 +96,20 @@ function handleGetLocationStock($conn, $warehouse_id) {
 function handleGetInventory($conn, $warehouse_id) {
     $product_id = filter_input(INPUT_GET, 'product_id', FILTER_VALIDATE_INT);
     $location_code = sanitize_input($_GET['location_code'] ?? '');
-    // MODIFICATION: Get the new tire_type_id parameter
     $tire_type_id = filter_input(INPUT_GET, 'tire_type_id', FILTER_VALIDATE_INT);
 
+    // CORRECTED: Joined the location_types table to correctly fetch the type name.
     $sql = "
         SELECT
             i.inventory_id, i.quantity, i.batch_number, i.dot_code, i.last_moved_at,
             i.product_id, 
             p.sku, p.product_name, p.barcode, p.expiry_years, p.tire_type_id,
-            wl.location_id, wl.location_code, wl.location_type
+            wl.location_id, wl.location_code,
+            lt.type_name AS location_type
         FROM inventory i
         LEFT JOIN products p ON i.product_id = p.product_id
         LEFT JOIN warehouse_locations wl ON i.location_id = wl.location_id
+        LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
         WHERE i.warehouse_id = ? AND i.quantity > 0
     ";
     $params = [$warehouse_id];
@@ -109,7 +117,6 @@ function handleGetInventory($conn, $warehouse_id) {
 
     if ($product_id) { $sql .= " AND i.product_id = ?"; $params[] = $product_id; $types .= "i"; }
     if (!empty($location_code)) { $sql .= " AND wl.location_code = ?"; $params[] = $location_code; $types .= "s"; }
-    // MODIFICATION: Add the tire type filter to the query if it's provided
     if ($tire_type_id) { $sql .= " AND p.tire_type_id = ?"; $params[] = $tire_type_id; $types .= "i"; }
     
     $sql .= " ORDER BY p.product_name, wl.location_code";
@@ -125,9 +132,6 @@ function handleGetInventory($conn, $warehouse_id) {
     unset($item);
     sendJsonResponse(['success' => true, 'data' => $inventory_data]);
 }
-
-// ... rest of the file remains the same (handleInventoryAdjustment, adjustInventoryQuantity, etc.)
-// ... I am omitting it for brevity but it should be included in the final file.
 
 function handleInventoryAdjustment($conn, $input, $warehouse_id) {
     $action_type = sanitize_input($input['action_type'] ?? '');

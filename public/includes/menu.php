@@ -12,7 +12,7 @@ $permissions = [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
         'locations.php', 'products.php', 'customers.php', 'suppliers.php', 
         'reports.php', 'inbound_report.php', 'batch_search.php', 'users.php',
-        'warehouses.php', 'picking.php', 'returns.php' // <-- Added returns page
+        'warehouses.php', 'picking.php', 'returns.php', 'transfer_order.php' // <-- Added returns page
     ],
     'operator' => [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
@@ -53,7 +53,8 @@ $menu_items = [
             ['label' => 'Inbound', 'url' => 'inbound.php', 'icon' => 'bi-box-arrow-in-down'],
             ['label' => 'Outbound', 'url' => 'outbound.php', 'icon' => 'bi-box-arrow-up-right'],
             ['label' => 'Picking', 'url' => 'picking.php', 'icon' => 'bi-box-seam'],
-            ['label' => 'Returns', 'url' => 'returns.php', 'icon' => 'bi-arrow-return-left'] // <-- New Menu Item
+            ['label' => 'Returns', 'url' => 'returns.php', 'icon' => 'bi-arrow-return-left'], // <-- New Menu Item
+            ['label' => 'Transfer Order', 'url' => 'transfer_order.php', 'icon' => 'bi-arrows-expand'] // <-- New Menu Item
         ]
     ],
     'inventory' => [
