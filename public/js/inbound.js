@@ -1,4 +1,4 @@
-// 007-inbound.js
+// inbound.js
 $(document).ready(function() {
     // --- DOM Elements ---
     const processingSection = $('#processingSection');
@@ -359,10 +359,12 @@ $(document).ready(function() {
         if (response?.success && Array.isArray(response.data)) {
             const productData = response.data.map(product => {
                 const hasExpiry = product.expiry_years !== null && product.expiry_years > 0;
+                const isBlocked = product.in_block_area == 1;
+                const isActive = product.is_active == 1;
                 return {
                     id: product.article_no,
                     text: `${product.product_name} (Article No: ${product.article_no})`,
-                    disabled: !hasExpiry,
+                    disabled: !hasExpiry || isBlocked || !isActive,
                     product: product
                 };
             });
@@ -389,8 +391,15 @@ $(document).ready(function() {
         }
         
         let badge = '';
-        if (state.disabled) {
-            badge = '<span class="badge bg-danger float-end">Age Not Set</span>';
+        const product = state.product;
+        const hasExpiry = product.expiry_years !== null && product.expiry_years > 0;
+
+        if (product.is_active != 1) {
+            badge = '<span class="badge bg-danger float-end">Inactive</span>';
+        } else if (product.in_block_area == 1) {
+            badge = '<span class="badge bg-danger float-end">Blocked</span>';
+        } else if (!hasExpiry) {
+            badge = '<span class="badge bg-warning text-dark float-end">Age Not Set</span>';
         }
         
         return $(`<div>${state.text}${badge}</div>`);
@@ -552,7 +561,6 @@ $(document).ready(function() {
         });
     }
 
-    // MODIFIED: handleViewDetails to clarify batch numbers
     async function handleViewDetails(receiptId) {
         const response = await fetchData(`api/inbound_api.php?receipt_id=${receiptId}`);
 

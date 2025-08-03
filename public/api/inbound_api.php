@@ -1,5 +1,4 @@
 <?php
-// 007-inbound_api.php
 // api/inbound.php
 
 require_once __DIR__ . '/../config/config.php';
@@ -323,10 +322,14 @@ function handleGetProductsWithInventory($conn, $warehouse_id) {
             p.product_name,
             p.article_no,
             p.expiry_years,
-            COALESCE(SUM(i.quantity), 0) AS total_stock
+            p.is_active,
+            COALESCE(SUM(CASE WHEN lt.type_name != 'block_area' THEN i.quantity ELSE 0 END), 0) AS total_stock,
+            SUM(CASE WHEN lt.type_name = 'block_area' THEN 1 ELSE 0 END) > 0 AS in_block_area
         FROM products p
         LEFT JOIN inventory i ON p.product_id = i.product_id AND i.warehouse_id = ?
-        GROUP BY p.product_id, p.sku, p.product_name, p.article_no, p.expiry_years
+        LEFT JOIN warehouse_locations wl ON i.location_id = wl.location_id
+        LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
+        GROUP BY p.product_id, p.sku, p.product_name, p.article_no, p.expiry_years, p.is_active
         ORDER BY p.product_name ASC
     ";
     $stmt = $conn->prepare($sql);

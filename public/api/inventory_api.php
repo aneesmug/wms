@@ -169,7 +169,19 @@ function handleInventoryAdjustment($conn, $input, $warehouse_id) {
                 }
             }
             transferInventory($conn, $input, $warehouse_id);
-            $message = $action_type === 'transfer' ? 'Inventory transferred successfully.' : 'Item has been blocked and moved successfully.';
+            
+            if ($action_type === 'block_item') {
+                $product_id = filter_var($input['product_id'] ?? 0, FILTER_VALIDATE_INT);
+                if ($product_id) {
+                    $stmt_deactivate = $conn->prepare("UPDATE products SET is_active = 0 WHERE product_id = ?");
+                    $stmt_deactivate->bind_param("i", $product_id);
+                    $stmt_deactivate->execute();
+                    $stmt_deactivate->close();
+                }
+                $message = 'Item has been blocked, moved, and the product has been deactivated.';
+            } else {
+                 $message = 'Inventory transferred successfully.';
+            }
         } else {
             throw new Exception('Invalid action type provided.');
         }
@@ -181,6 +193,7 @@ function handleInventoryAdjustment($conn, $input, $warehouse_id) {
         sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 400);
     }
 }
+
 
 function adjustInventoryQuantity($conn, $input, $warehouse_id) {
     $product_id = filter_var($input['product_id'] ?? 0, FILTER_VALIDATE_INT);
@@ -224,7 +237,12 @@ function adjustInventoryQuantity($conn, $input, $warehouse_id) {
         throw new Exception("Insufficient stock. The specified item batch/DOT was not found at this location.");
     }
     
-    $stmt_cleanup = $conn->prepare("DELETE FROM inventory WHERE quantity <= 0");
+    $stmt_cleanup = $conn->prepare("
+        DELETE i FROM inventory i
+        JOIN warehouse_locations wl ON i.location_id = wl.location_id
+        LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
+        WHERE i.quantity <= 0 AND (lt.type_name IS NULL OR lt.type_name != 'block_area')
+    ");
     $stmt_cleanup->execute();
     $stmt_cleanup->close();
 }
