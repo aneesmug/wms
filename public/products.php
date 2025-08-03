@@ -62,6 +62,7 @@
                                             <th>Article No</th>
                                             <th>UOM</th>
                                             <th class="text-end">Stock</th>
+                                            <th class="text-center">Status</th>
                                             <th class="text-center">Actions</th>
                                         </tr>
                                     </thead>

@@ -1,4 +1,3 @@
-// 008-locations.js
 // public/js/locations.js
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -158,7 +157,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // MODIFIED: Corrected the error when creating a new location type.
     function openLocationTypeModal(typeId = null) {
         const isUpdating = !!typeId;
         const typeData = isUpdating ? locationTypes.find(t => t.type_id == typeId) : null;
@@ -192,7 +190,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }).then(async (result) => {
             if (result.isConfirmed) {
-                const url = isUpdating ? `api/locations_api.php` : `api/locations_api.php?action=create_type`;
+                // MODIFIED: Added action parameter to differentiate between updating a type and a location
+                const url = isUpdating ? `api/locations_api.php?action=update_type` : `api/locations_api.php?action=create_type`;
                 const method = isUpdating ? 'PUT' : 'POST';
                 const saveResult = await fetchData(url, method, result.value);
 
@@ -274,7 +273,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }).then(async (result) => {
             if (result.isConfirmed) {
-                const saveResult = await fetchData('api/locations_api.php', isUpdating ? 'PUT' : 'POST', result.value);
+                // MODIFIED: Added action parameter for updating a location
+                const url = isUpdating ? 'api/locations_api.php?action=update_location' : 'api/locations_api.php';
+                const saveResult = await fetchData(url, isUpdating ? 'PUT' : 'POST', result.value);
                 if (saveResult?.success) {
                     await Swal.fire('Success!', saveResult.message, 'success');
                     await initializePage();

@@ -398,9 +398,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (!product.id) return product.text;
                     const stock = parseInt($(product.element).data('stock'), 10);
                     const article_no = $(product.element).data('article_no');
-                    const badgeClass = stock > 0 ? 'bg-success' : 'bg-danger';
+                    const is_active = $(product.element).data('is_active') == 1;
+
+                    let badgeClass = 'bg-success';
+                    if (stock <= 0 || !is_active) {
+                        badgeClass = 'bg-danger';
+                    }
+                    
                     const stockBadge = `<span class="badge ${badgeClass} float-end">Stock: ${stock}</span>`;
-                    return $(`<div>${product.text}<br><small class="text-muted">Article No: ${article_no}</small>${stockBadge}</div>`);
+                    const inactiveText = !is_active ? ' <span class="text-danger fw-bold">(Inactive)</span>' : '';
+
+                    return $(`<div>${product.text}${inactiveText}<br><small class="text-muted">Article No: ${article_no}</small>${stockBadge}</div>`);
                 };
 
                 $select.html('<option value=""></option>');
@@ -410,7 +418,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         const newOption = new Option(optionText, product.article_no, false, false);
                         newOption.dataset.stock = product.total_quantity;
                         newOption.dataset.article_no = product.article_no;
-                        if (parseInt(product.total_quantity, 10) <= 0) {
+                        newOption.dataset.is_active = product.is_active;
+                        
+                        if (parseInt(product.total_quantity, 10) <= 0 || product.is_active != 1) {
                             newOption.disabled = true;
                         }
                         $select.append(newOption);

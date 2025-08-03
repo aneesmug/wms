@@ -25,8 +25,16 @@ switch ($method) {
         handlePostRequest($conn, $target_warehouse_id, $action);
         break;
     case 'PUT':
-        authorize_user_role(['manager'], null); // Only managers can edit types
-        handleUpdateLocationType($conn);
+        // MODIFIED: Route PUT requests based on the 'action' parameter
+        if ($action === 'update_type') {
+            authorize_user_role(['manager'], null);
+            handleUpdateLocationType($conn);
+        } elseif ($action === 'update_location') {
+            authorize_user_role(['operator', 'manager'], $target_warehouse_id);
+            handleUpdateLocation($conn, $target_warehouse_id);
+        } else {
+            sendJsonResponse(['success' => false, 'message' => 'Invalid PUT action specified.'], 400);
+        }
         break;
     case 'DELETE':
         authorize_user_role(['manager'], null); // Only managers can delete types
@@ -215,7 +223,7 @@ function handleCreateLocation($conn, $warehouse_id) {
     $is_active = isset($input['is_active']) ? (bool)$input['is_active'] : true;
 
     $stmt_check = $conn->prepare("SELECT location_id FROM warehouse_locations WHERE location_code = ? AND warehouse_id = ?");
-    $stmt_check->bind_param("si", $warehouse_id, $location_code);
+    $stmt_check->bind_param("si", $location_code, $warehouse_id);
     $stmt_check->execute();
     if ($stmt_check->get_result()->num_rows > 0) {
         sendJsonResponse(['success' => false, 'message' => 'Location Code already exists in this warehouse.'], 409);

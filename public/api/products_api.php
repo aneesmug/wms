@@ -1,6 +1,10 @@
 <?php
 // api/products.php
 
+// NOTE: Before using, ensure your 'products' table has the 'is_active' column.
+// You can add it with the following SQL command:
+// ALTER TABLE products ADD is_active TINYINT(1) NOT NULL DEFAULT 1;
+
 require_once __DIR__ . '/../config/config.php';
 
 $conn = getDbConnection();
@@ -65,12 +69,11 @@ function handleGetTireTypes($conn) {
 
 
 function handleGetProducts($conn, $warehouse_id) {
-    // This function will now be used by DataTables, which expects a specific JSON format.
     $sql = "
         SELECT 
             p.product_id, p.sku, p.product_name, p.description,
             p.unit_of_measure, p.weight, p.volume, p.article_no,
-            p.tire_type_id, p.expiry_years, -- MODIFIED: Added expiry_years
+            p.tire_type_id, p.expiry_years, p.is_active,
             tt.tire_type_name,
             COALESCE(inv.total_quantity, 0) AS total_quantity
         FROM 
@@ -78,10 +81,12 @@ function handleGetProducts($conn, $warehouse_id) {
         LEFT JOIN
             tire_types tt ON p.tire_type_id = tt.tire_type_id
         LEFT JOIN 
-            (SELECT product_id, SUM(quantity) AS total_quantity 
-             FROM inventory 
-             WHERE warehouse_id = ? 
-             GROUP BY product_id) AS inv ON p.product_id = inv.product_id
+            (SELECT i.product_id, SUM(i.quantity) AS total_quantity 
+             FROM inventory i
+             JOIN warehouse_locations wl ON i.location_id = wl.location_id
+             LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
+             WHERE i.warehouse_id = ? AND (lt.type_name IS NULL OR lt.type_name != 'block_area')
+             GROUP BY i.product_id) AS inv ON p.product_id = inv.product_id
         ORDER BY 
             p.product_name ASC;
     ";
@@ -89,7 +94,7 @@ function handleGetProducts($conn, $warehouse_id) {
     $stmt = $conn->prepare($sql);
     if ($stmt === false) {
         error_log("handleGetProducts SQL Error: " . $conn->error);
-        sendJsonResponse(['data' => []]); // Datatables expects 'data' array even on error
+        sendJsonResponse(['data' => []]);
         return;
     }
     
@@ -108,23 +113,36 @@ function handleCreateProduct($conn) {
 
     $sku = sanitize_input($input['sku'] ?? '');
     $product_name = sanitize_input($input['product_name'] ?? '');
-    if (empty($sku) || empty($product_name)) {
-        sendJsonResponse(['success' => false, 'message' => 'SKU and Product Name are required'], 400);
+    $article_no = sanitize_input($input['article_no'] ?? '');
+    $expiry_years = sanitize_input($input['expiry_years'] ?? '');
+    $tire_type_id = filter_var($input['tire_type_id'] ?? null, FILTER_VALIDATE_INT);
+    $is_active = isset($input['is_active']) ? (bool)$input['is_active'] : true;
+
+    $errors = [];
+    if (empty($sku)) $errors[] = 'SKU';
+    if (empty($product_name)) $errors[] = 'Product Name';
+    if (empty($article_no)) $errors[] = 'Article No';
+    if (empty($expiry_years)) $errors[] = 'Expiry (Years)';
+    if (empty($tire_type_id)) $errors[] = 'Tire Type';
+
+    if (!empty($errors)) {
+        sendJsonResponse(['success' => false, 'message' => 'The following fields are required: ' . implode(', ', $errors)], 400);
         return;
     }
 
-    $stmt = $conn->prepare("INSERT INTO products (sku, product_name, description, unit_of_measure, weight, volume, article_no, tire_type_id, expiry_years) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt = $conn->prepare("INSERT INTO products (sku, product_name, description, unit_of_measure, weight, volume, article_no, tire_type_id, expiry_years, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     $stmt->bind_param(
-        "ssssddsis", // MODIFIED: Added 's' for expiry_years
+        "ssssddsiii",
         $sku,
         $product_name,
         sanitize_input($input['description'] ?? null),
         sanitize_input($input['unit_of_measure'] ?? null),
         filter_var($input['weight'] ?? null, FILTER_VALIDATE_FLOAT, FILTER_NULL_ON_FAILURE),
         filter_var($input['volume'] ?? null, FILTER_VALIDATE_FLOAT, FILTER_NULL_ON_FAILURE),
-        sanitize_input($input['article_no'] ?? null),
-        filter_var($input['tire_type_id'] ?? null, FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE),
-        filter_var($input['expiry_years'] ?? null, FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE) // MODIFIED
+        $article_no,
+        $tire_type_id,
+        filter_var($expiry_years, FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE),
+        $is_active
     );
 
     if ($stmt->execute()) {
@@ -148,7 +166,7 @@ function handleUpdateProduct($conn) {
         return;
     }
 
-    $fields = ['sku', 'product_name', 'description', 'unit_of_measure', 'weight', 'volume', 'article_no', 'tire_type_id', 'expiry_years']; // MODIFIED
+    $fields = ['sku', 'product_name', 'description', 'unit_of_measure', 'weight', 'volume', 'article_no', 'tire_type_id', 'expiry_years', 'is_active'];
     $set_clauses = [];
     $bind_params = [];
     $bind_types = "";
@@ -160,7 +178,7 @@ function handleUpdateProduct($conn) {
             $bind_params[] = $value;
             if ($field === 'weight' || $field === 'volume') {
                 $bind_types .= "d";
-            } else if ($field === 'tire_type_id' || $field === 'expiry_years') { // MODIFIED
+            } else if ($field === 'tire_type_id' || $field === 'expiry_years' || $field === 'is_active') {
                 $bind_types .= "i";
             }
             else {

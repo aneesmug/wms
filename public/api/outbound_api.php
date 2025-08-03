@@ -138,9 +138,9 @@ function handleGetPickReport($conn, $warehouse_id) {
     $stmt_items = $conn->prepare("
         SELECT 
             oi.product_id, p.sku, p.product_name, p.article_no, oi.ordered_quantity, oi.picked_quantity,
-            (SELECT wl.location_code FROM inventory i JOIN warehouse_locations wl ON i.location_id = wl.location_id WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC LIMIT 1) as location_code,
-            (SELECT i.batch_number FROM inventory i WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC LIMIT 1) as batch_number,
-            (SELECT i.dot_code FROM inventory i WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC LIMIT 1) as dot_code
+            (SELECT wl.location_code FROM inventory i JOIN warehouse_locations wl ON i.location_id = wl.location_id LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 AND (lt.type_name IS NULL OR lt.type_name != 'block_area') ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC LIMIT 1) as location_code,
+            (SELECT i.batch_number FROM inventory i JOIN warehouse_locations wl ON i.location_id = wl.location_id LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 AND (lt.type_name IS NULL OR lt.type_name != 'block_area') ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC LIMIT 1) as batch_number,
+            (SELECT i.dot_code FROM inventory i JOIN warehouse_locations wl ON i.location_id = wl.location_id LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 AND (lt.type_name IS NULL OR lt.type_name != 'block_area') ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC LIMIT 1) as dot_code
         FROM outbound_items oi
         JOIN products p ON oi.product_id = p.product_id
         WHERE oi.order_id = ?
@@ -438,12 +438,15 @@ function handleAddItemToOrder($conn, $warehouse_id) {
         $stmt->execute();
         if (!$stmt->get_result()->fetch_assoc()) { throw new Exception("Order not found or does not belong to selected warehouse."); }
         $stmt->close();
-        $stmt = $conn->prepare("SELECT product_id FROM products WHERE article_no = ?");
+        $stmt = $conn->prepare("SELECT product_id, is_active FROM products WHERE article_no = ?");
         $stmt->bind_param("s", $product_article_no);
         $stmt->execute();
         $product_data = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         if (!$product_data) { throw new Exception("Product not found with the provided Article No."); }
+        if ($product_data['is_active'] != 1) {
+            throw new Exception("Cannot add an inactive product to an order.");
+        }
         $product_id = $product_data['product_id'];
         $stmt = $conn->prepare("SELECT outbound_item_id, ordered_quantity FROM outbound_items WHERE order_id = ? AND product_id = ?");
         $stmt->bind_param("ii", $order_id, $product_id);

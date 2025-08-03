@@ -4,7 +4,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
     const searchProductInput = document.getElementById('searchProductInput');
     const searchLocationSelect = document.getElementById('searchLocationSelect');
-    // MODIFICATION: Get the new tire type select element
     const searchTireTypeSelect = document.getElementById('searchTireTypeSelect');
     const searchBtn = document.getElementById('searchBtn');
     const clearSearchBtn = document.getElementById('clearSearchBtn');
@@ -34,13 +33,11 @@ document.addEventListener('DOMContentLoaded', () => {
         clearSearchBtn.addEventListener('click', () => {
             searchProductInput.value = '';
             searchLocationSelect.value = '';
-            // MODIFICATION: Clear the tire type filter
             searchTireTypeSelect.value = '';
             loadInventory();
         });
     }
     if (searchLocationSelect) searchLocationSelect.addEventListener('change', loadInventory);
-    // MODIFICATION: Add event listener for the new filter
     if (searchTireTypeSelect) searchTireTypeSelect.addEventListener('change', loadInventory);
 
     async function initializePage() {
@@ -48,7 +45,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentWarehouseId) {
             await loadProductsForDropdown();
             await loadLocationsForFilterDropdown(currentWarehouseId);
-            // MODIFICATION: Load tire types for the new filter
             await loadTireTypesForFilter();
             await loadInventory();
         } else {
@@ -104,17 +100,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // MODIFICATION: New function to load and populate the tire type filter
     async function loadTireTypesForFilter() {
         if (!searchTireTypeSelect) return;
         try {
-            // This API endpoint already exists in products_api.php
             const response = await fetchData('api/products_api.php?action=get_tire_types');
             if (response.success && Array.isArray(response.data)) {
                 searchTireTypeSelect.innerHTML = '<option value="">All Tire Types</option>';
                 response.data.forEach(type => {
                     const option = document.createElement('option');
-                    option.value = type.tire_type_id; // Use ID for filtering
+                    option.value = type.tire_type_id;
                     option.textContent = type.tire_type_name;
                     searchTireTypeSelect.appendChild(option);
                 });
@@ -129,7 +123,6 @@ document.addEventListener('DOMContentLoaded', () => {
         $('.dataTables_processing', inventoryDataTable.table().container()).show();
         const product_search_article_no = searchProductInput.value.trim();
         const location_search_code = searchLocationSelect.value;
-        // MODIFICATION: Get the selected tire type ID
         const tire_type_id = searchTireTypeSelect.value;
 
         let url = 'api/inventory_api.php?';
@@ -149,7 +142,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (location_search_code) {
             queryParams.push(`location_code=${encodeURIComponent(location_search_code)}`);
         }
-        // MODIFICATION: Add tire_type_id to the query parameters if selected
         if (tire_type_id) {
             queryParams.push(`tire_type_id=${tire_type_id}`);
         }
@@ -172,9 +164,6 @@ document.addEventListener('DOMContentLoaded', () => {
             $('.dataTables_processing', inventoryDataTable.table().container()).hide();
         }
     }
-
-    // ... rest of the file remains the same (populateDataTable, openAdjustmentModal, etc.)
-    // ... I am omitting it for brevity but it should be included in the final file.
     
     function populateDataTable(inventoryItems) {
         const rows = inventoryItems.map(item => {
@@ -246,6 +235,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <option value="adjust_quantity" selected>Adjust Quantity</option>
                             <option value="transfer">Transfer (Same Warehouse)</option>
                             <option value="transfer_inter_warehouse">Transfer Warehouse</option>
+                            <option value="block_item">Block Item</option>
                         </select>
                     </div>
                     <div class="mb-3">
@@ -327,10 +317,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 quantityInput.addEventListener('input', updateLocationCapacity);
 
-                const loadAndPopulateLocations = async (warehouseId, excludeLocCode, prodId) => {
+                const loadAndPopulateLocations = async (warehouseId, excludeLocCode, prodId, filterType = null) => {
                     const locations = await fetchData(`api/inventory_api.php?action=location_stock&warehouse_id=${warehouseId}&product_id=${prodId}`);
                     if (locations.success) {
-                        populateLocationSelect(newLocationSelect, locations.data, excludeLocCode);
+                        let filteredLocations = locations.data;
+                        if(filterType){
+                            filteredLocations = locations.data.filter(loc => loc.type_name === filterType);
+                        }
+                        populateLocationSelect(newLocationSelect, filteredLocations, excludeLocCode);
                     }
                 };
 
@@ -338,6 +332,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     const action = e.target.value;
                     newLocationContainer.classList.toggle('d-none', action === 'adjust_quantity');
                     destWarehouseField.classList.toggle('d-none', action !== 'transfer_inter_warehouse');
+                    quantityInput.placeholder = (action === 'adjust_quantity') ? 'e.g., 5 for add, -2 for remove' : 'e.g., 5';
+                    
                     newLocationSelect.empty().trigger('change');
                     destWarehouseSelect.empty().trigger('change');
 
@@ -346,6 +342,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else if (action === 'transfer_inter_warehouse') {
                         const warehouses = await fetchData('api/warehouses_api.php?action=get_transfer_targets');
                         if (warehouses.success) populateWarehouseSelect(destWarehouseSelect, warehouses.data);
+                    } else if (action === 'block_item') {
+                        destWarehouseField.classList.add('d-none');
+                        newLocationContainer.classList.remove('d-none');
+                        await loadAndPopulateLocations(currentWarehouseId, null, productId, 'block_area');
                     }
                 });
 
@@ -363,11 +363,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const quantity = popup.querySelector('#swalAdjustQuantity').value;
 
                 if (!quantity || (actionType !== 'adjust_quantity' && parseInt(quantity) <= 0)) {
-                    Swal.showValidationMessage('A positive quantity is required for transfers.');
+                    Swal.showValidationMessage('A positive quantity is required for transfers or blocking.');
                     return false;
                 }
                 if (actionType.startsWith('transfer') && !$('#swalAdjustNewLocation').val()) {
                     Swal.showValidationMessage('A destination location is required.');
+                    return false;
+                }
+                 if (actionType === 'block_item' && !$('#swalAdjustNewLocation').val()) {
+                    Swal.showValidationMessage('A destination block area location is required.');
                     return false;
                 }
                 if (actionType === 'transfer_inter_warehouse' && !$('#swalDestWarehouse').val()) {

@@ -60,7 +60,7 @@ function handleGetLocationStock($conn, $warehouse_id) {
     
     $sql = "
         SELECT 
-            wl.location_id, wl.location_code, wl.max_capacity_units,
+            wl.location_id, wl.location_code, wl.max_capacity_units, lt.type_name,
             (SELECT COALESCE(SUM(inv.quantity), 0) FROM inventory inv WHERE inv.location_id = wl.location_id) AS occupied_capacity
         FROM warehouse_locations wl
         LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
@@ -98,7 +98,6 @@ function handleGetInventory($conn, $warehouse_id) {
     $location_code = sanitize_input($_GET['location_code'] ?? '');
     $tire_type_id = filter_input(INPUT_GET, 'tire_type_id', FILTER_VALIDATE_INT);
 
-    // CORRECTED: Joined the location_types table to correctly fetch the type name.
     $sql = "
         SELECT
             i.inventory_id, i.quantity, i.batch_number, i.dot_code, i.last_moved_at,
@@ -110,7 +109,7 @@ function handleGetInventory($conn, $warehouse_id) {
         LEFT JOIN products p ON i.product_id = p.product_id
         LEFT JOIN warehouse_locations wl ON i.location_id = wl.location_id
         LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
-        WHERE i.warehouse_id = ? AND i.quantity > 0
+        WHERE i.warehouse_id = ? AND i.quantity > 0 AND (lt.type_name IS NULL OR lt.type_name != 'block_area')
     ";
     $params = [$warehouse_id];
     $types = "i";
@@ -146,9 +145,31 @@ function handleInventoryAdjustment($conn, $input, $warehouse_id) {
         if ($action_type === 'adjust_quantity') {
             adjustInventoryQuantity($conn, $input, $warehouse_id);
             $message = 'Inventory quantity adjusted successfully.';
-        } elseif ($action_type === 'transfer') {
+        } elseif ($action_type === 'transfer' || $action_type === 'block_item') {
+            if ($action_type === 'block_item') {
+                $to_location_article_no = sanitize_input($input['new_location_article_no'] ?? '');
+                $stmt_check_block = $conn->prepare("
+                    SELECT lt.type_name 
+                    FROM warehouse_locations wl
+                    LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
+                    WHERE wl.location_code = ? AND wl.warehouse_id = ?
+                ");
+                $stmt_check_block->bind_param("si", $to_location_article_no, $warehouse_id);
+                $stmt_check_block->execute();
+                $result = $stmt_check_block->get_result();
+                if ($result->num_rows === 0) {
+                    $stmt_check_block->close();
+                    throw new Exception("Destination location '{$to_location_article_no}' not found.");
+                }
+                $dest_location_type = $result->fetch_assoc()['type_name'];
+                $stmt_check_block->close();
+
+                if ($dest_location_type !== 'block_area') {
+                    throw new Exception("The destination location is not a designated 'block_area'.");
+                }
+            }
             transferInventory($conn, $input, $warehouse_id);
-            $message = 'Inventory transferred successfully.';
+            $message = $action_type === 'transfer' ? 'Inventory transferred successfully.' : 'Item has been blocked and moved successfully.';
         } else {
             throw new Exception('Invalid action type provided.');
         }

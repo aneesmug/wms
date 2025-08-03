@@ -1,3 +1,7 @@
+<?php
+// No direct changes were needed in this file as the logic is handled by the associated JavaScript and backend APIs.
+// However, as requested, here is the final version of the file.
+?>
 <!DOCTYPE html>
 <html lang="en" class="h-100">
 <head>

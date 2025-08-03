@@ -44,6 +44,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 { data: 'unit_of_measure', defaultContent: '<em>N/A</em>' },
                 { data: 'total_quantity', className: 'text-end' },
                 {
+                    data: 'is_active',
+                    className: 'text-center',
+                    render: function(data, type, row) {
+                        return data == 1 
+                            ? '<span class="badge bg-success">Active</span>' 
+                            : '<span class="badge bg-danger">Inactive</span>';
+                    }
+                },
+                {
                     data: 'product_id',
                     orderable: false,
                     className: 'text-center',
@@ -142,18 +151,34 @@ document.addEventListener('DOMContentLoaded', () => {
                             <input type="number" id="expiry_years" class="form-control" placeholder="e.g., 5" value="${productData?.expiry_years || ''}">
                         </div>
                     </div>
+                    <div class="form-check mt-3">
+                        <input class="form-check-input" type="checkbox" id="is_active" ${isEditing ? (productData.is_active == 1 ? 'checked' : '') : 'checked'}>
+                        <label class="form-check-label" for="is_active">Is Active</label>
+                    </div>
                 </form>
             `,
             width: '800px',
             showCancelButton: true,
             confirmButtonText: isEditing ? 'Update Product' : 'Save Product',
             preConfirm: () => {
-                const sku = Swal.getPopup().querySelector('#sku').value;
-                const productName = Swal.getPopup().querySelector('#product_name').value;
-                if (!sku || !productName) {
-                    Swal.showValidationMessage(`SKU and Product Name are required`);
+                const sku = Swal.getPopup().querySelector('#sku').value.trim();
+                const productName = Swal.getPopup().querySelector('#product_name').value.trim();
+                const articleNo = Swal.getPopup().querySelector('#article_no').value.trim();
+                const expiryYears = Swal.getPopup().querySelector('#expiry_years').value.trim();
+                const tireTypeId = Swal.getPopup().querySelector('#tire_type_id').value;
+
+                const requiredFields = [];
+                if (!sku) requiredFields.push('SKU');
+                if (!productName) requiredFields.push('Product Name');
+                if (!articleNo) requiredFields.push('Article No');
+                if (!expiryYears) requiredFields.push('Expiry (Years)');
+                if (!tireTypeId) requiredFields.push('Tire Type');
+
+                if (requiredFields.length > 0) {
+                    Swal.showValidationMessage(`The following fields are required: ${requiredFields.join(', ')}`);
                     return false;
                 }
+                
                 return {
                     product_id: Swal.getPopup().querySelector('#product_id').value,
                     sku: sku,
@@ -162,9 +187,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     unit_of_measure: Swal.getPopup().querySelector('#unit_of_measure').value,
                     weight: Swal.getPopup().querySelector('#weight').value || null,
                     volume: Swal.getPopup().querySelector('#volume').value || null,
-                    article_no: Swal.getPopup().querySelector('#article_no').value,
-                    tire_type_id: Swal.getPopup().querySelector('#tire_type_id').value || null,
-                    expiry_years: Swal.getPopup().querySelector('#expiry_years').value || null, // MODIFIED
+                    article_no: articleNo,
+                    tire_type_id: tireTypeId || null,
+                    expiry_years: expiryYears || null,
+                    is_active: Swal.getPopup().querySelector('#is_active').checked,
                 };
             }
         }).then(async (result) => {
