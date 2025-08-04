@@ -62,6 +62,39 @@ function handleGetCustomerDetails($conn) {
     $orders = $stmt_orders->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt_orders->close();
 
+    // MODIFICATION START: Fetch items with returned quantity for each order
+    foreach ($orders as &$order) {
+        $stmt_items = $conn->prepare("
+            SELECT
+                oi.outbound_item_id,
+                oi.product_id,
+                p.sku,
+                p.product_name,
+                p.article_no,
+                oi.ordered_quantity,
+                oi.picked_quantity,
+                COALESCE(SUM(ri.expected_quantity), 0) as returned_quantity
+            FROM
+                outbound_items oi
+            JOIN
+                products p ON oi.product_id = p.product_id
+            LEFT JOIN
+                return_items ri ON oi.outbound_item_id = ri.outbound_item_id
+            LEFT JOIN
+                returns r ON ri.return_id = r.return_id AND r.status != 'Cancelled'
+            WHERE
+                oi.order_id = ?
+            GROUP BY
+                oi.outbound_item_id, p.sku, p.product_name, p.article_no, oi.ordered_quantity, oi.picked_quantity
+        ");
+        $stmt_items->bind_param("i", $order['order_id']);
+        $stmt_items->execute();
+        $order['items'] = $stmt_items->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt_items->close();
+    }
+    unset($order); // Unset reference
+    // MODIFICATION END
+
     $stmt_returns = $conn->prepare("SELECT return_id, return_number, status, created_at FROM returns WHERE customer_id = ? ORDER BY created_at DESC");
     $stmt_returns->bind_param("i", $customer_id);
     $stmt_returns->execute();

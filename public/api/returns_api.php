@@ -123,8 +123,6 @@ function handleGetReturns($conn, $warehouse_id) {
         $items = $stmt_items->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt_items->close();
         
-        // This query joins through the return_putaway_stickers table
-        // to ensure that only inventory items created for THIS specific return are fetched.
         $stmt_putaways = $conn->prepare("
             SELECT
                 i.inventory_id, i.quantity, i.batch_number, i.source_inbound_item_id, wl.location_code
@@ -215,18 +213,42 @@ function handleCreateReturn($conn, $user_id) {
             $quantity = filter_var($item_data['quantity'], FILTER_VALIDATE_INT);
 
             if (!$outbound_item_id || !$quantity || $quantity <= 0) throw new Exception("Invalid data for an item to be returned.");
+            
+            // MODIFICATION START: Check against returnable quantity instead of just shipped quantity
+            $stmt_check = $conn->prepare("
+                SELECT
+                    oi.product_id,
+                    oi.picked_quantity,
+                    COALESCE(SUM(ri.expected_quantity), 0) AS returned_quantity
+                FROM
+                    outbound_items oi
+                LEFT JOIN
+                    return_items ri ON oi.outbound_item_id = ri.outbound_item_id
+                LEFT JOIN
+                    returns r ON ri.return_id = r.return_id AND r.status != 'Cancelled'
+                WHERE
+                    oi.outbound_item_id = ? AND oi.order_id = ?
+                GROUP BY
+                    oi.outbound_item_id, oi.product_id, oi.picked_quantity
+            ");
+            $stmt_check->bind_param("ii", $outbound_item_id, $order_id);
+            $stmt_check->execute();
+            $check_result = $stmt_check->get_result()->fetch_assoc();
+            $stmt_check->close();
 
-            $stmt_out_item = $conn->prepare("SELECT product_id, picked_quantity FROM outbound_items WHERE outbound_item_id = ? AND order_id = ?");
-            $stmt_out_item->bind_param("ii", $outbound_item_id, $order_id);
-            $stmt_out_item->execute();
-            $original_item = $stmt_out_item->get_result()->fetch_assoc();
-            $stmt_out_item->close();
+            if (!$check_result) {
+                throw new Exception("An item to be returned was not found on the original order.");
+            }
 
-            if (!$original_item) throw new Exception("An item to be returned was not found on the original order.");
-            if ($quantity > $original_item['picked_quantity']) throw new Exception("Return quantity for an item cannot exceed the shipped quantity.");
+            $returnable_quantity = $check_result['picked_quantity'] - $check_result['returned_quantity'];
+
+            if ($quantity > $returnable_quantity) {
+                throw new Exception("Return quantity ({$quantity}) for an item exceeds the available returnable quantity ({$returnable_quantity}).");
+            }
+            // MODIFICATION END
 
             $stmt_items = $conn->prepare("INSERT INTO return_items (return_id, product_id, outbound_item_id, expected_quantity) VALUES (?, ?, ?, ?)");
-            $stmt_items->bind_param("iiii", $return_id, $original_item['product_id'], $outbound_item_id, $quantity);
+            $stmt_items->bind_param("iiii", $return_id, $check_result['product_id'], $outbound_item_id, $quantity);
             $stmt_items->execute();
             $stmt_items->close();
         }
@@ -285,12 +307,15 @@ function handleProcessItem($conn, $warehouse_id, $user_id) {
         if ($condition === 'Good') {
             if (empty($location_barcode)) throw new Exception("Location Article No is required for 'Good' items.");
             
-            $stmt_loc = $conn->prepare("SELECT location_id FROM warehouse_locations WHERE location_code = ? AND warehouse_id = ? AND is_active = 1");
+            $stmt_loc = $conn->prepare("SELECT location_id, is_locked FROM warehouse_locations WHERE location_code = ? AND warehouse_id = ? AND is_active = 1");
             $stmt_loc->bind_param("si", $location_barcode, $warehouse_id);
             $stmt_loc->execute();
             $location_data = $stmt_loc->get_result()->fetch_assoc();
             $stmt_loc->close();
             if (!$location_data) throw new Exception("Active location '{$location_barcode}' not found in this warehouse.");
+            if ($location_data['is_locked'] == 1) {
+                throw new Exception("this location is locked you can't move in locked location");
+            }
             $location_id = $location_data['location_id'];
 
             $new_batch_number = 'RET-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(4)));

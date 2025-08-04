@@ -59,6 +59,9 @@
                                                 <th>Type</th>
                                                 <th>Status</th>
                                                 <th>Date</th>
+                                                <!-- MODIFICATION START -->
+                                                <th class="text-end">Actions</th>
+                                                <!-- MODIFICATION END -->
                                             </tr>
                                         </thead>
                                         <tbody></tbody>

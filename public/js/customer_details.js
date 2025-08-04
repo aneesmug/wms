@@ -57,7 +57,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 { data: 'number' },
                 { data: 'type' },
                 { data: 'status' },
-                { data: 'date' }
+                { data: 'date' },
+                { data: 'actions', orderable: false, className: 'text-end' }
             ],
             language: {
                 search: "_INPUT_",
@@ -73,6 +74,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const id = $(this).data('id');
             const type = $(this).data('type');
             showDetailsModal(id, type);
+        });
+        
+        $('#ordersTable tbody').on('click', '.create-return-btn', function() {
+            const orderId = $(this).data('order-id');
+            showReturnCreationModal(orderId);
         });
     }
 
@@ -109,8 +115,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function populateOrdersTable(orders, returns) {
         const tableData = [];
-        orders.forEach(o => tableData.push({ id: o.order_id, number: o.order_number, type: 'Order', status: `<span class="badge bg-primary">${o.status}</span>`, date: new Date(o.order_date).toLocaleDateString() }));
-        returns.forEach(r => tableData.push({ id: r.return_id, number: r.return_number, type: 'Return', status: `<span class="badge bg-warning text-dark">${r.status}</span>`, date: new Date(r.created_at).toLocaleDateString() }));
+        orders.forEach(o => {
+            let actionsHtml = '';
+            const canReturn = ['Shipped', 'Delivered', 'Partially Returned'].includes(o.status) && ['operator', 'manager'].includes(currentWarehouseRole);
+            if (canReturn) {
+                actionsHtml = `<button data-order-id="${o.order_id}" class="btn btn-sm btn-outline-warning create-return-btn" title="Create Return"><i class="bi bi-arrow-return-left"></i></button>`;
+            }
+            tableData.push({ 
+                id: o.order_id, 
+                number: o.order_number, 
+                type: 'Order', 
+                status: `<span class="badge bg-primary">${o.status}</span>`, 
+                date: new Date(o.order_date).toLocaleDateString(),
+                actions: actionsHtml
+            });
+        });
+        returns.forEach(r => tableData.push({ 
+            id: r.return_id, 
+            number: r.return_number, 
+            type: 'Return', 
+            status: `<span class="badge bg-warning text-dark">${r.status}</span>`, 
+            date: new Date(r.created_at).toLocaleDateString(),
+            actions: ''
+        }));
         ordersTable.clear().rows.add(tableData).draw();
     }
 
@@ -192,7 +219,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="col-12 mb-3"><label for="swal-country" class="form-label">Country*</label><input type="text" id="swal-country" class="form-control" value="${customer.country || ''}" required></div>
                     </div>
                 </form>`,
-            width: '800px', showCancelButton: true, confirmButtonText: 'Save Changes', focusConfirm: false,
+            width: '70%', showCancelButton: true, confirmButtonText: 'Save Changes', focusConfirm: false, allowOutsideClick: false,
             preConfirm: () => {
                 const requiredFields = {'swal-customerName': 'Customer Name','swal-customerCode': 'Customer Code','swal-contactPerson': 'Contact Person','swal-phone': 'Phone','swal-addressLine1': 'Address Line 1','swal-city': 'City','swal-country': 'Country'};
                 const missingFields = [];
@@ -232,13 +259,113 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    async function showReturnCreationModal(orderId) {
+        const orderDetailsResponse = await fetchData(`api/outbound_api.php?order_id=${orderId}`);
+        if (!orderDetailsResponse.success) {
+            return Swal.fire('Error', 'Could not fetch order details for return.', 'error');
+        }
+
+        const items = orderDetailsResponse.data.items;
+        let itemsHtml = '<p>No returnable items found on this order.</p>';
+
+        if (items && items.length > 0) {
+            const returnableItems = items.filter(item => item.returnable_quantity > 0);
+            if(returnableItems.length > 0) {
+                itemsHtml = `
+                    <table class="table table-bordered table-sm">
+                        <thead>
+                            <tr>
+                                <th>SKU</th>
+                                <th>Product</th>
+                                <th>Shipped Qty</th>
+                                <th>Return Qty</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${returnableItems.map(item => `
+                                <tr>
+                                    <td>${item.sku}</td>
+                                    <td>${item.product_name}</td>
+                                    <td>${item.picked_quantity}</td>
+                                    <td>
+                                        <input type="number" class="form-control form-control-sm return-qty-input" 
+                                            data-outbound-item-id="${item.outbound_item_id}" 
+                                            max="${item.returnable_quantity}" min="0" value="0">
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            }
+        }
+
+        Swal.fire({
+            title: 'Create Partial Return',
+            html: `
+                <div class="text-start">
+                    <div class="mb-3">
+                        <label for="swal-return-reason" class="form-label">Reason for Return</label>
+                        <textarea id="swal-return-reason" class="form-control" rows="2" placeholder="e.g., Damaged, wrong item..."></textarea>
+                    </div>
+                    ${itemsHtml}
+                </div>
+            `,
+            width: '70%',
+            showCancelButton: true,
+            confirmButtonText: 'Initiate Return',
+            allowOutsideClick: false,
+            preConfirm: () => {
+                const reason = document.getElementById('swal-return-reason').value;
+                const itemsToReturn = [];
+                document.querySelectorAll('.return-qty-input').forEach(input => {
+                    const qty = parseInt(input.value, 10);
+                    if (qty > 0) {
+                        itemsToReturn.push({
+                            outbound_item_id: input.dataset.outboundItemId,
+                            quantity: qty
+                        });
+                    }
+                });
+
+                if (!reason.trim()) {
+                    Swal.showValidationMessage('A reason for the return is required.');
+                    return false;
+                }
+                if (itemsToReturn.length === 0) {
+                    Swal.showValidationMessage('You must specify a return quantity for at least one item.');
+                    return false;
+                }
+                
+                return {
+                    order_id: orderId,
+                    reason: reason,
+                    items: itemsToReturn
+                };
+            }
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                try {
+                    const apiResult = await fetchData('api/returns_api.php?action=create_return', 'POST', result.value);
+                    if (apiResult.success) {
+                        Swal.fire('Success', apiResult.message, 'success').then(() => {
+                            window.location.href = 'returns.php';
+                        });
+                    }
+                } catch (error) {
+                    Swal.fire('Error', error.message, 'error');
+                }
+            }
+        });
+    }
+
     async function showDetailsModal(id, type) {
         Swal.fire({
             title: `Loading ${type} Details...`,
             html: '<div class="spinner-border" role="status"></div>',
             showConfirmButton: false,
             allowOutsideClick: false,
-            width: '900px' // MODIFICATION: Increased width
+            width: '70%'
         });
 
         try {
@@ -249,6 +376,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const response = await fetchData(`api/outbound_api.php?order_id=${id}`);
                 if (response.success) {
                     const order = response.data;
+                    // MODIFICATION START: Update items table to include new columns
                     let itemsHtml = order.items.map(item => `
                         <tr>
                             <td>${item.sku}</td>
@@ -256,6 +384,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <td>${item.article_no || 'N/A'}</td>
                             <td class="text-center">${item.ordered_quantity}</td>
                             <td class="text-center">${item.picked_quantity}</td>
+                            <td class="text-center">${item.returned_quantity || 0}</td>
                         </tr>`).join('');
                     
                     detailsHtml = `
@@ -283,11 +412,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                 ${order.delivery_photo_path ? `<p><strong>Proof of Delivery:</strong> <a href="${order.delivery_photo_path}" target="_blank">View Photo</a></p>` : ''}
                                 <h6 class="mt-4">Items</h6>
                                 <table class="table table-sm table-bordered">
-                                    <thead><tr><th>SKU</th><th>Product</th><th>Article No</th><th>Ordered</th><th>Picked</th></tr></thead>
+                                    <thead><tr><th>SKU</th><th>Product</th><th>Article No</th><th>Ordered</th><th>Picked</th><th>Returned</th></tr></thead>
                                     <tbody>${itemsHtml}</tbody>
                                 </table>
                             </div>
                         </div>`;
+                    // MODIFICATION END
                     Swal.update({
                         title: `Order Details`,
                         html: detailsHtml,

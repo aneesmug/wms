@@ -58,7 +58,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetchData('api/returns_api.php');
             if (response.success && Array.isArray(response.data)) {
                 const tableData = response.data.map(ret => {
-                    // **MODIFICATION START**: Update action button logic
                     let actionButtons = '';
                     const canProcess = ['operator', 'manager'].includes(currentWarehouseRole) && !['Completed', 'Cancelled'].includes(ret.status);
 
@@ -67,9 +66,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else if (['Completed', 'Processing'].includes(ret.status)) {
                         actionButtons = `<button class="btn btn-sm btn-outline-secondary view-details-btn" data-return-id="${ret.return_id}" data-return-number="${ret.return_number}" title="View Details"><i class="bi bi-eye"></i></button>`;
                     } else {
-                        actionButtons = `<span class="text-muted">View Only</span>`; // For 'Cancelled' status
+                        actionButtons = `<span class="text-muted">View Only</span>`;
                     }
-                    // **MODIFICATION END**
 
                     return {
                         return_number: ret.return_number,
@@ -89,7 +87,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function addTableButtonListeners() {
-        // **MODIFICATION START**: Combined event listener for both process and view buttons
         $('#returnsTable tbody').off('click', '.process-return-btn, .view-details-btn').on('click', '.process-return-btn, .view-details-btn', function() {
             const returnId = this.dataset.returnId;
             const returnNumber = this.dataset.returnNumber;
@@ -104,7 +101,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 scrollTop: $("#returnProcessingArea").offset().top
             }, 500);
         });
-        // **MODIFICATION END**
     }
 
     async function loadReturnItems(returnId) {
@@ -311,7 +307,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     return_item_id: returnItemId,
                     quantity: parseInt(quantity),
                     condition: condition,
-                    location_article_no: locationCode
+                    location_barcode: locationCode
                 };
             }
         });

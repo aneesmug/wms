@@ -291,7 +291,33 @@ function handleGetOutbound($conn, $warehouse_id) {
         $stmt->close();
         if (!$order) { sendJsonResponse(['success' => false, 'message' => 'Outbound order not found.'], 404); return; }
         
-        $stmt_items = $conn->prepare("SELECT oi.*, p.sku, p.product_name, p.article_no FROM outbound_items oi JOIN products p ON oi.product_id = p.product_id WHERE oi.order_id = ?");
+        // MODIFICATION START: Updated query to also fetch returned_quantity
+        $stmt_items = $conn->prepare("
+            SELECT
+                oi.outbound_item_id,
+                oi.product_id,
+                p.sku,
+                p.product_name,
+                p.article_no,
+                oi.ordered_quantity,
+                oi.picked_quantity,
+                COALESCE(SUM(ri.expected_quantity), 0) as returned_quantity,
+                (oi.picked_quantity - COALESCE(SUM(ri.expected_quantity), 0)) as returnable_quantity
+            FROM
+                outbound_items oi
+            JOIN
+                products p ON oi.product_id = p.product_id
+            LEFT JOIN
+                return_items ri ON oi.outbound_item_id = ri.outbound_item_id
+            LEFT JOIN
+                returns r ON ri.return_id = r.return_id AND r.status != 'Cancelled'
+            WHERE
+                oi.order_id = ?
+            GROUP BY
+                oi.outbound_item_id, p.sku, p.product_name, p.article_no, oi.ordered_quantity, oi.picked_quantity
+        ");
+        // MODIFICATION END
+
         $stmt_items->bind_param("i", $order_id);
         $stmt_items->execute();
         $items = $stmt_items->get_result()->fetch_all(MYSQLI_ASSOC);

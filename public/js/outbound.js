@@ -98,9 +98,12 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const tableData = response.data.map(order => {
             let actionButtons = `<button data-order-id="${order.order_id}" data-order-number="${order.order_number}" class="btn btn-sm btn-outline-secondary view-details-btn" title="Details"><i class="bi bi-eye"></i></button>`;
-            if (order.status !== 'Shipped' && order.status !== 'Delivered' && order.status !== 'Cancelled' && canManageOutbound) {
+            
+            const isProcessable = !['Shipped', 'Delivered', 'Cancelled', 'Returned', 'Partially Returned'].includes(order.status);
+            if (isProcessable && canManageOutbound) {
                 actionButtons += ` <button data-order-id="${order.order_id}" data-order-number="${order.order_number}" class="btn btn-sm btn-primary select-order-btn ms-1" title="Process"><i class="bi bi-gear"></i></button>`;
             }
+
             return [ 
                 order.order_number || 'N/A', 
                 order.reference_number || 'N/A',
@@ -118,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ordersTable.rows().every(function() {
             const row = this.node();
             const status = this.data()[6];
-            const statusMap = { 'Delivered': 'bg-success', 'Out for Delivery': 'bg-primary', 'Shipped': 'bg-info', 'Assigned': 'bg-orange', 'Ready for Pickup': 'bg-purple', 'Picked': 'bg-primary', 'Partially Picked': 'bg-warning text-dark', 'New': 'bg-secondary', 'Pending Pick': 'bg-secondary', 'Cancelled': 'bg-danger' };
+            const statusMap = { 'Delivered': 'bg-success', 'Out for Delivery': 'bg-primary', 'Shipped': 'bg-info', 'Assigned': 'bg-orange', 'Ready for Pickup': 'bg-purple', 'Picked': 'bg-primary', 'Partially Picked': 'bg-warning text-dark', 'New': 'bg-secondary', 'Pending Pick': 'bg-secondary', 'Cancelled': 'bg-danger', 'Returned': 'bg-dark', 'Partially Returned': 'bg-secondary' };
             const statusClass = statusMap[status] || 'bg-secondary';
             $(row).find('td').eq(6).html(`<span class="badge ${statusClass}">${status}</span>`); 
         });
@@ -186,15 +189,68 @@ document.addEventListener('DOMContentLoaded', () => {
                     editOrderBtn.style.display = (canManage && isOrderMutable) ? 'inline-block' : 'none';
                 }
 
+                const canCreateReturn = ['Shipped', 'Delivered', 'Partially Returned'].includes(order.status);
+                let createReturnBtn = document.getElementById('createReturnBtn');
+                
+                if (canManage && canCreateReturn) {
+                    if (!createReturnBtn) {
+                        createReturnBtn = document.createElement('button');
+                        createReturnBtn.id = 'createReturnBtn';
+                        createReturnBtn.className = 'btn btn-warning ms-2';
+                        createReturnBtn.innerHTML = '<i class="bi bi-arrow-return-left me-1"></i> Create Return';
+                        createReturnBtn.addEventListener('click', handleShowCreateReturnModal);
+                        if (cancelOrderBtn) {
+                            cancelOrderBtn.parentNode.insertBefore(createReturnBtn, cancelOrderBtn.nextSibling);
+                        } else {
+                            managementActionsArea.appendChild(createReturnBtn);
+                        }
+                    }
+                    createReturnBtn.style.display = 'inline-block';
+                } else {
+                    if (createReturnBtn) {
+                        createReturnBtn.style.display = 'none';
+                    }
+                }
+
+                const hasAssociatedReturn = order.status === 'Partially Returned';
+                let processReturnBtn = document.getElementById('processReturnBtn');
+
+                if (canManage && hasAssociatedReturn) {
+                    if (!processReturnBtn) {
+                        processReturnBtn = document.createElement('button');
+                        processReturnBtn.id = 'processReturnBtn';
+                        processReturnBtn.className = 'btn btn-info ms-2';
+                        processReturnBtn.innerHTML = '<i class="bi bi-box-arrow-in-down me-1"></i> Go to Return';
+                        processReturnBtn.addEventListener('click', () => {
+                            window.location.href = 'returns.php';
+                        });
+                        const anchorNode = document.getElementById('createReturnBtn') || document.getElementById('cancelOrderBtn');
+                        if (anchorNode) {
+                            anchorNode.parentNode.insertBefore(processReturnBtn, anchorNode.nextSibling);
+                        } else {
+                            managementActionsArea.appendChild(processReturnBtn);
+                        }
+                    }
+                    processReturnBtn.style.display = 'inline-block';
+                } else {
+                    if (processReturnBtn) {
+                        processReturnBtn.style.display = 'none';
+                    }
+                }
+
                 if (['Picked', 'Ready for Pickup', 'Assigned'].includes(order.status) && canManage) {
                     shipOrderBtn.classList.remove('d-none');
                 }
                 
-                if (order.items.length > 0) {
+                const canPrintPickReport = !['Returned', 'Partially Returned', 'Cancelled', 'Delivered', 'Shipped'].includes(order.status);
+                if (order.items.length > 0 && canPrintPickReport) {
                     printPickReportBtn.classList.remove('d-none');
+                } else {
+                    printPickReportBtn.classList.add('d-none');
                 }
 
-                if (order.shipping_area_code && shippingAreaDisplay) {
+                const canShowStaging = !['Delivered', 'Cancelled', 'Returned', 'Partially Returned'].includes(order.status);
+                if (canShowStaging && order.shipping_area_code && shippingAreaDisplay) {
                     shippingAreaDisplay.innerHTML = `<strong>Staged At:</strong> <span class="badge bg-purple">${order.shipping_area_code}</span>`;
                 }
 
@@ -208,9 +264,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 if (addItemContainer) {
-                    addItemContainer.innerHTML = ''; // Clear previous buttons
+                    addItemContainer.innerHTML = '';
                     if (canManage && isOrderMutable) {
-                        // Add buttons within a flex container for better alignment
                         addItemContainer.innerHTML = `
                             <div class="d-grid gap-2 d-md-flex justify-content-md-end">
                                 <button id="showAddItemModalBtn" class="btn btn-outline-primary"><i class="bi bi-plus-circle me-2"></i>Add Single Item</button>
@@ -579,7 +634,6 @@ document.addEventListener('DOMContentLoaded', () => {
                                 return reject();
                             }
 
-                            // Check for required headers
                             const firstRow = json[0];
                             if (!firstRow.hasOwnProperty('Article No') || !firstRow.hasOwnProperty('Quantity')) {
                                 errorDiv.textContent = 'File must contain "Article No" and "Quantity" columns.';
@@ -636,38 +690,156 @@ document.addEventListener('DOMContentLoaded', () => {
                     await loadOutboundOrders();
                     await loadProductsForDropdown();
                 }
-                // Error handling is done by the generic fetchData function
+            }
+        });
+    }
+
+    async function handleShowCreateReturnModal() {
+        if (!selectedOrderDetails || !selectedOrderDetails.items) {
+            Swal.fire('Error', 'Order items not loaded or empty.', 'error');
+            return;
+        }
+
+        const itemsForReturn = selectedOrderDetails.items.filter(item => item.picked_quantity > 0);
+
+        if (itemsForReturn.length === 0) {
+            Swal.fire('Info', 'No items have been shipped for this order yet.', 'info');
+            return;
+        }
+
+        let itemsHtml = `
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>SKU</th>
+                        <th>Article No</th>
+                        <th>Product</th>
+                        <th class="text-center">Shipped</th>
+                        <th class="text-center">Returned</th>
+                        <th class="text-center" style="width: 120px;">Return Qty</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        itemsForReturn.forEach(item => {
+            const isFullyReturned = item.returnable_quantity <= 0;
+            itemsHtml += `
+                <tr data-outbound-item-id="${item.outbound_item_id}" data-returnable-qty="${item.returnable_quantity}" class="${isFullyReturned ? 'table-light text-muted' : ''}">
+                    <td>${item.sku}</td>
+                    <td>${item.article_no}</td>
+                    <td>${item.product_name}</td>
+                    <td class="text-center">${item.picked_quantity}</td>
+                    <td class="text-center">${item.returned_quantity}</td>
+                    <td>
+                        <input 
+                            type="number" 
+                            class="form-control form-control-sm return-qty-input" 
+                            value="0" 
+                            min="0" 
+                            max="${item.returnable_quantity}"
+                            ${isFullyReturned ? 'disabled' : ''}
+                        >
+                    </td>
+                </tr>
+            `;
+        });
+
+        itemsHtml += `</tbody></table>`;
+
+        Swal.fire({
+            title: 'Create Partial Return',
+            html: `
+                <div class="text-start p-2">
+                    <div class="mb-3">
+                        <label for="swal-return-reason" class="form-label">Reason for Return</label>
+                        <textarea id="swal-return-reason" class="form-control" rows="3" placeholder="e.g., Damaged, wrong item..."></textarea>
+                    </div>
+                    ${itemsHtml}
+                </div>
+            `,
+            width: '900px',
+            showCancelButton: true,
+            confirmButtonText: 'Initiate Return',
+            preConfirm: () => {
+                const reason = document.getElementById('swal-return-reason').value;
+                if (!reason) {
+                    Swal.showValidationMessage('Please provide a reason for the return.');
+                    return false;
+                }
+
+                const itemsToReturn = [];
+                let validationError = false;
+                document.querySelectorAll('.return-qty-input:not(:disabled)').forEach(input => {
+                    const quantity = parseInt(input.value, 10);
+                    if (quantity > 0) {
+                        const row = input.closest('tr');
+                        const outboundItemId = row.dataset.outboundItemId;
+                        const maxQty = parseInt(row.dataset.returnableQty, 10);
+                        if (quantity > maxQty) {
+                             Swal.showValidationMessage(`Quantity for an item exceeds the returnable amount of ${maxQty}.`);
+                             validationError = true;
+                             return;
+                        }
+                        itemsToReturn.push({
+                            outbound_item_id: outboundItemId,
+                            quantity: quantity
+                        });
+                    }
+                });
+
+                if (validationError) return false;
+
+                if (itemsToReturn.length === 0) {
+                    Swal.showValidationMessage('Please enter a quantity for at least one item to return.');
+                    return false;
+                }
+
+                return {
+                    order_id: selectedOrderId,
+                    reason: reason,
+                    items: itemsToReturn
+                };
+            }
+        }).then(async (result) => {
+            if (result.isConfirmed && result.value) {
+                const apiResult = await fetchData('api/returns_api.php?action=create_return', 'POST', result.value);
+                if (apiResult?.success) {
+                    Swal.fire('Success', apiResult.message, 'success');
+                    await loadOrderItems(selectedOrderId);
+                    await loadOutboundOrders();
+                }
             }
         });
     }
 
     async function handlePrintPickReport() {
-        if (!selectedOrderId) { 
-            Swal.fire('Error', 'No order is selected.', 'error'); 
-            return; 
+        if (!selectedOrderId) {
+            Swal.fire('Error', 'No order is selected.', 'error');
+            return;
         }
-
+    
         printPickReportBtn.disabled = true;
         printPickReportBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Printing...';
-
+    
         try {
             const response = await fetchData(`api/outbound_api.php?action=getPickReport&order_id=${selectedOrderId}`);
-            
+    
             if (!response?.success || !response.data) {
                 Swal.fire('Error', response?.message || 'Could not fetch pick report data.', 'error');
                 return;
             }
-
+    
             const { order_details, items } = response.data;
-            const itemsPerPage = 10; 
+            const itemsPerPage = 10;
             const totalPages = items.length > 0 ? Math.ceil(items.length / itemsPerPage) : 1;
             let allPagesHtml = '';
-
+    
             for (let page = 0; page < totalPages; page++) {
                 const start = page * itemsPerPage;
                 const end = start + itemsPerPage;
                 const pageItems = items.slice(start, end);
-
+    
                 let itemsHtml = '';
                 if (pageItems.length > 0) {
                     pageItems.forEach((item, index) => {
@@ -682,14 +854,13 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <td>${item.location_code || ''}</td>
                                 <td>${item.batch_number || ''}</td>
                                 <td>${item.dot_code || ''}</td>
-                                <td></td>
                             </tr>
                         `;
                     });
                 } else {
-                     itemsHtml = '<tr><td colspan="9" class="text-center" style="height: 400px;">No items on this order.</td></tr>';
+                    itemsHtml = '<tr><td colspan="8" class="text-center" style="height: 400px;">No items on this order.</td></tr>';
                 }
-
+    
                 allPagesHtml += `
                     <div class="page">
                         <div class="report-container">
@@ -700,7 +871,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     <div class="col-4 text-end"><img src="https://wms.almutlak.local/img/logo_blk.png" alt="Logo 2" class="header-logo"></div>
                                 </div>
                             </div>
-
+    
                             <div class="details-section">
                                 <div class="row">
                                     <div class="col-7">
@@ -722,15 +893,15 @@ document.addEventListener('DOMContentLoaded', () => {
                                     </div>
                                 </div>
                             </div>
-
+    
                             <div class="items-section">
                                 <table class="table table-bordered table-sm">
                                     <thead class="table-light">
                                         <tr>
                                             <th>#</th>
                                             <th>Article Description</th>
-                                            <th>Article No</th>
-                                            <th>Article No-</th>
+                                            <th>SKU</th>
+                                            <th>Article No.</th>
                                             <th>Qty</th>
                                             <th>Location</th>
                                             <th>Batch</th>
@@ -753,16 +924,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 `;
             }
-
+    
             const printFrame = document.createElement('iframe');
             printFrame.style.display = 'none';
             document.body.appendChild(printFrame);
-            
+    
             printFrame.contentDocument.write(`
                 <html>
                     <head>
                         <title>Delivery Note - ${order_details.order_number}</title>
                         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+                        <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
                         <style>
                             @media print {
                                 @page { size: A4; margin: 1cm; }
@@ -776,7 +948,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 .item-article_no-container svg { height: 35px; width: 100%; margin: 0; }
                                 .table th, .table td { vertical-align: middle; font-size: 0.8rem; text-align: center; }
                                 .table th { background-color: #e9ecef !important; }
-                                .table td:nth-child(2) { text-align: left; }
+                                .table td:nth-child(2), .table td:nth-child(3) { text-align: left; }
                                 .info-box { border: 1px solid #ccc; padding: 10px; height: 100%; font-size: 0.9rem; }
                                 .items-section { flex-grow: 1; }
                                 .footer { flex-shrink: 0; margin-top: auto; text-align: center; font-size: 0.8em; border-top: 2px solid #000; padding-top: 10px; }
@@ -786,40 +958,40 @@ document.addEventListener('DOMContentLoaded', () => {
                     <body>${allPagesHtml}</body>
                 </html>
             `);
-            
-            for (let page = 0; page < totalPages; page++) {
-                const orderarticle_noContainer = printFrame.contentDocument.getElementById(`order-article_no-page-${page}`);
-                if (orderarticle_noContainer) {
-                    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-                    Jsbarcode(svg, order_details.order_number, { format: "CODE128", displayValue: false, height: 40, margin: 0 });
-                    orderarticle_noContainer.appendChild(svg);
-                }
-
-                const start = page * itemsPerPage;
-                const end = start + itemsPerPage;
-                const pageItems = items.slice(start, end);
-
-                pageItems.forEach((item, index) => {
-                    const globalIndex = start + index;
-                    const itemarticle_noContainer = printFrame.contentDocument.getElementById(`item-article_no-${globalIndex}`);
-                    if (itemarticle_noContainer && item.article_no) {
-                        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-                        Jsbarcode(svg, item.article_no, { format: "CODE128", displayValue: false, height: 35, margin: 2, fontSize: 10 });
-                        itemarticle_noContainer.appendChild(svg);
-                    }
-                });
-            }
-
+    
             printFrame.contentDocument.close();
-            
+    
             printFrame.onload = function() {
+                for (let page = 0; page < totalPages; page++) {
+                    const orderarticle_noContainer = printFrame.contentDocument.getElementById(`order-article_no-page-${page}`);
+                    if (orderarticle_noContainer) {
+                        const svg = printFrame.contentDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
+                        printFrame.contentWindow.JsBarcode(svg, order_details.order_number, { format: "CODE128", displayValue: false, height: 40, margin: 0 });
+                        orderarticle_noContainer.appendChild(svg);
+                    }
+    
+                    const start = page * itemsPerPage;
+                    const end = start + itemsPerPage;
+                    const pageItems = items.slice(start, end);
+    
+                    pageItems.forEach((item, index) => {
+                        const globalIndex = start + index;
+                        const itemarticle_noContainer = printFrame.contentDocument.getElementById(`item-article_no-${globalIndex}`);
+                        if (itemarticle_noContainer && item.article_no) {
+                            const svg = printFrame.contentDocument.createElementNS("http://www.w3.org/2000/svg", "svg");
+                            printFrame.contentWindow.JsBarcode(svg, item.article_no, { format: "CODE128", displayValue: true, height: 35, margin: 2, fontSize: 10 });
+                            itemarticle_noContainer.appendChild(svg);
+                        }
+                    });
+                }
+    
                 printFrame.contentWindow.focus();
                 printFrame.contentWindow.print();
                 setTimeout(() => {
                     document.body.removeChild(printFrame);
                 }, 500);
             };
-
+    
         } catch (error) {
             Swal.fire('Error', `Could not generate report: ${error.message}`, 'error');
         } finally {
