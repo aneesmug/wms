@@ -25,25 +25,56 @@ switch ($method) {
         handlePostRequest($conn, $target_warehouse_id, $action);
         break;
     case 'PUT':
-        // MODIFIED: Route PUT requests based on the 'action' parameter
         if ($action === 'update_type') {
             authorize_user_role(['manager'], null);
             handleUpdateLocationType($conn);
         } elseif ($action === 'update_location') {
             authorize_user_role(['operator', 'manager'], $target_warehouse_id);
             handleUpdateLocation($conn, $target_warehouse_id);
+        } elseif ($action === 'toggle_lock') {
+            authorize_user_role(['manager'], $target_warehouse_id);
+            handleToggleLockLocation($conn, $target_warehouse_id);
         } else {
             sendJsonResponse(['success' => false, 'message' => 'Invalid PUT action specified.'], 400);
         }
         break;
     case 'DELETE':
-        authorize_user_role(['manager'], null); // Only managers can delete types
-        handleDeleteLocationType($conn);
+        authorize_user_role(['manager'], null);
+        if ($action === 'delete_type') {
+            handleDeleteLocationType($conn);
+        } elseif ($action === 'delete_location') {
+            handleDeleteLocation($conn, $target_warehouse_id);
+        } else {
+            sendJsonResponse(['success' => false, 'message' => 'Invalid DELETE action specified.'], 400);
+        }
         break;
     default:
         sendJsonResponse(['success' => false, 'message' => 'Method Not Allowed'], 405);
         break;
 }
+
+function handleToggleLockLocation($conn, $warehouse_id) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $location_id = filter_var($input['location_id'] ?? null, FILTER_VALIDATE_INT);
+    $is_locked = isset($input['is_locked']) ? (int)(bool)$input['is_locked'] : null;
+
+    if (!$location_id || $is_locked === null) {
+        sendJsonResponse(['success' => false, 'message' => 'Location ID and lock status are required.'], 400);
+        return;
+    }
+
+    $stmt = $conn->prepare("UPDATE warehouse_locations SET is_locked = ? WHERE location_id = ? AND warehouse_id = ?");
+    $stmt->bind_param("iii", $is_locked, $location_id, $warehouse_id);
+
+    if ($stmt->execute()) {
+        $action = $is_locked ? 'locked' : 'unlocked';
+        sendJsonResponse(['success' => true, 'message' => "Location successfully {$action}."]);
+    } else {
+        sendJsonResponse(['success' => false, 'message' => 'Failed to update location lock status.', 'error' => $stmt->error], 500);
+    }
+    $stmt->close();
+}
+
 
 function handleGetRequest($conn, $warehouse_id, $action) {
     if ($action == 'get_types') {
@@ -128,7 +159,8 @@ function handleUpdateLocationType($conn) {
 }
 
 function handleDeleteLocationType($conn) {
-    $type_id = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
+    $input = json_decode(file_get_contents('php://input'), true);
+    $type_id = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
     if (!$type_id) {
         sendJsonResponse(['success' => false, 'message' => 'Type ID is required.'], 400);
         return;
@@ -151,7 +183,7 @@ function getAllLocations($conn, $warehouse_id) {
         SELECT 
             wl.location_id, wl.location_code, lt.type_name as location_type, wl.location_type_id,
             wl.max_capacity_units, wl.max_capacity_weight, wl.max_capacity_volume, 
-            wl.is_active, COALESCE(SUM(i.quantity), 0) AS occupied_capacity
+            wl.is_active, wl.is_locked, COALESCE(SUM(i.quantity), 0) AS occupied_capacity
         FROM warehouse_locations wl
         LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
         LEFT JOIN inventory i ON wl.location_id = i.location_id AND i.warehouse_id = wl.warehouse_id
@@ -300,9 +332,11 @@ function handleUpdateLocation($conn, $warehouse_id) {
 }
 
 function handleDeleteLocation($conn, $warehouse_id) {
-    $location_id = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
+    $input = json_decode(file_get_contents('php://input'), true);
+    $location_id = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
     if (!$location_id) {
         sendJsonResponse(['success' => false, 'message' => 'Location ID is required.'], 400);
+        return;
     }
     
     $stmt_check = $conn->prepare("SELECT COUNT(*) as inventory_count FROM inventory WHERE location_id = ? AND warehouse_id = ?");

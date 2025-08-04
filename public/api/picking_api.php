@@ -75,7 +75,8 @@ switch ($action) {
 
 
 /**
- * Fetches available DOT codes for a given product, sorted by manufacturing date (FIFO).
+ * Fetches available DOT codes for a given product from unlocked locations, sorted by manufacturing date (FIFO).
+ * If stock only exists in locked locations, it returns a specific error message.
  */
 function handleGetDotsForProduct($conn, $warehouse_id) {
     $product_id = filter_input(INPUT_GET, 'product_id', FILTER_VALIDATE_INT);
@@ -84,23 +85,50 @@ function handleGetDotsForProduct($conn, $warehouse_id) {
         return;
     }
 
-    // Sort by year (YY), then week (WW) from the 'WWYY' dot_code format.
-    $stmt = $conn->prepare("
-        SELECT DISTINCT dot_code
-        FROM inventory
-        WHERE product_id = ? AND warehouse_id = ? AND quantity > 0 AND dot_code IS NOT NULL AND dot_code != ''
-        ORDER BY SUBSTRING(dot_code, 3, 2) ASC, SUBSTRING(dot_code, 1, 2) ASC
+    // First, try to find stock in UNLOCKED locations
+    $stmt_unlocked = $conn->prepare("
+        SELECT DISTINCT i.dot_code
+        FROM inventory i
+        JOIN warehouse_locations wl ON i.location_id = wl.location_id
+        WHERE i.product_id = ? AND i.warehouse_id = ? AND i.quantity > 0 AND i.dot_code IS NOT NULL AND i.dot_code != ''
+        AND wl.is_locked = 0
+        ORDER BY SUBSTRING(i.dot_code, 3, 2) ASC, SUBSTRING(i.dot_code, 1, 2) ASC
     ");
-    $stmt->bind_param("ii", $product_id, $warehouse_id);
-    $stmt->execute();
-    $result = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    $stmt->close();
+    $stmt_unlocked->bind_param("ii", $product_id, $warehouse_id);
+    $stmt_unlocked->execute();
+    $result_unlocked = $stmt_unlocked->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt_unlocked->close();
 
-    sendJsonResponse(['success' => true, 'data' => $result]);
+    // If we found stock in unlocked locations, we're done.
+    if (count($result_unlocked) > 0) {
+        sendJsonResponse(['success' => true, 'data' => $result_unlocked]);
+        return;
+    }
+
+    // If no unlocked stock, check if ANY stock exists (including locked)
+    $stmt_any = $conn->prepare("
+        SELECT COUNT(*) as stock_count
+        FROM inventory i
+        WHERE i.product_id = ? AND i.warehouse_id = ? AND i.quantity > 0
+    ");
+    $stmt_any->bind_param("ii", $product_id, $warehouse_id);
+    $stmt_any->execute();
+    $any_stock_exists = $stmt_any->get_result()->fetch_assoc()['stock_count'] > 0;
+    $stmt_any->close();
+
+    // If stock exists but none was found in the unlocked query, it must all be locked.
+    if ($any_stock_exists) {
+        sendJsonResponse(['success' => false, 'message' => "This item location is locked, so you can't pick item from locked location"]);
+        return;
+    }
+
+    // If no stock exists at all, send the original response for "no stock".
+    sendJsonResponse(['success' => true, 'data' => []]);
 }
 
+
 /**
- * Fetches locations that contain stock for a specific product and DOT code.
+ * Fetches unlocked locations that contain stock for a specific product and DOT code.
  */
 function handleGetLocationsForDot($conn, $warehouse_id) {
     $product_id = filter_input(INPUT_GET, 'product_id', FILTER_VALIDATE_INT);
@@ -118,7 +146,7 @@ function handleGetLocationsForDot($conn, $warehouse_id) {
             SUM(i.quantity) as available_quantity
         FROM inventory i
         JOIN warehouse_locations wl ON i.location_id = wl.location_id
-        WHERE i.product_id = ? AND i.dot_code = ? AND i.warehouse_id = ? AND i.quantity > 0
+        WHERE i.product_id = ? AND i.dot_code = ? AND i.warehouse_id = ? AND i.quantity > 0 AND wl.is_locked = 0
         GROUP BY wl.location_id, wl.location_code
         ORDER BY wl.location_code ASC
     ");
@@ -149,7 +177,6 @@ function handleGetBatchesForLocationDot($conn, $warehouse_id) {
             quantity
         FROM inventory
         WHERE product_id = ? AND dot_code = ? AND location_id = ? AND warehouse_id = ? AND quantity > 0
-        ORDER BY batch_number ASC
     ");
     $stmt->bind_param("isii", $product_id, $dot_code, $location_id, $warehouse_id);
     $stmt->execute();
@@ -179,6 +206,17 @@ function handlePickItem($conn, $warehouse_id, $user_id) {
     
     $conn->begin_transaction();
     try {
+        // Check if the location is locked
+        $stmt_lock_check = $conn->prepare("SELECT is_locked FROM warehouse_locations WHERE location_id = ? AND warehouse_id = ?");
+        $stmt_lock_check->bind_param("ii", $location_id, $warehouse_id);
+        $stmt_lock_check->execute();
+        $location_status = $stmt_lock_check->get_result()->fetch_assoc();
+        $stmt_lock_check->close();
+
+        if ($location_status && $location_status['is_locked'] == 1) {
+            throw new Exception("this item location is locked you can't pick item from locked location");
+        }
+
         // Check if item is on the order and needs picking
         $stmt_item = $conn->prepare("SELECT outbound_item_id, ordered_quantity, picked_quantity FROM outbound_items WHERE order_id = ? AND product_id = ?");
         $stmt_item->bind_param("ii", $order_id, $product_id);
@@ -329,6 +367,18 @@ function handleUnpickItem($conn, $warehouse_id, $user_id) {
         if (!$pick_data) {
             throw new Exception("Pick record not found.");
         }
+
+        // Check if the location is locked
+        $stmt_lock_check = $conn->prepare("SELECT is_locked FROM warehouse_locations WHERE location_id = ? AND warehouse_id = ?");
+        $stmt_lock_check->bind_param("ii", $pick_data['location_id'], $warehouse_id);
+        $stmt_lock_check->execute();
+        $location_status = $stmt_lock_check->get_result()->fetch_assoc();
+        $stmt_lock_check->close();
+
+        if ($location_status && $location_status['is_locked'] == 1) {
+            throw new Exception("Cannot unpick to a locked location.");
+        }
+
 
         // Add quantity back to inventory
         $stmt_inv_check = $conn->prepare("SELECT inventory_id FROM inventory WHERE product_id = ? AND location_id = ? AND batch_number <=> ? AND dot_code = ? AND warehouse_id = ?");
@@ -564,17 +614,19 @@ function handleGetPickReport($conn, $warehouse_id) {
             (SELECT wl.location_code 
              FROM inventory i 
              JOIN warehouse_locations wl ON i.location_id = wl.location_id
-             WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 AND i.dot_code IS NOT NULL
+             WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 AND i.dot_code IS NOT NULL AND wl.is_locked = 0
              ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC 
              LIMIT 1) as location_code,
             (SELECT i.batch_number 
              FROM inventory i 
-             WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 AND i.dot_code IS NOT NULL
+             JOIN warehouse_locations wl ON i.location_id = wl.location_id
+             WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 AND i.dot_code IS NOT NULL AND wl.is_locked = 0
              ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC 
              LIMIT 1) as batch_number,
             (SELECT i.dot_code 
              FROM inventory i 
-             WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 AND i.dot_code IS NOT NULL
+             JOIN warehouse_locations wl ON i.location_id = wl.location_id
+             WHERE i.product_id = oi.product_id AND i.warehouse_id = ? AND i.quantity > 0 AND i.dot_code IS NOT NULL AND wl.is_locked = 0
              ORDER BY SUBSTRING(i.dot_code, 3, 2), SUBSTRING(i.dot_code, 1, 2) ASC 
              LIMIT 1) as dot_code
         FROM outbound_items oi

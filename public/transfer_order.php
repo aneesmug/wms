@@ -1,6 +1,3 @@
-<?php
-// Authentication is handled by the included menu.php file.
-?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -16,40 +13,56 @@
     <link rel="stylesheet" href="css/style.css">
     <link rel="icon" href="favicon.ico" type="image/x-icon">
 </head>
-<body>
-    <div class="wrapper">
-        <?php include 'includes/menu.php'; ?>
-        <div class="main-content">
-            <div class="container-fluid">
-                <div class="card shadow-sm">
-                    <div class="card-header">
-                        <h5 class="card-title mb-0">All Transfer Orders</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="table-responsive">
-                            <table id="transferOrdersTable" class="table table-striped table-hover" style="width:100%">
-                                <thead>
-                                    <tr>
-                                        <th>Order #</th>
-                                        <th>From Warehouse</th>
-                                        <th>To Warehouse</th>
-                                        <th>Date</th>
-                                        <th class="text-end">Total Qty</th>
-                                        <th>Status</th>
-                                        <th class="text-end">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <!-- Data will be loaded by DataTables -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+<body class="bg-light">
+
+    <?php include 'includes/menu.php'; ?>
+
+    <div id="content">
+        <header class="bg-white shadow-sm border-bottom">
+            <div class="container-fluid px-4">
+                <div class="d-flex justify-content-between align-items-center py-3">
+                    <h1 class="h4 mb-0 text-dark">Transfer Orders Management</h1>
                 </div>
             </div>
-        </div>
-    </div>
+        </header>
 
+        <main class="p-4 p-md-5">
+            <div class="container-fluid">
+                <div class="row g-4">
+                    <!-- Returns List -->
+                    <div class="col-12">
+                        <div class="card shadow-sm">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">All Transfer Orders</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="table-responsive">
+                                    <table id="transferOrdersTable" class="table table-striped table-hover" style="width:100%">
+                                        <thead>
+                                            <tr>
+                                                <th>Order #</th>
+                                                <th>From Warehouse</th>
+                                                <th>To Warehouse</th>
+                                                <th>Date</th>
+                                                <th class="text-end">Total Qty</th>
+                                                <th>Status</th>
+                                                <th class="text-end">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- Data will be loaded by DataTables -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </main>
+    </div>
+    <!-- JavaScript Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>

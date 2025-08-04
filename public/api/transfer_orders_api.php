@@ -25,6 +25,18 @@ function send_json_response($data) {
     exit;
 }
 
+// Helper function to check if a location is locked
+function checkLocationLockById($conn, $location_id) {
+    $stmt = $conn->prepare("SELECT location_code, is_locked FROM warehouse_locations WHERE location_id = ?");
+    $stmt->bind_param("i", $location_id);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if ($result && $result['is_locked'] == 1) {
+        throw new Exception("Operation failed: Location '{$result['location_code']}' is locked and cannot be used for transfers.");
+    }
+}
+
 switch ($action) {
     case 'get_transfer_history': getTransferHistory($conn, $current_warehouse_id); break;
     case 'get_products_in_warehouse': getProductsInWarehouse($conn, $current_warehouse_id); break;
@@ -35,7 +47,6 @@ switch ($action) {
 }
 
 function getTransferHistory($conn, $warehouse_id) {
-    // UPDATED: Query now joins with items table to sum the total quantity for each order.
     $sql = "SELECT 
                 t.transfer_id,
                 t.transfer_order_number,
@@ -67,11 +78,13 @@ function getProductsInWarehouse($conn, $warehouse_id) {
     }
 
     $sql = "SELECT 
-                p.product_id, p.product_name, p.sku, p.barcode, 
+                p.product_id, p.product_name, p.sku, p.article_no, 
                 COALESCE(SUM(i.quantity), 0) AS total_stock
             FROM products p
-            LEFT JOIN inventory i ON p.product_id = i.product_id AND i.warehouse_id = ?
-            GROUP BY p.product_id, p.product_name, p.sku, p.barcode
+            LEFT JOIN inventory i ON p.product_id = i.product_id 
+            JOIN warehouse_locations wl ON i.location_id = wl.location_id
+            WHERE i.warehouse_id = ? AND wl.is_locked = 0
+            GROUP BY p.product_id, p.product_name, p.sku, p.article_no
             ORDER BY p.product_name";
     
     $stmt = $conn->prepare($sql);
@@ -91,8 +104,6 @@ function getProductInventory($conn) {
         send_json_response(['status' => 'error', 'message' => 'Warehouse and Product IDs are required.']);
     }
 
-    // UPDATED: This query now groups by location to sum quantities, preventing duplicate locations in the dropdown.
-    // It selects the most recent batch/dot code for the transfer operation.
     $sql = "SELECT 
                 wl.location_id, 
                 wl.location_code AS location_name, 
@@ -101,7 +112,7 @@ function getProductInventory($conn) {
                 (SELECT dot_code FROM inventory WHERE location_id = wl.location_id AND product_id = ? ORDER BY created_at DESC LIMIT 1) as dot_code
             FROM inventory i
             JOIN warehouse_locations wl ON i.location_id = wl.location_id
-            WHERE i.warehouse_id = ? AND i.product_id = ? AND i.quantity > 0
+            WHERE i.warehouse_id = ? AND i.product_id = ? AND i.quantity > 0 AND wl.is_locked = 0
             GROUP BY wl.location_id, wl.location_code";
     
     $stmt = $conn->prepare($sql);
@@ -123,6 +134,12 @@ function createTransfer($conn) {
 
     $conn->begin_transaction();
     try {
+        // Check lock status before proceeding
+        foreach ($items as $item) {
+            checkLocationLockById($conn, $item['sourceLocationId']);
+            checkLocationLockById($conn, $item['destLocationId']);
+        }
+
         $order_number = 'TRN-' . date('Ymd-His');
         $sql_header = "INSERT INTO transfer_orders (transfer_order_number, source_warehouse_id, destination_warehouse_id, notes, created_by_user_id, status) VALUES (?, ?, ?, ?, ?, 'Completed')";
         $stmt_header = $conn->prepare($sql_header);
@@ -186,10 +203,9 @@ function getTransferDetailsForPrint($conn) {
     $header = $stmt_header->get_result()->fetch_assoc();
 
     if ($header) {
-        // UPDATED: Query now joins warehouse_locations twice to get both source and destination location codes.
         $sql_items = "SELECT 
                         ti.*, 
-                        p.product_name, p.sku, p.barcode, 
+                        p.product_name, p.sku, p.article_no, 
                         sl.location_code as source_location,
                         dl.location_code as destination_location
                       FROM transfer_order_items ti

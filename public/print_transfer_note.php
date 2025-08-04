@@ -15,13 +15,13 @@
         .table th, .table td { vertical-align: middle; font-size: 0.8rem; padding: 0.4rem; }
         .footer { position: fixed; bottom: 20px; width: 100%; max-width: 800px; font-size: 0.8rem; }
         
-        /* CORRECTED: Significantly reduced barcode font sizes for a professional look */
-        .header-barcode { 
+        /* CORRECTED: Significantly reduced article_no font sizes for a professional look */
+        .header-article_no { 
             font-family: 'Libre Barcode 39', cursive; 
             font-size: 32pt; /* Using points for better print control */
             line-height: 1; 
         }
-        .item-barcode { 
+        .item-article_no { 
             font-family: 'Libre Barcode 39', cursive; 
             font-size: 24pt; /* Using points for better print control */
             line-height: 1; 
@@ -108,8 +108,8 @@
                         <tr>
                             <th>#</th>
                             <th>Article Description</th>
+                            <th>SKU</th>
                             <th>Article No</th>
-                            <th>Barcode</th>
                             <th>Qty</th>
                             <th>From Loc</th>
                             <th>To Loc</th>
@@ -123,7 +123,7 @@
                                 <td>${index + 1}</td>
                                 <td>${item.product_name}</td>
                                 <td>${item.sku}</td>
-                                <td>${item.barcode || ''}</td>
+                                <td>${item.article_no || ''}</td>
                                 <td>${item.quantity}</td>
                                 <td>${item.source_location}</td>
                                 <td>${item.destination_location}</td>

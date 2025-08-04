@@ -178,7 +178,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 selectedOrderDetails = response.data;
                 const order = response.data;
                 const canManage = ['operator', 'manager'].includes(currentWarehouseRole);
-                const isOrderMutable = ['New', 'Pending Pick', 'Partially Picked', 'Picked', 'Ready for Pickup'].includes(order.status);
+                const isOrderMutable = ['New', 'Pending Pick', 'Partially Picked'].includes(order.status);
                 
                 managementActionsArea.style.display = (canManage) ? 'block' : 'none';
                 cancelOrderBtn.style.display = (canManage && isOrderMutable) ? 'inline-block' : 'none';
@@ -208,12 +208,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 if (addItemContainer) {
-                    addItemContainer.style.display = (canManage && isOrderMutable) ? 'block' : 'none';
+                    addItemContainer.innerHTML = ''; // Clear previous buttons
                     if (canManage && isOrderMutable) {
-                        addItemContainer.innerHTML = `<button id="showAddItemModalBtn" class="btn btn-outline-secondary w-100"><i class="bi bi-plus-circle me-2"></i>Add Item to Order</button>`;
+                        // Add buttons within a flex container for better alignment
+                        addItemContainer.innerHTML = `
+                            <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                                <button id="showAddItemModalBtn" class="btn btn-outline-primary"><i class="bi bi-plus-circle me-2"></i>Add Single Item</button>
+                                <button id="showBulkAddModalBtn" class="btn btn-outline-success"><i class="bi bi-file-earmark-excel me-2"></i>Bulk Add Items</button>
+                            </div>
+                        `;
                         document.getElementById('showAddItemModalBtn').addEventListener('click', handleShowAddItemModal);
-                    } else {
-                        addItemContainer.innerHTML = '';
+                        document.getElementById('showBulkAddModalBtn').addEventListener('click', handleShowBulkAddModal);
                     }
                 }
                 
@@ -510,6 +515,128 @@ document.addEventListener('DOMContentLoaded', () => {
                     await loadOutboundOrders();
                     await loadProductsForDropdown();
                 }
+            }
+        });
+    }
+
+    function handleDownloadTemplate() {
+        const templateData = [
+            { "Article No": "1234567", "Quantity": 10 },
+            { "Article No": "1234568", "Quantity": 5 }
+        ];
+        const worksheet = XLSX.utils.json_to_sheet(templateData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Items");
+        XLSX.writeFile(workbook, "bulk_upload_template.xlsx");
+    }
+
+    function handleShowBulkAddModal() {
+        if (!selectedOrderId) {
+            Swal.fire('Error', 'Please select an order first.', 'error');
+            return;
+        }
+
+        Swal.fire({
+            title: 'Bulk Add Items from Excel',
+            html: `
+                <div class="text-start p-2">
+                    <p class="text-muted">Upload an Excel file (.xlsx, .xls) with two columns: <strong>Article No</strong> and <strong>Quantity</strong>. The first row should be the header.</p>
+                    <a href="#" id="download-template-btn" class="btn btn-sm btn-link mb-2"><i class="bi bi-download me-1"></i>Download Template</a>
+                    <input type="file" id="bulk-upload-file" class="form-control" accept=".xlsx, .xls">
+                    <div id="bulk-upload-error" class="text-danger small mt-2"></div>
+                </div>`,
+            showCancelButton: true,
+            confirmButtonText: 'Upload and Process',
+            didOpen: () => {
+                document.getElementById('download-template-btn').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    handleDownloadTemplate();
+                });
+            },
+            preConfirm: () => {
+                const fileInput = document.getElementById('bulk-upload-file');
+                const file = fileInput.files[0];
+                const errorDiv = document.getElementById('bulk-upload-error');
+                errorDiv.textContent = '';
+
+                if (!file) {
+                    errorDiv.textContent = 'Please select a file to upload.';
+                    return false;
+                }
+
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const data = new Uint8Array(e.target.result);
+                            const workbook = XLSX.read(data, { type: 'array' });
+                            const firstSheetName = workbook.SheetNames[0];
+                            const worksheet = workbook.Sheets[firstSheetName];
+                            const json = XLSX.utils.sheet_to_json(worksheet);
+
+                            if (json.length === 0) {
+                                errorDiv.textContent = 'The Excel file is empty or has an invalid format.';
+                                return reject();
+                            }
+
+                            // Check for required headers
+                            const firstRow = json[0];
+                            if (!firstRow.hasOwnProperty('Article No') || !firstRow.hasOwnProperty('Quantity')) {
+                                errorDiv.textContent = 'File must contain "Article No" and "Quantity" columns.';
+                                return reject();
+                            }
+                            
+                            resolve(json);
+                        } catch (err) {
+                            errorDiv.textContent = 'Error reading or parsing the file. Please ensure it is a valid Excel file.';
+                            reject();
+                        }
+                    };
+                    reader.onerror = () => {
+                        errorDiv.textContent = 'Error reading the file.';
+                        reject();
+                    };
+                    reader.readAsArrayBuffer(file);
+                });
+            }
+        }).then(async (result) => {
+            if (result.isConfirmed && result.value) {
+                const items = result.value;
+                Swal.fire({
+                    title: 'Processing...',
+                    text: `Processing ${items.length} items. Please wait.`,
+                    allowOutsideClick: false,
+                    didOpen: () => { Swal.showLoading(); }
+                });
+
+                const apiResult = await fetchData('api/outbound_api.php?action=bulkAddItems', 'POST', { order_id: selectedOrderId, items: items });
+                
+                if (apiResult?.success) {
+                    let resultHtml = `<div class="text-start">
+                        <p class="lead">${apiResult.message}</p>
+                        <p><strong>Successful:</strong> ${apiResult.data.success_count}</p>
+                        <p><strong>Failed:</strong> ${apiResult.data.failed_count}</p>`;
+                    
+                    if (apiResult.data.failed_count > 0) {
+                        resultHtml += `<h6>Skipped Items:</h6><ul class="list-group" style="max-height: 150px; overflow-y: auto;">`;
+                        apiResult.data.failed_items.forEach(fail => {
+                            resultHtml += `<li class="list-group-item"><strong>${fail.item}:</strong> ${fail.reason}</li>`;
+                        });
+                        resultHtml += `</ul>`;
+                    }
+                    resultHtml += `</div>`;
+
+                    Swal.fire({
+                        title: 'Bulk Process Complete',
+                        html: resultHtml,
+                        icon: apiResult.data.failed_count > 0 ? 'warning' : 'success'
+                    });
+
+                    await loadOrderItems(selectedOrderId);
+                    await loadOutboundOrders();
+                    await loadProductsForDropdown();
+                }
+                // Error handling is done by the generic fetchData function
             }
         });
     }

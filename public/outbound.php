@@ -116,7 +116,9 @@
                                         <tbody id="orderItemsTableBody"></tbody>
                                     </table>
                                 </div>
-                                <div id="addItemContainer" class="mt-3"></div>
+                                <div id="addItemContainer" class="mt-3">
+                                    <!-- Item buttons will be dynamically added here -->
+                                </div>
                             </div>
                             <div class="card-footer text-end" id="managementActionsArea" style="display: none;">
                                 <button id="cancelOrderBtn" class="btn btn-outline-danger me-2">Cancel Order</button>
@@ -137,6 +139,7 @@
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script> <!-- Added SheetJS library for Excel parsing -->
     
     <!-- Custom Application Scripts -->
     <script src="js/main.js"></script>

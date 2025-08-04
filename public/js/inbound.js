@@ -363,8 +363,8 @@ $(document).ready(function() {
                 const isActive = product.is_active == 1;
                 return {
                     id: product.article_no,
-                    text: `${product.product_name} (Article No: ${product.article_no})`,
-                    disabled: !hasExpiry || isBlocked || !isActive,
+                    text: `${product.product_name} (${product.sku})`,
+                    disabled: !isActive || isBlocked || !hasExpiry,
                     product: product
                 };
             });
@@ -374,7 +374,23 @@ $(document).ready(function() {
                 theme: "bootstrap-5",
                 data: productData,
                 templateResult: formatProductOption,
-                templateSelection: formatProductSelection
+                templateSelection: formatProductSelection,
+                matcher: function(params, data) {
+                    if ($.trim(params.term) === '') {
+                        return data;
+                    }
+                    if (typeof data.text === 'undefined' || !data.product) {
+                        return null;
+                    }
+                    const term = params.term.toUpperCase();
+                    const product = data.product;
+                    const textToSearch = `${product.sku || ''} ${product.product_name || ''} ${product.article_no || ''}`.toUpperCase();
+                    
+                    if (textToSearch.indexOf(term) > -1) {
+                        return data;
+                    }
+                    return null;
+                }
             }).prop('disabled', false);
              productSelect.val(null).trigger('change');
         } else {
@@ -390,23 +406,30 @@ $(document).ready(function() {
             return state.text;
         }
         
-        let badge = '';
         const product = state.product;
-        const hasExpiry = product.expiry_years !== null && product.expiry_years > 0;
+        let badge = '';
 
         if (product.is_active != 1) {
-            badge = '<span class="badge bg-danger float-end">Inactive</span>';
+            badge = '<span class="badge bg-danger">Inactive</span>';
         } else if (product.in_block_area == 1) {
-            badge = '<span class="badge bg-danger float-end">Blocked</span>';
-        } else if (!hasExpiry) {
-            badge = '<span class="badge bg-warning text-dark float-end">Age Not Set</span>';
+            badge = '<span class="badge bg-danger">Blocked</span>';
+        } else if (!product.expiry_years || product.expiry_years <= 0) {
+            badge = '<span class="badge bg-warning text-dark">Age Not Set</span>';
         }
-        
-        return $(`<div>${state.text}${badge}</div>`);
+
+        return $(`
+            <div class="d-flex justify-content-between">
+                <span>${state.text}</span>
+                <span class="ms-2">${badge} <small class="ms-1 badge bg-success">Article No. (${product.article_no})</small></span>
+            </div>
+        `);
     }
 
     function formatProductSelection(state) {
-        return state.text;
+        if (!state.id || !state.product) {
+            return state.text;
+        }
+        return `${state.product.product_name} (${state.product.sku})`;
     }
 
 

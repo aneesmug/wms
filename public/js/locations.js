@@ -105,14 +105,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (response?.success && Array.isArray(response.data)) {
             const canEdit = currentWarehouseRole === 'operator' || currentWarehouseRole === 'manager';
-            const canDelete = currentWarehouseRole === 'manager';
+            const isManager = currentWarehouseRole === 'manager';
 
             response.data.forEach(location => {
                 const row = document.createElement('tr');
                 let actionsHtml = '<div class="text-end">';
-                if (canEdit) actionsHtml += `<button data-id="${location.location_id}" class="btn btn-sm btn-outline-primary edit-btn" title="Edit"><i class="bi bi-pencil"></i></button>`;
-                if (canDelete) actionsHtml += `<button data-id="${location.location_id}" class="btn btn-sm btn-outline-danger delete-btn ms-2" title="Delete"><i class="bi bi-trash"></i></button>`;
-                if (!canEdit && !canDelete) actionsHtml += '<span class="text-muted">View Only</span>';
+                if (isManager) {
+                    const lockIcon = location.is_locked == 1 ? 'bi-unlock-fill' : 'bi-lock-fill';
+                    const lockTitle = location.is_locked == 1 ? 'Unlock' : 'Lock';
+                    const lockBtnClass = location.is_locked == 1 ? 'btn-outline-success' : 'btn-outline-warning';
+                    actionsHtml += `<button data-id="${location.location_id}" data-locked="${location.is_locked}" class="btn btn-sm ${lockBtnClass} lock-btn" title="${lockTitle}"><i class="bi ${lockIcon}"></i></button>`;
+                }
+                if (canEdit) actionsHtml += `<button data-id="${location.location_id}" class="btn btn-sm btn-outline-primary edit-btn ms-2" title="Edit"><i class="bi bi-pencil"></i></button>`;
+                if (isManager) actionsHtml += `<button data-id="${location.location_id}" class="btn btn-sm btn-outline-danger delete-btn ms-2" title="Delete"><i class="bi bi-trash"></i></button>`;
+                if (!canEdit && !isManager) actionsHtml += '<span class="text-muted">View Only</span>';
                 actionsHtml += '</div>';
 
                 row.innerHTML = `
@@ -122,7 +128,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td>${location.occupied_capacity || '0'}</td>
                     <td>${location.available_capacity !== null ? location.available_capacity : 'N/A'}</td>
                     <td><span class="badge ${location.is_full ? 'bg-danger' : 'bg-success'}">${location.is_full ? 'Yes' : 'No'}</span></td>
-                    <td><span class="badge ${location.is_active == 1 ? 'bg-success' : 'bg-secondary'}">${location.is_active == 1 ? 'Yes' : 'No'}</span></td>
+                    <td><span class="badge ${location.is_active == 1 ? 'bg-success' : 'bg-secondary'}">${location.is_active == 1 ? 'Active' : 'Inactive'}</span></td>
+                    <td><span class="badge ${location.is_locked == 1 ? 'bg-danger' : 'bg-success'}">${location.is_locked == 1 ? 'Locked' : 'Unlocked'}</span></td>
                     <td>${actionsHtml}</td>`;
                 locationsTableBody.appendChild(row);
             });
@@ -143,6 +150,9 @@ document.addEventListener('DOMContentLoaded', () => {
             openLocationModal(locationId);
         } else if (button.classList.contains('delete-btn')) {
             handleDeleteClick(locationId);
+        } else if (button.classList.contains('lock-btn')) {
+            const isLocked = button.dataset.locked == 1;
+            handleToggleLock(locationId, !isLocked);
         }
     }
     
@@ -155,6 +165,32 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (button.classList.contains('delete-type-btn')) {
             handleDeleteTypeClick(typeId);
         }
+    }
+
+    function handleToggleLock(locationId, lockStatus) {
+        const action = lockStatus ? 'lock' : 'unlock';
+        Swal.fire({
+            title: `Confirm ${action}`,
+            text: `Are you sure you want to ${action} this location? This will prevent all inventory movements.`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#3085d6',
+            cancelButtonColor: '#d33',
+            confirmButtonText: `Yes, ${action} it!`
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                const response = await fetchData('api/locations_api.php?action=toggle_lock', 'PUT', {
+                    location_id: locationId,
+                    is_locked: lockStatus
+                });
+                if (response.success) {
+                    Swal.fire('Success!', response.message, 'success');
+                    await loadLocations();
+                } else {
+                    Swal.fire('Error!', response.message || 'Failed to update lock status.', 'error');
+                }
+            }
+        });
     }
 
     function openLocationTypeModal(typeId = null) {
@@ -190,7 +226,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }).then(async (result) => {
             if (result.isConfirmed) {
-                // MODIFIED: Added action parameter to differentiate between updating a type and a location
                 const url = isUpdating ? `api/locations_api.php?action=update_type` : `api/locations_api.php?action=create_type`;
                 const method = isUpdating ? 'PUT' : 'POST';
                 const saveResult = await fetchData(url, method, result.value);
@@ -273,7 +308,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }).then(async (result) => {
             if (result.isConfirmed) {
-                // MODIFIED: Added action parameter for updating a location
                 const url = isUpdating ? 'api/locations_api.php?action=update_location' : 'api/locations_api.php';
                 const saveResult = await fetchData(url, isUpdating ? 'PUT' : 'POST', result.value);
                 if (saveResult?.success) {
@@ -296,7 +330,7 @@ document.addEventListener('DOMContentLoaded', () => {
             confirmButtonText: 'Yes, delete it!'
         }).then(async (result) => {
             if (result.isConfirmed) {
-                const deleteResult = await fetchData(`api/locations_api.php?id=${typeId}`, 'DELETE');
+                const deleteResult = await fetchData(`api/locations_api.php?action=delete_type`, 'DELETE', {id: typeId});
                 if (deleteResult?.success) {
                     await Swal.fire('Deleted!', 'The location type has been deleted.', 'success');
                     await initializePage();
@@ -317,7 +351,7 @@ document.addEventListener('DOMContentLoaded', () => {
             confirmButtonText: 'Yes, delete it!'
         }).then(async (result) => {
             if (result.isConfirmed) {
-                const deleteResult = await fetchData(`api/locations_api.php?id=${locationId}`, 'DELETE');
+                const deleteResult = await fetchData(`api/locations_api.php?action=delete_location`, 'DELETE', {id: locationId});
                 if (deleteResult?.success) {
                     await Swal.fire('Deleted!', 'The location has been deleted.', 'success');
                     await initializePage();

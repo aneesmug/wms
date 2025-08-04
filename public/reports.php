@@ -48,6 +48,11 @@
                                     <select id="reportType" name="reportType" class="form-select">
                                         <option value="" selected disabled>-- Select a Report --</option>
                                         
+                                        <optgroup label="Global Reports (All Warehouses)">
+                                            <option value="allWarehouseStockSummary">All Warehouse Stock Summary</option>
+                                            <option value="blockedAndLockedStock">Blocked & Locked Stock</option>
+                                        </optgroup>
+
                                         <optgroup label="Inbound Operations">
                                             <option value="inboundHistory">Inbound History</option>
                                             <option value="receivingDiscrepancy">Receiving Discrepancy</option>
@@ -56,6 +61,7 @@
 
                                         <optgroup label="Outbound Operations">
                                             <option value="outboundHistory">Outbound History</option>
+                                            <option value="returnHistory">Return History</option>
                                             <option value="onTimeShipment">On-Time Shipment</option>
                                             <option value="orderLifecycle">Order Lifecycle Analysis</option>
                                             <option value="fillRate">Fill Rate Report</option>
@@ -66,6 +72,7 @@
                                             <option value="inventorySummary">Inventory Summary</option>
                                             <option value="stockByLocation">Stock By Location</option>
                                             <option value="inventoryAging">Inventory Aging</option>
+                                            <option value="transferHistory">Transfer History</option>
                                             <option value="deadStock">Dead Stock Report</option>
                                             <option value="expiringStock">Expiring Stock Report</option>
                                             <option value="productMovement" data-filter-required="true" data-filter-label="SKU / Article No" data-filter-placeholder="Enter Product SKU/Article No...">Product Movement</option>

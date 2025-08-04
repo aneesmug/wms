@@ -14,7 +14,6 @@ $(document).ready(function() {
     }
 
     // --- Event Listeners ---
-    // Use event delegation on a static parent element to handle clicks on the dynamically added button
     $('.card-body').on('click', '#newOrderBtn', openCreateTransferModal);
     
     $('#transferOrdersTable tbody').on('click', '.print-btn', function() {
@@ -138,7 +137,7 @@ $(document).ready(function() {
             const newItem = {
                 productId: productSelect.val(),
                 productName: productSelect.find('option:selected').text(),
-                productBarcode: productSelect.find('option:selected').data('barcode'),
+                productarticle_no: productSelect.find('option:selected').data('article_no'),
                 sourceLocationId: sourceLocationSelect.val(),
                 sourceLocationName: sourceLocationSelect.find('option:selected').text().split(' (Qty:')[0],
                 destLocationId: destLocationSelect.val(),
@@ -224,7 +223,7 @@ $(document).ready(function() {
                 data.data.forEach(p => {
                     const option = new Option(p.product_name, p.product_id);
                     $(option).data('stock', p.total_stock)
-                             .data('barcode', p.barcode)
+                             .data('article_no', p.article_no)
                              .data('sku', p.sku);
                     if (p.total_stock <= 0) {
                         $(option).prop('disabled', true);
@@ -286,7 +285,7 @@ $(document).ready(function() {
                 const row = `
                     <tr>
                         <td>${item.productName}</td>
-                        <td>${item.productBarcode || 'N/A'}</td>
+                        <td>${item.productarticle_no || 'N/A'}</td>
                         <td>${item.sourceLocationName}</td>
                         <td>${item.destLocationName}</td>
                         <td class="text-end">${item.quantity}</td>
@@ -326,7 +325,7 @@ $(document).ready(function() {
     function initializeProductSearch(selector, parent) {
         selector.select2({
             theme: 'bootstrap-5',
-            placeholder: "Search by Name, SKU, or Barcode...",
+            placeholder: "Search by Name, SKU, or Article No...",
             allowClear: true,
             dropdownParent: parent,
             templateResult: formatProductResult,
@@ -338,14 +337,14 @@ $(document).ready(function() {
     function formatProductResult(product) {
         if (!product.id) return product.text;
         const stock = $(product.element).data('stock');
-        const barcode = $(product.element).data('barcode');
+        const article_no = $(product.element).data('article_no');
         const sku = $(product.element).data('sku');
         const stockBadge = `<span class="badge ${stock > 0 ? 'bg-success' : 'bg-danger'}">Stock: ${stock}</span>`;
         return $(`
             <div class="d-flex justify-content-between align-items-center">
                 <div>
                     <div class="fw-bold">${sku} - ${product.text}</div>
-                    <div class="text-muted small">Barcode: ${barcode || 'N/A'}</div>
+                    <div class="text-muted small">article_no: ${article_no || 'N/A'}</div>
                 </div>
                 ${stockBadge}
             </div>
@@ -359,9 +358,9 @@ $(document).ready(function() {
         const term = params.term.toLowerCase();
         const productName = data.text.toLowerCase();
         const sku = ($(data.element).data('sku') || '').toString().toLowerCase();
-        const barcode = ($(data.element).data('barcode') || '').toString().toLowerCase();
+        const article_no = ($(data.element).data('article_no') || '').toString().toLowerCase();
 
-        if (productName.includes(term) || sku.includes(term) || barcode.includes(term)) {
+        if (productName.includes(term) || sku.includes(term) || article_no.includes(term)) {
             return data;
         }
         return null;
@@ -429,7 +428,7 @@ $(document).ready(function() {
                                 <thead>
                                     <tr>
                                         <th>Product</th>
-                                        <th>Barcode</th>
+                                        <th>Article No</th>
                                         <th>From</th>
                                         <th>To</th>
                                         <th class="text-end">Qty</th>

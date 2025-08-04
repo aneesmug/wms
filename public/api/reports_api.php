@@ -21,15 +21,20 @@ switch ($action) {
     case 'getFastMovingItems': getFastMovingItems($conn, $current_warehouse_id); break;
 
     // --- GROUPED REPORTS ---
+    
+    // Global Reports
+    case 'allWarehouseStockSummary': getAllWarehouseStockSummary($conn); break;
+    case 'blockedAndLockedStock': getBlockedAndLockedStock($conn); break; // New
 
     // Inbound Operations
     case 'inboundHistory': getInboundHistory($conn, $current_warehouse_id); break;
-    case 'receivingDiscrepancy': getReceivingDiscrepancy($conn, $current_warehouse_id); break; // New
+    case 'receivingDiscrepancy': getReceivingDiscrepancy($conn, $current_warehouse_id); break;
     case 'supplierPerformance': getSupplierPerformance($conn, $current_warehouse_id); break;
 
     // Outbound Operations
     case 'outboundHistory': getOutboundHistory($conn, $current_warehouse_id); break;
-    case 'onTimeShipment': getOnTimeShipment($conn, $current_warehouse_id); break; // New
+    case 'returnHistory': getReturnHistory($conn, $current_warehouse_id); break;
+    case 'onTimeShipment': getOnTimeShipment($conn, $current_warehouse_id); break;
     case 'orderLifecycle': getOrderLifecycleAnalysis($conn, $current_warehouse_id); break;
     case 'fillRate': getFillRateReport($conn, $current_warehouse_id); break;
     case 'orderMovementHistory': getOrderMovementHistory($conn, $current_warehouse_id); break;
@@ -38,13 +43,14 @@ switch ($action) {
     case 'inventorySummary': getInventorySummary($conn, $current_warehouse_id); break;
     case 'stockByLocation': getStockByLocation($conn, $current_warehouse_id); break;
     case 'inventoryAging': getInventoryAging($conn, $current_warehouse_id); break;
+    case 'transferHistory': getTransferHistory($conn, $current_warehouse_id); break;
     case 'deadStock': getDeadStockReport($conn, $current_warehouse_id); break;
-    case 'expiringStock': getExpiringStock($conn, $current_warehouse_id); break; // New
+    case 'expiringStock': getExpiringStock($conn, $current_warehouse_id); break; 
     case 'productMovement': getProductMovement($conn, $current_warehouse_id); break;
 
     // Performance & User Activity
     case 'pickerPerformance': getPickerPerformance($conn, $current_warehouse_id); break;
-    case 'userProductivity': getUserProductivity($conn, $current_warehouse_id); break; // New
+    case 'userProductivity': getUserProductivity($conn, $current_warehouse_id); break;
     case 'orderFulfillmentLeadTime': getOrderFulfillmentLeadTime($conn, $current_warehouse_id); break;
 
     // Financial & Auditing
@@ -108,7 +114,7 @@ function getWeeklyActivity($conn, $warehouse_id) {
 
 function getFastMovingItems($conn, $warehouse_id) {
     if (!$warehouse_id) { sendJsonResponse(['success' => true, 'data' => []]); return; }
-    $stmt = $conn->prepare("SELECT p.sku, p.product_name, SUM(oip.picked_quantity) AS total_units_picked FROM outbound_item_picks AS oip JOIN outbound_items AS oi ON oip.outbound_item_id = oi.outbound_item_id JOIN products AS p ON oi.product_id = p.product_id JOIN outbound_orders AS oo ON oi.order_id = oo.order_id WHERE oo.warehouse_id = ? AND oip.picked_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) GROUP BY p.product_id, p.sku, p.product_name ORDER BY total_units_picked DESC LIMIT 10");
+    $stmt = $conn->prepare("SELECT p.sku, p.product_name, p.article_no, SUM(oip.picked_quantity) AS total_units_picked FROM outbound_item_picks AS oip JOIN outbound_items AS oi ON oip.outbound_item_id = oi.outbound_item_id JOIN products AS p ON oi.product_id = p.product_id JOIN outbound_orders AS oo ON oi.order_id = oo.order_id WHERE oo.warehouse_id = ? AND oip.picked_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) GROUP BY p.product_id, p.sku, p.product_name, p.article_no ORDER BY total_units_picked DESC LIMIT 10");
     $stmt->bind_param("i", $warehouse_id);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -134,7 +140,130 @@ function addDateFilter($sql, &$params, &$types, $date_column) {
     return $sql;
 }
 
-// --- NEW REPORT FUNCTIONS ---
+// --- NEW AND MODIFIED REPORT FUNCTIONS ---
+
+function getBlockedAndLockedStock($conn) {
+    $sql = "
+        SELECT 
+            w.warehouse_name,
+            p.sku,
+            p.product_name,
+            p.article_no,
+            wl.location_code,
+            i.quantity,
+            i.batch_number,
+            i.dot_code,
+            CASE
+                WHEN wl.is_locked = 1 THEN 'Locked Location'
+                WHEN lt.type_name = 'block_area' THEN 'Block Area'
+                ELSE 'Unknown'
+            END as reason
+        FROM inventory i
+        JOIN products p ON i.product_id = p.product_id
+        JOIN warehouses w ON i.warehouse_id = w.warehouse_id
+        JOIN warehouse_locations wl ON i.location_id = wl.location_id
+        LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
+        WHERE i.quantity > 0 AND (wl.is_locked = 1 OR lt.type_name = 'block_area')
+        ORDER BY w.warehouse_name, reason, p.product_name
+    ";
+    $stmt = $conn->prepare($sql);
+    $stmt->execute();
+    $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    sendJsonResponse(['success' => true, 'data' => $data]);
+}
+
+function getAllWarehouseStockSummary($conn) {
+    $sql = "
+        SELECT 
+            w.warehouse_name,
+            p.sku,
+            p.product_name,
+            p.article_no,
+            wl.location_code,
+            i.quantity
+        FROM inventory i
+        JOIN products p ON i.product_id = p.product_id
+        JOIN warehouses w ON i.warehouse_id = w.warehouse_id
+        JOIN warehouse_locations wl ON i.location_id = wl.location_id
+        WHERE i.quantity > 0
+        ORDER BY w.warehouse_name, p.product_name, wl.location_code
+    ";
+    $stmt = $conn->prepare($sql);
+    $stmt->execute();
+    $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    sendJsonResponse(['success' => true, 'data' => $data]);
+}
+
+function getTransferHistory($conn, $warehouse_id) {
+    $sql = "
+        SELECT 
+            to.transfer_order_number,
+            sw.warehouse_name as source_warehouse,
+            dw.warehouse_name as destination_warehouse,
+            p.sku,
+            p.product_name,
+            p.article_no,
+            toi.quantity,
+            to.status,
+            to.created_at,
+            u.full_name as created_by
+        FROM transfer_orders `to`
+        JOIN transfer_order_items toi ON to.transfer_id = toi.transfer_id
+        JOIN warehouses sw ON to.source_warehouse_id = sw.warehouse_id
+        JOIN warehouses dw ON to.destination_warehouse_id = dw.warehouse_id
+        JOIN products p ON toi.product_id = p.product_id
+        LEFT JOIN users u ON to.created_by_user_id = u.user_id
+        WHERE to.source_warehouse_id = ? OR to.destination_warehouse_id = ?
+    ";
+    $params = [$warehouse_id, $warehouse_id];
+    $types = "ii";
+    $sql = addDateFilter($sql, $params, $types, 'to.created_at');
+    $sql .= " ORDER BY to.created_at DESC";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    sendJsonResponse(['success' => true, 'data' => $data]);
+}
+
+function getReturnHistory($conn, $warehouse_id) {
+    $sql = "
+        SELECT 
+            r.return_number,
+            oo.order_number,
+            c.customer_name,
+            p.sku,
+            p.product_name,
+            p.article_no,
+            ri.expected_quantity,
+            ri.processed_quantity,
+            ri.condition,
+            r.status as return_status,
+            r.created_at as return_date,
+            u.full_name as created_by
+        FROM returns r
+        JOIN return_items ri ON r.return_id = ri.return_id
+        JOIN outbound_orders oo ON r.order_id = oo.order_id
+        JOIN customers c ON r.customer_id = c.customer_id
+        JOIN products p ON ri.product_id = p.product_id
+        LEFT JOIN users u ON r.created_by = u.user_id
+        WHERE oo.warehouse_id = ?
+    ";
+    $params = [$warehouse_id];
+    $types = "i";
+    $sql = addDateFilter($sql, $params, $types, 'r.created_at');
+    $sql .= " ORDER BY r.created_at DESC";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    sendJsonResponse(['success' => true, 'data' => $data]);
+}
+
 
 function getReceivingDiscrepancy($conn, $warehouse_id) {
     $sql = "
@@ -144,6 +273,7 @@ function getReceivingDiscrepancy($conn, $warehouse_id) {
             ir.actual_arrival_date,
             p.sku,
             p.product_name,
+            p.article_no,
             ii.expected_quantity,
             ii.received_quantity,
             (ii.received_quantity - ii.expected_quantity) AS discrepancy
@@ -181,7 +311,7 @@ function getOnTimeShipment($conn, $warehouse_id) {
             DATEDIFF(oo.actual_ship_date, oo.required_ship_date) as days_late
         FROM outbound_orders oo
         JOIN customers c ON oo.customer_id = c.customer_id
-        WHERE oo.warehouse_id = ? AND oo.status IN ('Shipped', 'Delivered')
+        WHERE oo.warehouse_id = ? AND oo.status IN ('Shipped', 'Delivered', 'Partially Returned', 'Completed')
     ";
     $params = [$warehouse_id];
     $types = "i";
@@ -203,6 +333,7 @@ function getExpiringStock($conn, $warehouse_id) {
         SELECT
             p.sku,
             p.product_name,
+            p.article_no,
             i.quantity,
             wl.location_code,
             i.batch_number,
@@ -272,7 +403,7 @@ function getUserProductivity($conn, $warehouse_id) {
 // --- EXISTING REPORT FUNCTIONS (Unchanged) ---
 
 function getInventorySummary($conn, $warehouse_id) {
-    $sql = "SELECT p.sku, p.product_name, SUM(i.quantity) AS total_quantity, GROUP_CONCAT(DISTINCT wl.location_code SEPARATOR ', ') AS locations_list FROM inventory i JOIN products p ON i.product_id = p.product_id JOIN warehouse_locations wl ON i.location_id = wl.location_id WHERE i.warehouse_id = ? AND i.quantity > 0 GROUP BY p.product_id ORDER BY p.product_name ASC";
+    $sql = "SELECT p.sku, p.product_name, p.article_no, SUM(i.quantity) AS total_quantity, GROUP_CONCAT(DISTINCT wl.location_code SEPARATOR ', ') AS locations_list FROM inventory i JOIN products p ON i.product_id = p.product_id JOIN warehouse_locations wl ON i.location_id = wl.location_id WHERE i.warehouse_id = ? AND i.quantity > 0 GROUP BY p.product_id, p.article_no ORDER BY p.product_name ASC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("i", $warehouse_id);
     $stmt->execute();
@@ -282,7 +413,7 @@ function getInventorySummary($conn, $warehouse_id) {
 }
 
 function getStockByLocation($conn, $warehouse_id) {
-    $sql = "SELECT wl.location_code, lt.type_name as location_type, p.sku, p.product_name, i.quantity, i.batch_number, i.expiry_date FROM inventory i JOIN warehouse_locations wl ON i.location_id = wl.location_id JOIN products p ON i.product_id = p.product_id LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id WHERE i.warehouse_id = ? AND i.quantity > 0 ORDER BY wl.location_code ASC, p.product_name ASC";
+    $sql = "SELECT wl.location_code, lt.type_name as location_type, p.sku, p.product_name, p.article_no, i.quantity, i.batch_number, i.expiry_date FROM inventory i JOIN warehouse_locations wl ON i.location_id = wl.location_id JOIN products p ON i.product_id = p.product_id LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id WHERE i.warehouse_id = ? AND i.quantity > 0 ORDER BY wl.location_code ASC, p.product_name ASC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("i", $warehouse_id);
     $stmt->execute();
@@ -292,7 +423,7 @@ function getStockByLocation($conn, $warehouse_id) {
 }
 
 function getInboundHistory($conn, $warehouse_id) {
-    $sql = "SELECT ir.receipt_number, s.supplier_name, ir.actual_arrival_date, ir.status AS receipt_status, p.sku, p.product_name, ii.expected_quantity, ii.received_quantity, ii.putaway_quantity, wl.location_code AS final_location, u.full_name AS received_by_user FROM inbound_receipts ir JOIN inbound_items ii ON ir.receipt_id = ii.receipt_id JOIN products p ON ii.product_id = p.product_id JOIN suppliers s ON ir.supplier_id = s.supplier_id LEFT JOIN warehouse_locations wl ON ii.final_location_id = wl.location_id LEFT JOIN users u ON ir.received_by = u.user_id WHERE ir.warehouse_id = ?";
+    $sql = "SELECT ir.receipt_number, s.supplier_name, ir.actual_arrival_date, ir.status AS receipt_status, p.sku, p.product_name, p.article_no, ii.expected_quantity, ii.received_quantity, ii.putaway_quantity, wl.location_code AS final_location, u.full_name AS received_by_user FROM inbound_receipts ir JOIN inbound_items ii ON ir.receipt_id = ii.receipt_id JOIN products p ON ii.product_id = p.product_id JOIN suppliers s ON ir.supplier_id = s.supplier_id LEFT JOIN warehouse_locations wl ON ii.final_location_id = wl.location_id LEFT JOIN users u ON ir.received_by = u.user_id WHERE ir.warehouse_id = ?";
     $params = [$warehouse_id];
     $types = "i";
     $sql = addDateFilter($sql, $params, $types, 'ir.actual_arrival_date');
@@ -306,7 +437,7 @@ function getInboundHistory($conn, $warehouse_id) {
 }
 
 function getOutboundHistory($conn, $warehouse_id) {
-    $sql = "SELECT oo.order_number, c.customer_name, oo.order_date, oo.actual_ship_date, oo.status AS order_status, p.sku, p.product_name, oi.ordered_quantity, oi.picked_quantity, oi.shipped_quantity, (SELECT wl.location_code FROM warehouse_locations wl JOIN outbound_item_picks oip ON wl.location_id = oip.location_id WHERE oip.outbound_item_id = oi.outbound_item_id LIMIT 1) as picked_from_location, u.full_name AS picked_by_user FROM outbound_orders oo JOIN outbound_items oi ON oo.order_id = oi.order_id JOIN products p ON oi.product_id = p.product_id JOIN customers c ON oo.customer_id = c.customer_id LEFT JOIN users u ON oo.picked_by = u.user_id WHERE oo.warehouse_id = ?";
+    $sql = "SELECT oo.order_number, c.customer_name, oo.order_date, oo.actual_ship_date, oo.status AS order_status, p.sku, p.product_name, p.article_no, oi.ordered_quantity, oi.picked_quantity, oi.shipped_quantity, (SELECT wl.location_code FROM warehouse_locations wl JOIN outbound_item_picks oip ON wl.location_id = oip.location_id WHERE oip.outbound_item_id = oi.outbound_item_id LIMIT 1) as picked_from_location, u.full_name AS picked_by_user FROM outbound_orders oo JOIN outbound_items oi ON oo.order_id = oi.order_id JOIN products p ON oi.product_id = p.product_id JOIN customers c ON oo.customer_id = c.customer_id LEFT JOIN users u ON oo.picked_by = u.user_id WHERE oo.warehouse_id = ?";
     $params = [$warehouse_id];
     $types = "i";
     $sql = addDateFilter($sql, $params, $types, 'oo.order_date');
@@ -330,13 +461,13 @@ function getProductMovement($conn, $warehouse_id) {
     if (!$product_result) { sendJsonResponse(['success' => false, 'message' => 'Product not found.'], 404); return; }
     $product_id = $product_result['product_id'];
     $params = []; $types = "";
-    $inbound_sql = "SELECT 'INBOUND' as movement_type, ir.receipt_number as reference, ir.updated_at as transaction_date, p.product_name, ii.received_quantity as quantity_change, '' as from_location, wl.location_code as to_location, ir.status, u.full_name as performed_by FROM inbound_items ii JOIN inbound_receipts ir ON ii.receipt_id = ir.receipt_id JOIN products p ON ii.product_id = p.product_id LEFT JOIN warehouse_locations wl ON ii.final_location_id = wl.location_id LEFT JOIN users u ON ir.received_by = u.user_id WHERE ii.product_id = ? AND ir.warehouse_id = ?";
+    $inbound_sql = "SELECT 'INBOUND' as movement_type, ir.receipt_number as reference, ir.updated_at as transaction_date, p.product_name, p.article_no, ii.received_quantity as quantity_change, '' as from_location, wl.location_code as to_location, ir.status, u.full_name as performed_by FROM inbound_items ii JOIN inbound_receipts ir ON ii.receipt_id = ir.receipt_id JOIN products p ON ii.product_id = p.product_id LEFT JOIN warehouse_locations wl ON ii.final_location_id = wl.location_id LEFT JOIN users u ON ir.received_by = u.user_id WHERE ii.product_id = ? AND ir.warehouse_id = ?";
     $params = array_merge($params, [$product_id, $warehouse_id]); $types .= "ii";
     $inbound_sql = addDateFilter($inbound_sql, $params, $types, 'ir.updated_at');
-    $outbound_sql = "SELECT 'OUTBOUND' as movement_type, oo.order_number as reference, oip.picked_at as transaction_date, p.product_name, oip.picked_quantity * -1 as quantity_change, wl.location_code as from_location, '' as to_location, oo.status, u.full_name as performed_by FROM outbound_item_picks oip JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id JOIN outbound_orders oo ON oi.order_id = oo.order_id JOIN products p ON oi.product_id = p.product_id JOIN warehouse_locations wl ON oip.location_id = wl.location_id LEFT JOIN users u ON oip.picked_by_user_id = u.user_id WHERE oi.product_id = ? AND oo.warehouse_id = ?";
+    $outbound_sql = "SELECT 'OUTBOUND' as movement_type, oo.order_number as reference, oip.picked_at as transaction_date, p.product_name, p.article_no, oip.picked_quantity * -1 as quantity_change, wl.location_code as from_location, '' as to_location, oo.status, u.full_name as performed_by FROM outbound_item_picks oip JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id JOIN outbound_orders oo ON oi.order_id = oo.order_id JOIN products p ON oi.product_id = p.product_id JOIN warehouse_locations wl ON oip.location_id = wl.location_id LEFT JOIN users u ON oip.picked_by_user_id = u.user_id WHERE oi.product_id = ? AND oo.warehouse_id = ?";
     $params = array_merge($params, [$product_id, $warehouse_id]); $types .= "ii";
     $outbound_sql = addDateFilter($outbound_sql, $params, $types, 'oip.picked_at');
-    $adjustment_sql = "SELECT 'ADJUSTMENT' as movement_type, sa.reason_code as reference, sa.adjustment_timestamp as transaction_date, p.product_name, sa.quantity_adjusted as quantity_change, CASE WHEN sa.quantity_adjusted < 0 THEN wl.location_code ELSE '' END as from_location, CASE WHEN sa.quantity_adjusted >= 0 THEN wl.location_code ELSE '' END as to_location, sa.reason_code as status, u.full_name as performed_by FROM stock_adjustments sa JOIN products p ON sa.product_id = p.product_id JOIN users u ON sa.user_id = u.user_id JOIN warehouse_locations wl ON sa.location_id = wl.location_id WHERE sa.product_id = ? AND sa.warehouse_id = ?";
+    $adjustment_sql = "SELECT 'ADJUSTMENT' as movement_type, sa.reason_code as reference, sa.adjustment_timestamp as transaction_date, p.product_name, p.article_no, sa.quantity_adjusted as quantity_change, CASE WHEN sa.quantity_adjusted < 0 THEN wl.location_code ELSE '' END as from_location, CASE WHEN sa.quantity_adjusted >= 0 THEN wl.location_code ELSE '' END as to_location, sa.reason_code as status, u.full_name as performed_by FROM stock_adjustments sa JOIN products p ON sa.product_id = p.product_id JOIN users u ON sa.user_id = u.user_id JOIN warehouse_locations wl ON sa.location_id = wl.location_id WHERE sa.product_id = ? AND sa.warehouse_id = ?";
     $params = array_merge($params, [$product_id, $warehouse_id]); $types .= "ii";
     $adjustment_sql = addDateFilter($adjustment_sql, $params, $types, 'sa.adjustment_timestamp');
     $full_sql = "($inbound_sql) UNION ALL ($outbound_sql) UNION ALL ($adjustment_sql) ORDER BY transaction_date DESC";
@@ -425,7 +556,7 @@ function getOrderLifecycleAnalysis($conn, $warehouse_id) {
 }
 
 function getFillRateReport($conn, $warehouse_id) {
-    $sql = "SELECT oo.order_number, c.customer_name, p.sku, p.product_name, oi.ordered_quantity, oi.shipped_quantity, ROUND((oi.shipped_quantity / oi.ordered_quantity) * 100, 2) AS line_item_fill_rate_percent FROM outbound_items oi JOIN outbound_orders oo ON oi.order_id = oo.order_id JOIN products p ON oi.product_id = p.product_id JOIN customers c ON oo.customer_id = c.customer_id WHERE oo.warehouse_id = ? AND oo.status IN ('Shipped', 'Delivered', 'Completed')";
+    $sql = "SELECT oo.order_number, c.customer_name, p.sku, p.product_name, p.article_no, oi.ordered_quantity, oi.shipped_quantity, ROUND((oi.shipped_quantity / oi.ordered_quantity) * 100, 2) AS line_item_fill_rate_percent FROM outbound_items oi JOIN outbound_orders oo ON oi.order_id = oo.order_id JOIN products p ON oi.product_id = p.product_id JOIN customers c ON oo.customer_id = c.customer_id WHERE oo.warehouse_id = ? AND oo.status IN ('Shipped', 'Delivered', 'Completed', 'Partially Returned')";
     $params = [$warehouse_id]; $types = "i";
     $sql = addDateFilter($sql, $params, $types, 'oo.order_date');
     $sql .= " ORDER BY oo.order_date DESC, line_item_fill_rate_percent ASC";
@@ -438,7 +569,7 @@ function getFillRateReport($conn, $warehouse_id) {
 }
 
 function getInventoryAging($conn, $warehouse_id) {
-    $sql = "SELECT p.sku, p.product_name, i.batch_number, i.quantity, DATE(i.created_at) AS receipt_date, DATEDIFF(NOW(), i.created_at) AS age_days, CASE WHEN DATEDIFF(NOW(), i.created_at) <= 30 THEN '0-30 Days' WHEN DATEDIFF(NOW(), i.created_at) <= 60 THEN '31-60 Days' WHEN DATEDIFF(NOW(), i.created_at) <= 90 THEN '61-90 Days' ELSE '90+ Days' END AS aging_bracket FROM inventory i JOIN products p ON i.product_id = p.product_id WHERE i.warehouse_id = ? AND i.quantity > 0 ORDER BY age_days DESC";
+    $sql = "SELECT p.sku, p.product_name, p.article_no, i.batch_number, i.quantity, DATE(i.created_at) AS receipt_date, DATEDIFF(NOW(), i.created_at) AS age_days, CASE WHEN DATEDIFF(NOW(), i.created_at) <= 30 THEN '0-30 Days' WHEN DATEDIFF(NOW(), i.created_at) <= 60 THEN '31-60 Days' WHEN DATEDIFF(NOW(), i.created_at) <= 90 THEN '61-90 Days' ELSE '90+ Days' END AS aging_bracket FROM inventory i JOIN products p ON i.product_id = p.product_id WHERE i.warehouse_id = ? AND i.quantity > 0 ORDER BY age_days DESC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("i", $warehouse_id);
     $stmt->execute();
@@ -448,7 +579,7 @@ function getInventoryAging($conn, $warehouse_id) {
 }
 
 function getInventoryValuation($conn, $warehouse_id) {
-    $sql = "SELECT w.warehouse_name, p.sku, p.product_name, SUM(i.quantity) AS total_on_hand_quantity, i.unit_cost, SUM(i.quantity * i.unit_cost) AS total_value FROM inventory i JOIN products p ON i.product_id = p.product_id JOIN warehouses w ON i.warehouse_id = w.warehouse_id WHERE i.warehouse_id = ? AND i.quantity > 0 AND i.unit_cost IS NOT NULL GROUP BY i.product_id, i.unit_cost ORDER BY total_value DESC";
+    $sql = "SELECT w.warehouse_name, p.sku, p.product_name, p.article_no, SUM(i.quantity) AS total_on_hand_quantity, i.unit_cost, SUM(i.quantity * i.unit_cost) AS total_value FROM inventory i JOIN products p ON i.product_id = p.product_id JOIN warehouses w ON i.warehouse_id = w.warehouse_id WHERE i.warehouse_id = ? AND i.quantity > 0 AND i.unit_cost IS NOT NULL GROUP BY i.product_id, i.unit_cost, p.article_no ORDER BY total_value DESC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("i", $warehouse_id);
     $stmt->execute();
@@ -458,7 +589,7 @@ function getInventoryValuation($conn, $warehouse_id) {
 }
 
 function getDeadStockReport($conn, $warehouse_id) {
-    $sql = "SELECT p.sku, p.product_name, i.quantity, wl.location_code, i.batch_number, DATEDIFF(NOW(), i.last_moved_at) AS days_since_last_movement, i.last_moved_at FROM inventory i JOIN products p ON i.product_id = p.product_id JOIN warehouse_locations wl ON i.location_id = wl.location_id WHERE i.warehouse_id = ?";
+    $sql = "SELECT p.sku, p.product_name, p.article_no, i.quantity, wl.location_code, i.batch_number, DATEDIFF(NOW(), i.last_moved_at) AS days_since_last_movement, i.last_moved_at FROM inventory i JOIN products p ON i.product_id = p.product_id JOIN warehouse_locations wl ON i.location_id = wl.location_id WHERE i.warehouse_id = ?";
     $params = [$warehouse_id]; $types = "i";
     $days_filter = filter_input(INPUT_GET, 'days', FILTER_VALIDATE_INT) ?: 90;
     $sql .= " AND i.last_moved_at < DATE_SUB(NOW(), INTERVAL ? DAY)";
@@ -483,7 +614,7 @@ function getLocationCapacity($conn, $warehouse_id) {
 }
 
 function getStockAdjustmentHistory($conn, $warehouse_id) {
-    $sql = "SELECT sa.adjustment_timestamp, p.sku, p.product_name, wl.location_code, u.full_name, sa.quantity_adjusted, sa.reason_code, sa.notes FROM stock_adjustments sa JOIN products p ON sa.product_id = p.product_id JOIN users u ON sa.user_id = u.user_id JOIN warehouse_locations wl ON sa.location_id = wl.location_id WHERE sa.warehouse_id = ? ";
+    $sql = "SELECT sa.adjustment_timestamp, p.sku, p.product_name, p.article_no, wl.location_code, u.full_name, sa.quantity_adjusted, sa.reason_code, sa.notes FROM stock_adjustments sa JOIN products p ON sa.product_id = p.product_id JOIN users u ON sa.user_id = u.user_id JOIN warehouse_locations wl ON sa.location_id = wl.location_id WHERE sa.warehouse_id = ? ";
     $params = [$warehouse_id]; $types = "i";
     $sql = addDateFilter($sql, $params, $types, 'sa.adjustment_timestamp');
     $sql .= " ORDER BY sa.adjustment_timestamp DESC";

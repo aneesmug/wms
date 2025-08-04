@@ -432,7 +432,7 @@ function handleGetAvailableLocations($conn, $warehouse_id) {
         ON 
             wl.location_id = inv_sum.location_id
         WHERE 
-            wl.warehouse_id = ? AND wl.is_active = 1
+            wl.warehouse_id = ? AND wl.is_active = 1 AND wl.is_locked = 0
             AND lt.type_name NOT IN ('shipping_bay', 'staging_area', 'shipping_area', 'bin')
         HAVING
             available_capacity IS NOT NULL AND available_capacity > 0
@@ -738,12 +738,12 @@ function handlePutawayItem($conn, $warehouse_id) {
             
             $stmt_loc = $conn->prepare("
                 SELECT 
-                    wl.location_id, wl.max_capacity_units,
+                    wl.location_id, wl.max_capacity_units, wl.is_locked,
                     COALESCE(SUM(i.quantity), 0) AS current_usage
                 FROM warehouse_locations wl
                 LEFT JOIN inventory i ON wl.location_id = i.location_id
                 WHERE wl.location_code = ? AND wl.warehouse_id = ? AND wl.is_active = 1
-                GROUP BY wl.location_id, wl.max_capacity_units
+                GROUP BY wl.location_id, wl.max_capacity_units, wl.is_locked
             ");
             $stmt_loc->bind_param("si", $location_article_no, $warehouse_id);
             $stmt_loc->execute();
@@ -752,6 +752,10 @@ function handlePutawayItem($conn, $warehouse_id) {
 
             if (!$location_data) {
                 throw new Exception("Location not found or is inactive in this warehouse");
+            }
+
+            if ($location_data['is_locked'] == 1) {
+                throw new Exception("this location is locked you can't move in locked location");
             }
 
             if (isset($location_data['max_capacity_units'])) {

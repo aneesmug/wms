@@ -37,10 +37,12 @@ switch ($method) {
         authorize_user_role(['operator', 'manager']);
         if ($action === 'createOrder') {
             handleCreateOutboundOrder($conn, $current_warehouse_id, $current_user_id);
-        } elseif ($action === 'updateOrder') { // New action
+        } elseif ($action === 'updateOrder') { 
             handleUpdateOrder($conn, $current_warehouse_id, $current_user_id);
         } elseif ($action === 'addItem') {
             handleAddItemToOrder($conn, $current_warehouse_id);
+        } elseif ($action === 'bulkAddItems') { // New action for bulk upload
+            handleBulkAddItems($conn, $current_warehouse_id, $current_user_id);
         } elseif ($action === 'shipOrder') {
             handleShipOrder($conn, $current_warehouse_id, $current_user_id);
         } elseif ($action === 'cancelOrder') {
@@ -61,6 +63,114 @@ switch ($method) {
         sendJsonResponse(['success' => false, 'message' => 'Method Not Allowed'], 405);
         break;
 }
+
+function handleBulkAddItems($conn, $warehouse_id, $user_id) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $order_id = filter_var($input['order_id'] ?? 0, FILTER_VALIDATE_INT);
+    $items = $input['items'] ?? [];
+
+    if (!$order_id || empty($items)) {
+        sendJsonResponse(['success' => false, 'message' => 'Order ID and a list of items are required.'], 400);
+        return;
+    }
+
+    $conn->begin_transaction();
+    try {
+        // First, check if the order exists and belongs to the warehouse
+        $stmt_check_order = $conn->prepare("SELECT status FROM outbound_orders WHERE order_id = ? AND warehouse_id = ?");
+        $stmt_check_order->bind_param("ii", $order_id, $warehouse_id);
+        $stmt_check_order->execute();
+        $order = $stmt_check_order->get_result()->fetch_assoc();
+        $stmt_check_order->close();
+
+        if (!$order) {
+            throw new Exception("Order not found or does not belong to this warehouse.");
+        }
+        if (!in_array($order['status'], ['New', 'Pending Pick', 'Partially Picked'])) {
+            throw new Exception("Cannot add items to an order with status '{$order['status']}'.");
+        }
+
+        $success_count = 0;
+        $failed_items = [];
+
+        foreach ($items as $item) {
+            $article_no = trim($item['Article No'] ?? '');
+            $quantity = filter_var($item['Quantity'] ?? 0, FILTER_VALIDATE_INT);
+
+            if (empty($article_no) || $quantity <= 0) {
+                $failed_items[] = ['item' => $article_no ?: 'N/A', 'reason' => 'Missing Article No or invalid quantity.'];
+                continue;
+            }
+
+            // Check product validity (exists, is active, not in blocked area, has stock)
+            $stmt_prod = $conn->prepare("SELECT p.product_id, p.is_active, COALESCE(inv.available_stock, 0) as available_stock FROM products p LEFT JOIN (SELECT i.product_id, SUM(i.quantity) AS available_stock FROM inventory i JOIN warehouse_locations wl ON i.location_id = wl.location_id LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id WHERE i.warehouse_id = ? AND (lt.type_name IS NULL OR lt.type_name != 'block_area') GROUP BY i.product_id) AS inv ON p.product_id = inv.product_id WHERE p.article_no = ?");
+            $stmt_prod->bind_param("is", $warehouse_id, $article_no);
+            $stmt_prod->execute();
+            $product_data = $stmt_prod->get_result()->fetch_assoc();
+            $stmt_prod->close();
+
+            if (!$product_data) {
+                $failed_items[] = ['item' => $article_no, 'reason' => 'Product with this Article No not found.'];
+                continue;
+            }
+            if ($product_data['is_active'] != 1) {
+                $failed_items[] = ['item' => $article_no, 'reason' => 'Product is inactive.'];
+                continue;
+            }
+            if ($product_data['available_stock'] <= 0) {
+                $failed_items[] = ['item' => $article_no, 'reason' => 'No available stock.'];
+                continue;
+            }
+            if ($quantity > $product_data['available_stock']) {
+                $failed_items[] = ['item' => $article_no, 'reason' => "Requested quantity ({$quantity}) exceeds available stock ({$product_data['available_stock']})."];
+                continue;
+            }
+
+            $product_id = $product_data['product_id'];
+
+            // Check if item already exists in order
+            $stmt_existing = $conn->prepare("SELECT outbound_item_id, ordered_quantity FROM outbound_items WHERE order_id = ? AND product_id = ?");
+            $stmt_existing->bind_param("ii", $order_id, $product_id);
+            $stmt_existing->execute();
+            $existing_item = $stmt_existing->get_result()->fetch_assoc();
+            $stmt_existing->close();
+
+            if ($existing_item) {
+                $new_quantity = $existing_item['ordered_quantity'] + $quantity;
+                $stmt_update = $conn->prepare("UPDATE outbound_items SET ordered_quantity = ? WHERE outbound_item_id = ?");
+                $stmt_update->bind_param("ii", $new_quantity, $existing_item['outbound_item_id']);
+                $stmt_update->execute();
+                $stmt_update->close();
+            } else {
+                $stmt_insert = $conn->prepare("INSERT INTO outbound_items (order_id, product_id, ordered_quantity) VALUES (?, ?, ?)");
+                $stmt_insert->bind_param("iii", $order_id, $product_id, $quantity);
+                $stmt_insert->execute();
+                $stmt_insert->close();
+            }
+            $success_count++;
+        }
+
+        if ($success_count > 0) {
+            updateOutboundItemAndOrderStatus($conn, $order_id, $user_id);
+        }
+        
+        $conn->commit();
+        sendJsonResponse([
+            'success' => true, 
+            'message' => "Bulk operation complete. {$success_count} items processed successfully.",
+            'data' => [
+                'success_count' => $success_count,
+                'failed_count' => count($failed_items),
+                'failed_items' => $failed_items
+            ]
+        ]);
+
+    } catch (Exception $e) {
+        $conn->rollback();
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 400);
+    }
+}
+
 
 function handleUpdateOrder($conn, $warehouse_id, $user_id) {
     $input = json_decode(file_get_contents('php://input'), true);

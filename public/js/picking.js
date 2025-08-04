@@ -259,27 +259,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const response = await fetchData(`api/picking_api.php?action=getDotsForProduct&product_id=${product.product_id}`);
         
-        if (response?.success && response.data.length > 0) {
-            const dotCodes = response.data;
-            $(pickDotCodeSelect).empty().append(new Option('Select a DOT Code (Oldest First)', ''));
-            dotCodes.forEach((item, index) => {
-                const optionText = `DOT: ${item.dot_code}`;
-                const newOption = new Option(optionText, item.dot_code);
-                if (index === 0) {
-                    newOption.dataset.badgeClass = 'bg-success';
-                    newOption.dataset.badgeText = 'Oldest (FIFO)';
+        if (response?.success) {
+            if (response.data.length > 0) {
+                const dotCodes = response.data;
+                $(pickDotCodeSelect).empty().append(new Option('Select a DOT Code (Oldest First)', ''));
+                dotCodes.forEach((item, index) => {
+                    const optionText = `DOT: ${item.dot_code}`;
+                    const newOption = new Option(optionText, item.dot_code);
+                    if (index === 0) {
+                        newOption.dataset.badgeClass = 'bg-success';
+                        newOption.dataset.badgeText = 'Oldest (FIFO)';
+                    }
+                    $(pickDotCodeSelect).append(newOption);
+                });
+                $(pickDotCodeSelect).prop('disabled', false);
+                
+                if (dotCodes.length > 0) {
+                    $(pickDotCodeSelect).val(dotCodes[0].dot_code).trigger('change');
                 }
-                $(pickDotCodeSelect).append(newOption);
-            });
-            $(pickDotCodeSelect).prop('disabled', false);
-            
-            // Automatically select the first (oldest) DOT code to guide the user
-            if (dotCodes.length > 0) {
-                $(pickDotCodeSelect).val(dotCodes[0].dot_code).trigger('change');
+            } else {
+                Toast.fire({ icon: 'error', title: 'No available stock (DOTs) found for this item.' });
+                $(pickDotCodeSelect).empty().append(new Option('No stock found', '')).prop('disabled', true).trigger('change');
             }
         } else {
-            Toast.fire({ icon: 'error', title: 'No available stock (DOTs) found for this item.' });
-            $(pickDotCodeSelect).empty().append(new Option('No stock found', '')).prop('disabled', true).trigger('change');
+            // This handles the specific error for locked locations
+            Toast.fire({ icon: 'error', title: response.message || 'An error occurred.' });
+            $(pickDotCodeSelect).empty().append(new Option('Stock unavailable', '')).prop('disabled', true).trigger('change');
         }
     }
 

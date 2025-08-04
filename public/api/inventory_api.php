@@ -23,21 +23,26 @@ switch ($method) {
         }
         break;
     case 'POST':
+        authorize_user_role(['manager']);
         $input = json_decode(file_get_contents('php://input'), true);
-        $action_type = sanitize_input($input['action_type'] ?? '');
-
-        if ($action_type === 'transfer_inter_warehouse') {
-            authorize_user_role(['manager']);
-            handleInterWarehouseTransfer($conn, $input, $current_warehouse_id);
-        } else {
-            authorize_user_role(['manager']);
-            handleInventoryAdjustment($conn, $input, $current_warehouse_id);
-        }
+        handleInventoryAdjustment($conn, $input, $current_warehouse_id);
         break;
     default:
         sendJsonResponse(['success' => false, 'message' => 'Method Not Allowed'], 405);
         break;
 }
+
+function checkLocationLock($conn, $location_code, $warehouse_id) {
+    $stmt = $conn->prepare("SELECT is_locked FROM warehouse_locations WHERE location_code = ? AND warehouse_id = ?");
+    $stmt->bind_param("si", $location_code, $warehouse_id);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if ($result && $result['is_locked'] == 1) {
+        throw new Exception("Operation failed: Location '{$location_code}' is locked and cannot be modified.");
+    }
+}
+
 
 function calculateExpiryDate($dot_code, $expiry_years) {
     if (empty($dot_code) || strlen($dot_code) !== 4 || !is_numeric($dot_code) || $expiry_years === null || !is_numeric($expiry_years)) { return null; }
@@ -66,6 +71,7 @@ function handleGetLocationStock($conn, $warehouse_id) {
         LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
         WHERE wl.warehouse_id = ? 
           AND wl.is_active = 1
+          AND wl.is_locked = 0
           AND (lt.type_name IS NULL OR lt.type_name NOT IN ('shipping_area', 'staging_area', 'shipping_bay'))
         ORDER BY wl.location_code ASC
     ";
@@ -109,7 +115,7 @@ function handleGetInventory($conn, $warehouse_id) {
         LEFT JOIN products p ON i.product_id = p.product_id
         LEFT JOIN warehouse_locations wl ON i.location_id = wl.location_id
         LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
-        WHERE i.warehouse_id = ? AND i.quantity > 0 AND (lt.type_name IS NULL OR lt.type_name != 'block_area')
+        WHERE i.warehouse_id = ? AND i.quantity > 0
     ";
     $params = [$warehouse_id];
     $types = "i";
@@ -143,35 +149,29 @@ function handleInventoryAdjustment($conn, $input, $warehouse_id) {
     try {
         $message = '';
         if ($action_type === 'adjust_quantity') {
+            checkLocationLock($conn, $input['current_location_article_no'], $warehouse_id);
             adjustInventoryQuantity($conn, $input, $warehouse_id);
             $message = 'Inventory quantity adjusted successfully.';
         } elseif ($action_type === 'transfer' || $action_type === 'block_item') {
+            checkLocationLock($conn, $input['current_location_article_no'], $warehouse_id);
+            checkLocationLock($conn, $input['new_location_article_no'], $warehouse_id);
+            
             if ($action_type === 'block_item') {
                 $to_location_article_no = sanitize_input($input['new_location_article_no'] ?? '');
-                $stmt_check_block = $conn->prepare("
-                    SELECT lt.type_name 
-                    FROM warehouse_locations wl
-                    LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
-                    WHERE wl.location_code = ? AND wl.warehouse_id = ?
-                ");
-                $stmt_check_block->bind_param("si", $to_location_article_no, $warehouse_id);
-                $stmt_check_block->execute();
-                $result = $stmt_check_block->get_result();
-                if ($result->num_rows === 0) {
-                    $stmt_check_block->close();
-                    throw new Exception("Destination location '{$to_location_article_no}' not found.");
-                }
-                $dest_location_type = $result->fetch_assoc()['type_name'];
-                $stmt_check_block->close();
+                $dest_location_type = getLocationTypeByCode($conn, $to_location_article_no, $warehouse_id);
 
                 if ($dest_location_type !== 'block_area') {
                     throw new Exception("The destination location is not a designated 'block_area'.");
                 }
             }
+            
             transferInventory($conn, $input, $warehouse_id);
             
+            $from_location_type = getLocationTypeByCode($conn, $input['current_location_article_no'], $warehouse_id);
+            $to_location_type = getLocationTypeByCode($conn, $input['new_location_article_no'], $warehouse_id);
+            $product_id = filter_var($input['product_id'] ?? 0, FILTER_VALIDATE_INT);
+
             if ($action_type === 'block_item') {
-                $product_id = filter_var($input['product_id'] ?? 0, FILTER_VALIDATE_INT);
                 if ($product_id) {
                     $stmt_deactivate = $conn->prepare("UPDATE products SET is_active = 0 WHERE product_id = ?");
                     $stmt_deactivate->bind_param("i", $product_id);
@@ -179,6 +179,14 @@ function handleInventoryAdjustment($conn, $input, $warehouse_id) {
                     $stmt_deactivate->close();
                 }
                 $message = 'Item has been blocked, moved, and the product has been deactivated.';
+            } elseif ($from_location_type === 'block_area' && $to_location_type !== 'block_area') {
+                 if ($product_id) {
+                    $stmt_activate = $conn->prepare("UPDATE products SET is_active = 1 WHERE product_id = ?");
+                    $stmt_activate->bind_param("i", $product_id);
+                    $stmt_activate->execute();
+                    $stmt_activate->close();
+                }
+                $message = 'Item moved from block area and product has been reactivated.';
             } else {
                  $message = 'Inventory transferred successfully.';
             }
@@ -237,12 +245,7 @@ function adjustInventoryQuantity($conn, $input, $warehouse_id) {
         throw new Exception("Insufficient stock. The specified item batch/DOT was not found at this location.");
     }
     
-    $stmt_cleanup = $conn->prepare("
-        DELETE i FROM inventory i
-        JOIN warehouse_locations wl ON i.location_id = wl.location_id
-        LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
-        WHERE i.quantity <= 0 AND (lt.type_name IS NULL OR lt.type_name != 'block_area')
-    ");
+    $stmt_cleanup = $conn->prepare("DELETE FROM inventory WHERE quantity <= 0");
     $stmt_cleanup->execute();
     $stmt_cleanup->close();
 }
@@ -278,44 +281,6 @@ function transferInventory($conn, $input, $warehouse_id) {
     adjustInventoryQuantity($conn, ['product_id' => $product_id, 'current_location_article_no' => $to_location_article_no, 'quantity_change' => $quantity, 'batch_number' => $batch_number, 'dot_code' => $dot_code], $warehouse_id);
 }
 
-function handleInterWarehouseTransfer($conn, $input, $from_warehouse_id) {
-    $to_warehouse_id = filter_var($input['to_warehouse_id'] ?? 0, FILTER_VALIDATE_INT);
-    $quantity = filter_var($input['quantity_change'] ?? 0, FILTER_VALIDATE_INT);
-
-    if (empty($to_warehouse_id) || empty($from_warehouse_id) || $quantity <= 0) {
-        sendJsonResponse(['success' => false, 'message' => 'Source warehouse, destination warehouse, and a positive quantity are required.'], 400);
-        return;
-    }
-    if ($from_warehouse_id == $to_warehouse_id) {
-        sendJsonResponse(['success' => false, 'message' => 'Source and destination warehouses cannot be the same.'], 400);
-        return;
-    }
-
-    if (!check_user_role_for_warehouse($conn, $_SESSION['user_id'], $to_warehouse_id, ['manager'])) {
-        sendJsonResponse(['success' => false, 'message' => 'You do not have permission to transfer stock to the destination warehouse.'], 403);
-        return;
-    }
-
-    $conn->begin_transaction();
-    try {
-        $source_input = $input;
-        $source_input['quantity_change'] = -$quantity;
-        adjustInventoryQuantity($conn, $source_input, $from_warehouse_id);
-        
-        $destination_input = $input;
-        $destination_input['current_location_article_no'] = $input['new_location_article_no'];
-        adjustInventoryQuantity($conn, $destination_input, $to_warehouse_id);
-
-        $conn->commit();
-        sendJsonResponse(['success' => true, 'message' => 'Stock successfully transferred between warehouses.']);
-
-    } catch (Exception $e) {
-        $conn->rollback();
-        error_log("Inter-warehouse transfer error: " . $e->getMessage());
-        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 400);
-    }
-}
-
 function getLocationDataFromarticle_no($conn, $location_code, $warehouse_id) {
     $stmt = $conn->prepare("SELECT location_id, max_capacity_units FROM warehouse_locations WHERE location_code = ? AND warehouse_id = ? AND is_active = 1");
     $stmt->bind_param("si", $location_code, $warehouse_id);
@@ -324,4 +289,18 @@ function getLocationDataFromarticle_no($conn, $location_code, $warehouse_id) {
     $stmt->close();
     if (!$result) throw new Exception("Active location '{$location_code}' not found in warehouse ID {$warehouse_id}.");
     return $result;
+}
+
+function getLocationTypeByCode($conn, $location_code, $warehouse_id) {
+    $stmt = $conn->prepare("
+        SELECT lt.type_name 
+        FROM warehouse_locations wl
+        LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
+        WHERE wl.location_code = ? AND wl.warehouse_id = ?
+    ");
+    $stmt->bind_param("si", $location_code, $warehouse_id);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $result ? $result['type_name'] : null;
 }

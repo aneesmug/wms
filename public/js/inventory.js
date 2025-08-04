@@ -234,7 +234,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         <select id="swalAdjustmentType" class="form-select">
                             <option value="adjust_quantity" selected>Adjust Quantity</option>
                             <option value="transfer">Transfer (Same Warehouse)</option>
-                            <option value="transfer_inter_warehouse">Transfer Warehouse</option>
                             <option value="block_item">Block Item</option>
                         </select>
                     </div>
@@ -261,7 +260,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="col-md-6 mb-3"><label for="swalAdjustDotCode" class="form-label">DOT Code</label><input type="text" id="swalAdjustDotCode" value="${dotCode}" class="form-control" readonly></div>
                     </div>
                     <div id="swalNewLocationContainer" class="d-none">
-                        <div id="swalDestWarehouseField" class="mb-3 d-none"><label for="swalDestWarehouse" class="form-label">To Warehouse</label><select id="swalDestWarehouse" class="form-select" style="width:100%;"></select></div>
                         <div class="mb-3"><label for="swalAdjustNewLocation" class="form-label">To Location</label><select id="swalAdjustNewLocation" class="form-select" style="width:100%;"></select></div>
                     </div>
                 </form>`,
@@ -270,11 +268,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const popup = Swal.getPopup();
                 const adjustmentTypeSelect = popup.querySelector('#swalAdjustmentType');
                 const newLocationContainer = popup.querySelector('#swalNewLocationContainer');
-                const destWarehouseField = popup.querySelector('#swalDestWarehouseField');
                 const quantityInput = popup.querySelector('#swalAdjustQuantity');
                 
                 const newLocationSelect = $('#swalAdjustNewLocation');
-                const destWarehouseSelect = $('#swalDestWarehouse');
 
                 const initializeSelect2 = (selector, placeholder) => selector.select2({ 
                     placeholder, 
@@ -286,7 +282,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 
                 initializeSelect2(newLocationSelect, 'Select destination location...');
-                initializeSelect2(destWarehouseSelect, 'Select destination warehouse...');
 
                 const updateLocationCapacity = () => {
                     const quantity = parseInt(quantityInput.value, 10) || 0;
@@ -331,29 +326,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 adjustmentTypeSelect.addEventListener('change', async (e) => {
                     const action = e.target.value;
                     newLocationContainer.classList.toggle('d-none', action === 'adjust_quantity');
-                    destWarehouseField.classList.toggle('d-none', action !== 'transfer_inter_warehouse');
                     quantityInput.placeholder = (action === 'adjust_quantity') ? 'e.g., 5 for add, -2 for remove' : 'e.g., 5';
                     
                     newLocationSelect.empty().trigger('change');
-                    destWarehouseSelect.empty().trigger('change');
 
                     if (action === 'transfer') {
                         await loadAndPopulateLocations(currentWarehouseId, locationCode, productId);
-                    } else if (action === 'transfer_inter_warehouse') {
-                        const warehouses = await fetchData('api/warehouses_api.php?action=get_transfer_targets');
-                        if (warehouses.success) populateWarehouseSelect(destWarehouseSelect, warehouses.data);
                     } else if (action === 'block_item') {
-                        destWarehouseField.classList.add('d-none');
                         newLocationContainer.classList.remove('d-none');
                         await loadAndPopulateLocations(currentWarehouseId, null, productId, 'block_area');
-                    }
-                });
-
-                destWarehouseSelect.on('change', async function() {
-                    const selectedWarehouseId = $(this).val();
-                    newLocationSelect.empty().trigger('change');
-                    if (selectedWarehouseId) {
-                        await loadAndPopulateLocations(selectedWarehouseId, null, productId);
                     }
                 });
             },
@@ -374,10 +355,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     Swal.showValidationMessage('A destination block area location is required.');
                     return false;
                 }
-                if (actionType === 'transfer_inter_warehouse' && !$('#swalDestWarehouse').val()) {
-                    Swal.showValidationMessage('A destination warehouse is required.');
-                    return false;
-                }
 
                 return {
                     action_type: actionType,
@@ -385,7 +362,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     current_location_article_no: popup.querySelector('#swalAdjustCurrentLocation').value,
                     quantity_change: quantity,
                     new_location_article_no: $('#swalAdjustNewLocation').val(),
-                    to_warehouse_id: $('#swalDestWarehouse').val(),
                     batch_number: popup.querySelector('#swalAdjustBatchNumber').value,
                     dot_code: popup.querySelector('#swalAdjustDotCode').value,
                 };
@@ -407,15 +383,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 $(option).data('original-html', loc.availability_html);
                 selectElement.append(option);
             }
-        });
-        selectElement.trigger('change');
-    }
-
-    function populateWarehouseSelect(selectElement, warehouses) {
-        selectElement.empty().append(new Option('', '', true, true)).trigger('change');
-        warehouses.forEach(wh => {
-            const option = new Option(wh.warehouse_name, wh.warehouse_id, false, false);
-            selectElement.append(option);
         });
         selectElement.trigger('change');
     }
