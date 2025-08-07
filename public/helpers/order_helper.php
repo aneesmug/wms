@@ -1,92 +1,94 @@
 <?php
 // helpers/order_helper.php
 
-if (!function_exists('logOrderHistory')) {
-    /**
-     * Logs an entry into the order_history table.
-     *
-     * @param mysqli $conn The database connection object.
-     * @param int $order_id The ID of the order to log history for.
-     * @param string $status The new status of the order.
-     * @param int $user_id The ID of the user performing the action.
-     * @param string $notes Optional notes about the history event.
-     * @return void
-     */
-    function logOrderHistory($conn, $order_id, $status, $user_id, $notes = '') {
-        $stmt = $conn->prepare("INSERT INTO order_history (order_id, status, updated_by_user_id, notes) VALUES (?, ?, ?, ?)");
-        if (!$stmt) {
-            // Log error if prepare fails
-            error_log("Prepare failed for logOrderHistory: " . $conn->error);
-            return;
-        }
-        
-        $stmt->bind_param("isis", $order_id, $status, $user_id, $notes);
-        
-        if (!$stmt->execute()) {
-            // Log error if execute fails
-            error_log("Failed to log order history for order_id {$order_id}: " . $stmt->error);
-        }
-        
-        $stmt->close();
+/**
+ * Logs an entry into the order_history table.
+ */
+function logOrderHistory($conn, $order_id, $status, $user_id, $notes = '') {
+    $stmt = $conn->prepare("INSERT INTO order_history (order_id, status, notes, updated_by_user_id) VALUES (?, ?, ?, ?)");
+    if ($stmt === false) {
+        // Handle error, maybe log it or throw an exception
+        error_log("Failed to prepare statement for logOrderHistory: " . $conn->error);
+        return;
     }
+    $stmt->bind_param("issi", $order_id, $status, $notes, $user_id);
+    $stmt->execute();
+    $stmt->close();
 }
 
-function get_order_by_tracking_number($trackingNumber, $conn) {
-    // Defensive check to ensure the database connection object is valid.
-    if (!$conn || !($conn instanceof mysqli)) {
-        error_log("Invalid database connection provided to get_order_by_tracking_number.");
-        return null; // Return null to indicate failure and prevent fatal errors.
-    }
-
-    // Fetches the main order details, using the correct column 'required_ship_date'
-    // and aliasing it as 'expected_delivery_date' for front-end compatibility.
-    $sql = "SELECT o.order_id, o.status, o.required_ship_date AS expected_delivery_date
-            FROM outbound_orders o
-            WHERE o.tracking_number = ?";
-
-    $stmt = $conn->prepare($sql);
-    if (!$stmt) {
-        // Handle SQL preparation error
-        error_log("SQL prepare failed for outbound_orders: " . $conn->error);
-        return null;
-    }
-
-    $stmt->bind_param("s", $trackingNumber);
+/**
+ * Generates a unique order number.
+ */
+function generateOrderNumber($conn) {
+    $date_prefix = date('Ymd');
+    $stmt = $conn->prepare("SELECT COUNT(*) as today_count FROM outbound_orders WHERE order_number LIKE ?");
+    $search_prefix = "ORD-" . $date_prefix . "-%";
+    $stmt->bind_param("s", $search_prefix);
     $stmt->execute();
-    $result = $stmt->get_result();
-    $order = $result->fetch_assoc();
+    $result = $stmt->get_result()->fetch_assoc();
+    $next_num = $result['today_count'] + 1;
     $stmt->close();
+    return "ORD-" . $date_prefix . "-" . str_pad($next_num, 4, '0', STR_PAD_LEFT);
+}
 
-    // If an order was found, fetch its history
-    if ($order) {
-        // --- CORRECTED SQL QUERY for order_history ---
-        // Selects from the correct columns 'status' and 'created_at' and renames them
-        // to 'status_update' and 'timestamp' for front-end compatibility.
-        $sql_history = "SELECT oh.status AS status_update, oh.created_at AS timestamp
-                        FROM order_history oh
-                        WHERE oh.order_id = ?
-                        ORDER BY oh.created_at DESC";
+/**
+ * Updates an order's status to 'Out for Delivery' after all items are scanned.
+ * This function centralizes the logic for both in-house and third-party drivers.
+ */
+function updateOrderStatusToOutForDelivery($conn, $order_id) {
+    $conn->begin_transaction();
+    try {
+        // Get assignment details to determine who shipped the order
+        $stmt_assign = $conn->prepare(
+            "SELECT ooa.assignment_type, ooa.driver_user_id, ooa.assigned_by_user_id, dc.company_name, ooa.third_party_driver_name 
+             FROM outbound_order_assignments ooa
+             LEFT JOIN delivery_companies dc ON ooa.third_party_company_id = dc.company_id
+             WHERE ooa.order_id = ? ORDER BY ooa.assigned_at DESC LIMIT 1"
+        );
+        $stmt_assign->bind_param("i", $order_id);
+        $stmt_assign->execute();
+        $assignment = $stmt_assign->get_result()->fetch_assoc();
+        $stmt_assign->close();
 
-        $stmt_history = $conn->prepare($sql_history);
-        if ($stmt_history) {
-            $stmt_history->bind_param("i", $order['order_id']);
-            $stmt_history->execute();
-            $result_history = $stmt_history->get_result();
-
-            $history = [];
-            while ($row = $result_history->fetch_assoc()) {
-                $history[] = $row;
-            }
-            $order['history'] = $history;
-            $stmt_history->close();
-        } else {
-            // Handle SQL preparation error for history
-            error_log("SQL prepare failed for order_history: " . $conn->error);
-            $order['history'] = [];
+        if (!$assignment) {
+            throw new Exception("No assignment found for this order.");
         }
-        return $order;
-    }
 
-    // Return null if no order was found
-    return null;
+        $shipped_by_user_id = null;
+        $history_user_id = null;
+        $notes = '';
+
+        if ($assignment['assignment_type'] === 'in_house') {
+            $shipped_by_user_id = $assignment['driver_user_id'];
+            $history_user_id = $assignment['driver_user_id'];
+            $notes = 'Driver has scanned all items. Order is now out for delivery.';
+        } else { // third_party
+            $shipped_by_user_id = $assignment['assigned_by_user_id']; // The employee who handed over the goods
+            $history_user_id = $assignment['assigned_by_user_id'];
+            $driver_info = $assignment['third_party_driver_name'] ? $assignment['third_party_driver_name'] . " from " . $assignment['company_name'] : $assignment['company_name'];
+            $notes = "Third-party driver ($driver_info) has scanned all items. Order is now out for delivery.";
+        }
+
+        // Update the order status
+        $new_status = 'Out for Delivery';
+        $stmt_update = $conn->prepare(
+            "UPDATE outbound_orders 
+             SET status = ?, out_for_delivery_date = NOW(), actual_ship_date = CURDATE(), shipped_by = ? 
+             WHERE order_id = ?"
+        );
+        $stmt_update->bind_param("sii", $new_status, $shipped_by_user_id, $order_id);
+        $stmt_update->execute();
+        $stmt_update->close();
+
+        // Log this event in the order history
+        logOrderHistory($conn, $order_id, $new_status, $history_user_id, $notes);
+
+        $conn->commit();
+        return ['updated' => true, 'new_status' => $new_status];
+    } catch (Exception $e) {
+        $conn->rollback();
+        // Log the error message
+        error_log("Error in updateOrderStatusToOutForDelivery: " . $e->getMessage());
+        return ['updated' => false, 'error' => $e->getMessage()];
+    }
 }

@@ -17,119 +17,119 @@
 
     <?php include 'includes/menu.php'; ?>
 
-    <div id="content">
+    <div id="content" class="d-flex flex-column">
         <header class="bg-white shadow-sm border-bottom">
             <div class="container-fluid px-4">
-                <div class="d-flex justify-content-between align-items-center py-3">
+                <div class="d-flex align-items-center justify-content-between py-3">
                     <h1 class="h4 mb-0 text-dark">Order Picking & Processing</h1>
+                    <div id="managementActionsArea" class="d-none">
+                        <button id="printPickReportBtn" class="btn btn-sm btn-outline-secondary" disabled><i class="bi bi-file-earmark-text me-1"></i> Print Pick Report</button>
+                        <button id="printStickersBtn" class="btn btn-sm btn-outline-secondary" disabled><i class="bi bi-printer me-1"></i> Print Stickers</button>
+                    </div>
                 </div>
             </div>
         </header>
 
-        <main class="p-4 p-md-5">
-            <div class="container-fluid">
-                <div class="row g-4">
-                    <div class="col-12">
-                        <div class="card shadow-sm">
-                            <div class="card-header">
-                                <h5 class="card-title mb-0">Orders for Picking / Processing</h5>
-                            </div>
-                            <div class="card-body">
-                                <div class="table-responsive">
-                                    <table id="pickingOrdersTable" class="table table-hover" style="width:100%">
-                                        <thead>
-                                            <tr>
-                                                <th>Order No.</th>
-                                                <th>Reference No.</th>
-                                                <th>Customer</th>
-                                                <th>Req. Ship Date</th>
-                                                <th>Status</th>
-                                                <th>Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="pickingOrdersTableBody"></tbody>
-                                    </table>
-                                </div>
-                            </div>
+        <main class="flex-grow-1 p-4">
+            <div class="row g-4">
+                <!-- Orders Table Column -->
+                <div class="col-lg-5">
+                    <div class="card h-100">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="card-title mb-0">Orders for Picking</h5>
+                            <select id="pickingStatusFilter" class="form-select form-select-sm w-auto">
+                                <option value="Pending Pick">Pending Pick</option>
+                                <option value="Partially Picked">Partially Picked</option>
+                                <option value="Picked">Picked (Ready for Staging)</option>
+                                <option value="Staged">Staged (Ready for Driver)</option>
+                                <option value="Delivery Failed">Delivery Failed (Re-assign)</option>
+                                <option value="Assigned">Assigned</option>
+                                <option value="all">Show All</option>
+                            </select>
+                        </div>
+                        <div class="card-body">
+                            <table id="ordersForPickingTable" class="table table-striped table-hover" style="width:100%">
+                                <thead>
+                                    <tr>
+                                        <th>Order #</th>
+                                        <th>Customer</th>
+                                        <th>Date</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
                         </div>
                     </div>
+                </div>
 
-                    <div class="col-12">
-                        <div id="pickingProcessArea" class="card shadow-sm d-none">
-                            <div class="card-header d-flex justify-content-between align-items-center flex-wrap">
-                                <div>
-                                    <h5 class="card-title mb-0">Process Order: <span id="selectedOrderNumberDisplay" class="text-primary fw-normal"></span></h5>
-                                    <div id="shippingAreaDisplay" class="mt-1 text-muted small"></div>
-                                    <div id="driverInfoDisplay" class="mt-1 text-muted small"></div>
-                                    <input type="hidden" id="currentOrderId">
-                                </div>
-                                <div class="btn-group">
-                                    <button id="printPickReportBtn" class="btn btn-sm btn-outline-secondary d-none">
-                                        <i class="bi bi-file-earmark-text me-1"></i> Print Pick Report
-                                    </button>
-                                    <button id="printStickersBtn" class="btn btn-sm btn-outline-secondary d-none">
-                                        <i class="bi bi-printer me-1"></i> Print Item Stickers
-                                    </button>
-                                </div>
+                <!-- Picking Process Column -->
+                <div class="col-lg-7">
+                    <div id="pickingProcessArea" class="d-none">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">Processing Order: <span id="selectedOrderNumberDisplay" class="text-primary"></span></h5>
                             </div>
                             <div class="card-body">
-                                <h6 class="card-subtitle mb-2 text-muted">Order Items</h6>
-                                <div class="table-responsive mb-3">
-                                    <table class="table table-bordered">
-                                        <thead class="table-light">
-                                            <tr>
-                                                <th>SKU</th>
-                                                <th>Product</th>
-                                                <th>Ordered</th>
-                                                <th>Picked</th>
-                                                <th>Batch</th>
-                                                <th>DOT</th>
-                                                <th>Location</th>
-                                                <th>Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="orderItemsTableBody"></tbody>
-                                    </table>
+                                <input type="hidden" id="currentOrderId">
+                                <div class="mb-3">
+                                    <h6>Items to Pick:</h6>
+                                    <div class="table-responsive">
+                                        <table class="table table-bordered">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>#</th>
+                                                    <th>Product</th>
+                                                    <th>SKU</th>
+                                                    <th>Article No</th>
+                                                    <th>Ordered</th>
+                                                    <th>Picked</th>
+                                                    <th colspan="4"></th> <!-- Placeholder for pick details header -->
+                                                </tr>
+                                            </thead>
+                                            <tbody id="orderItemsTableBody"></tbody>
+                                        </table>
+                                    </div>
                                 </div>
-
-                                <div id="actionsContainer" class="p-3 bg-light rounded border">
-                                    <div id="pickActionsArea" class="d-none">
-                                        <h6 class="mb-3">Pick Items</h6>
-                                        <div class="row g-3">
-                                            <div class="col-md-3">
-                                                <label for="pickItemNumberInput" class="form-label">Item Article No/SKU</label>
-                                                <input type="text" id="pickItemNumberInput" class="form-control" placeholder="Scan or enter...">
-                                            </div>
-                                            <div class="col-md-2">
-                                                <label for="pickDotCodeSelect" class="form-label">DOT Code (FIFO)</label>
-                                                <select id="pickDotCodeSelect" class="form-select" disabled>
-                                                    <option value="">Enter item number first</option>
-                                                </select>
-                                            </div>
-                                            <div class="col-md-2">
-                                                <label for="pickLocationSelect" class="form-label">Pick Location</label>
-                                                <select id="pickLocationSelect" class="form-select" disabled>
-                                                    <option value="">Select DOT first</option>
-                                                </select>
-                                            </div>
-                                            <div class="col-md-3">
-                                                <label for="pickBatchNumberSelect" class="form-label">Batch Number</label>
-                                                <select id="pickBatchNumberSelect" class="form-select" disabled>
-                                                    <option value="">Select location first</option>
-                                                </select>
-                                            </div>
-                                            <div class="col-md-2">
-                                                <label for="pickQuantityInput" class="form-label">Quantity to Pick</label>
-                                                <input type="number" id="pickQuantityInput" value="1" min="1" class="form-control">
-                                                <div id="pickQuantityError" class="text-danger small mt-1"></div>
-                                            </div>
+                                
+                                <div id="pickActionsArea" class="d-none">
+                                    <hr>
+                                    <h6>Perform Pick:</h6>
+                                    <div class="row g-3 align-items-end">
+                                        <div class="col-md-2">
+                                            <label for="pickItemNumberInput" class="form-label">Item #</label>
+                                            <input type="number" class="form-control" id="pickItemNumberInput" placeholder="e.g., 1">
                                         </div>
-                                        <div class="mt-3">
-                                            <button id="pickItemBtn" class="btn btn-info text-white">Pick Item</button>
+                                        <div class="col-md-3">
+                                            <label for="pickDotCodeSelect" class="form-label">DOT</label>
+                                            <select id="pickDotCodeSelect" class="form-select"></select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <label for="pickLocationSelect" class="form-label">Location</label>
+                                            <select id="pickLocationSelect" class="form-select"></select>
+                                        </div>
+                                        <div class="col-md-2">
+                                            <label for="pickBatchNumberSelect" class="form-label">Batch</label>
+                                            <select id="pickBatchNumberSelect" class="form-select"></select>
+                                        </div>
+                                        <div class="col-md-1">
+                                            <label for="pickQuantityInput" class="form-label">Qty</label>
+                                            <input type="number" class="form-control" id="pickQuantityInput" min="1" value="1">
+                                        </div>
+                                        <div class="col-md-1">
+                                            <button id="pickItemBtn" class="btn btn-success w-100" disabled><i class="bi bi-check-lg"></i></button>
                                         </div>
                                     </div>
-                                    <div id="managementActionsArea" class="mt-4 pt-4 border-top d-none">
-                                        <h6 class="mb-3">Management Actions</h6>
+                                    <div id="pickQuantityError" class="text-danger small mt-1"></div>
+                                </div>
+                                
+                                <div id="stagingActionsArea" class="d-none mt-3">
+                                    <hr>
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <p class="mb-1"><strong>Shipping Area:</strong> <span id="shippingAreaDisplay" class="">Not Staged</span></p>
+                                            <p class="mb-0"><strong>Driver:</strong> <span id="driverInfoDisplay" class="">Not Assigned</span></p>
+                                        </div>
                                         <div class="d-flex gap-2 flex-wrap">
                                             <button id="stageOrderBtn" class="btn btn-warning d-none">Stage for Pickup</button>
                                             <button id="assignDriverBtn" class="btn btn-primary d-none"><i class="bi bi-person-plus-fill me-1"></i> Assign Driver</button>
@@ -152,9 +152,10 @@
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
-    
-    <!-- Custom Application Scripts -->
+
+    <!-- Custom Scripts -->
     <script src="js/main.js"></script>
-    <script src="js/picking.js" defer></script>
+    <script src="js/notifications.js"></script>
+    <script src="js/picking.js"></script>
 </body>
 </html>

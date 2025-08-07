@@ -69,24 +69,26 @@ function handleGetTireTypes($conn) {
 
 
 function handleGetProducts($conn, $warehouse_id) {
+    // MODIFICATION: Added 'bin', 'shipping_area', 'receiving_bay' to the list of excluded location types.
     $sql = "
         SELECT 
             p.product_id, p.sku, p.product_name, p.description,
             p.unit_of_measure, p.weight, p.volume, p.article_no,
             p.tire_type_id, p.expiry_years, p.is_active,
             tt.tire_type_name,
-            COALESCE(inv.total_quantity, 0) AS total_quantity
+            COALESCE(SUM(CASE WHEN wl.is_locked = 0 AND (lt.type_name IS NULL OR lt.type_name NOT IN ('bin', 'shipping_area', 'receiving_bay', 'block_area')) THEN i.quantity ELSE 0 END), 0) AS total_quantity
         FROM 
             products p
         LEFT JOIN
             tire_types tt ON p.tire_type_id = tt.tire_type_id
         LEFT JOIN 
-            (SELECT i.product_id, SUM(i.quantity) AS total_quantity 
-             FROM inventory i
-             JOIN warehouse_locations wl ON i.location_id = wl.location_id
-             LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
-             WHERE i.warehouse_id = ? AND (lt.type_name IS NULL OR lt.type_name != 'block_area')
-             GROUP BY i.product_id) AS inv ON p.product_id = inv.product_id
+            inventory i ON p.product_id = i.product_id AND i.warehouse_id = ?
+        LEFT JOIN 
+            warehouse_locations wl ON i.location_id = wl.location_id
+        LEFT JOIN 
+            location_types lt ON wl.location_type_id = lt.type_id
+        GROUP BY
+            p.product_id
         ORDER BY 
             p.product_name ASC;
     ";
@@ -246,4 +248,3 @@ function handleDeleteProduct($conn) {
     }
     $stmt->close();
 }
-?>

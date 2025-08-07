@@ -4,40 +4,43 @@
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../helpers/auth_helper.php';
 
-// Allow non-admins to access their own profile actions
-$action = sanitize_input($_GET['action'] ?? '');
-$profile_actions = ['get_current_user_profile', 'update_current_user_profile', 'change_own_password'];
+$conn = getDbConnection();
 
-if (!in_array($action, $profile_actions)) {
-    require_global_admin();
+// --- Main Action Router ---
+$action = sanitize_input($_GET['action'] ?? '');
+
+// Actions accessible by non-admins
+$self_service_actions = ['get_current_user_profile', 'update_current_user_profile', 'change_own_password'];
+$operational_actions = ['getDrivers']; // Actions for operational roles
+
+if (in_array($action, $self_service_actions)) {
+    authenticate_user(true, null); // Just needs login
+} elseif (in_array($action, $operational_actions)) {
+    authenticate_user(true, ['operator', 'manager', 'picker']); // Needs specific roles
 } else {
-    // For profile actions, just ensure the user is logged in.
-    if (session_status() === PHP_SESSION_NONE) session_start();
-    if (!isset($_SESSION['user_id'])) {
-        sendJsonResponse(['success' => false, 'message' => 'Unauthorized'], 401);
-        exit;
-    }
+    require_global_admin(); // All other actions require global admin
 }
 
-$conn = getDbConnection();
-date_default_timezone_set('UTC'); 
 
 try {
     switch ($action) {
-        // Existing Admin actions
+        // Admin actions
         case 'get_users': handleGetUsers($conn); break;
         case 'get_user_details': handleGetUserDetails($conn); break;
         case 'create_user': handleCreateUser($conn); break;
         case 'update_user': handleUpdateUser($conn); break;
         case 'delete_user': handleDeleteUser($conn); break;
-        case 'change_password': handleChangePassword($conn); break; // Admin changing other's password
+        case 'change_password': handleChangePassword($conn); break;
         case 'get_all_warehouses': handleGetAllWarehouses($conn); break;
         case 'get_all_roles': handleGetAllRoles(); break;
         
-        // New Self-service Profile actions
+        // Self-service Profile actions
         case 'get_current_user_profile': handleGetCurrentUserProfile($conn); break;
         case 'update_current_user_profile': handleUpdateCurrentUserProfile($conn); break;
         case 'change_own_password': handleChangeOwnPassword($conn); break;
+
+        // Operational actions
+        case 'getDrivers': handleGetDrivers($conn); break;
 
         default:
             sendJsonResponse(['success' => false, 'message' => 'Invalid action specified.'], 400);
@@ -50,7 +53,31 @@ try {
     if ($conn) $conn->close();
 }
 
-// --- NEW SELF-SERVICE FUNCTIONS ---
+// --- NEW OPERATIONAL FUNCTION ---
+function handleGetDrivers($conn) {
+    $current_warehouse_id = get_current_warehouse_id();
+    if (!$current_warehouse_id) {
+        sendJsonResponse(['success' => false, 'message' => 'No warehouse selected.'], 400);
+        return;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT u.user_id, u.full_name 
+        FROM users u
+        JOIN user_warehouse_roles uwr ON u.user_id = uwr.user_id
+        WHERE uwr.warehouse_id = ? AND uwr.role = 'driver'
+        ORDER BY u.full_name ASC
+    ");
+    $stmt->bind_param("i", $current_warehouse_id);
+    $stmt->execute();
+    $drivers = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+
+    sendJsonResponse(['success' => true, 'data' => $drivers]);
+}
+
+
+// --- SELF-SERVICE FUNCTIONS ---
 
 function handleGetCurrentUserProfile($conn) {
     $user_id = $_SESSION['user_id'];
@@ -159,7 +186,7 @@ function handleChangeOwnPassword($conn) {
 }
 
 
-// --- EXISTING ADMIN FUNCTIONS ---
+// --- ADMIN FUNCTIONS ---
 
 function handleImageUpload(?string $base64Image): ?string {
     if (empty($base64Image)) return null;
@@ -167,12 +194,12 @@ function handleImageUpload(?string $base64Image): ?string {
     list(, $data) = explode(',', $base64Image);
     $imageData = base64_decode($data);
     if ($imageData === false) return null;
-    $uploadDir = dirname(__DIR__) . '/Uploads/users/';
+    $uploadDir = dirname(__DIR__) . '/uploads/users/';
     if (!is_dir($uploadDir)) mkdir($uploadDir, 0775, true);
     $filename = 'user_' . bin2hex(random_bytes(12)) . '.jpeg';
     $filePath = $uploadDir . $filename;
     if (file_put_contents($filePath, $imageData) === false) return null;
-    return 'Uploads/users/' . $filename;
+    return 'uploads/users/' . $filename;
 }
 
 function deleteOldImage(?string $imageUrl) {

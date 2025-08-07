@@ -18,7 +18,11 @@ $action = $_GET['action'] ?? '';
 switch ($method) {
     case 'GET':
         authorize_user_role(['viewer', 'operator', 'manager']);
-        handleGetReturns($conn, $current_warehouse_id);
+        if ($action === 'get_putaway_locations') {
+            handleGetPutawayLocations($conn, $current_warehouse_id);
+        } else {
+            handleGetReturns($conn, $current_warehouse_id);
+        }
         break;
     case 'POST':
         if ($action === 'create_return') {
@@ -36,6 +40,37 @@ switch ($method) {
         sendJsonResponse(['success' => false, 'message' => 'Method Not Allowed'], 405);
         break;
 }
+
+function handleGetPutawayLocations($conn, $warehouse_id) {
+    $stmt = $conn->prepare("
+        SELECT 
+            wl.location_id, wl.location_code, wl.max_capacity_units,
+            COALESCE(SUM(i.quantity), 0) AS occupied_capacity
+        FROM warehouse_locations wl
+        LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
+        LEFT JOIN inventory i ON wl.location_id = i.location_id
+        WHERE wl.warehouse_id = ? 
+          AND wl.is_active = 1 
+          AND wl.is_locked = 0
+          AND (lt.type_name IS NULL OR lt.type_name NOT IN ('bin', 'shipping_area', 'block_area'))
+        GROUP BY wl.location_id, wl.location_code, wl.max_capacity_units
+        ORDER BY wl.location_code ASC
+    ");
+    $stmt->bind_param("i", $warehouse_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $locations = [];
+    while ($row = $result->fetch_assoc()) {
+        $max_cap = $row['max_capacity_units'];
+        $occupied = $row['occupied_capacity'];
+        $row['available_capacity'] = ($max_cap !== null) ? ($max_cap - $occupied) : null;
+        $row['is_full'] = ($max_cap !== null && $row['available_capacity'] <= 0);
+        $locations[] = $row;
+    }
+    $stmt->close();
+    sendJsonResponse(['success' => true, 'data' => $locations]);
+}
+
 
 function calculateExpiryDateForReturn($dot_code, $expiry_years) {
     if (empty($dot_code) || strlen($dot_code) !== 4 || !is_numeric($dot_code) || $expiry_years === null || !is_numeric($expiry_years)) {
@@ -214,7 +249,6 @@ function handleCreateReturn($conn, $user_id) {
 
             if (!$outbound_item_id || !$quantity || $quantity <= 0) throw new Exception("Invalid data for an item to be returned.");
             
-            // MODIFICATION START: Check against returnable quantity instead of just shipped quantity
             $stmt_check = $conn->prepare("
                 SELECT
                     oi.product_id,
@@ -245,7 +279,6 @@ function handleCreateReturn($conn, $user_id) {
             if ($quantity > $returnable_quantity) {
                 throw new Exception("Return quantity ({$quantity}) for an item exceeds the available returnable quantity ({$returnable_quantity}).");
             }
-            // MODIFICATION END
 
             $stmt_items = $conn->prepare("INSERT INTO return_items (return_id, product_id, outbound_item_id, expected_quantity) VALUES (?, ?, ?, ?)");
             $stmt_items->bind_param("iiii", $return_id, $check_result['product_id'], $outbound_item_id, $quantity);
@@ -305,16 +338,26 @@ function handleProcessItem($conn, $warehouse_id, $user_id) {
         $location_id = null; 
 
         if ($condition === 'Good') {
-            if (empty($location_barcode)) throw new Exception("Location Article No is required for 'Good' items.");
+            if (empty($location_barcode)) throw new Exception("Location barcode is required for 'Good' items.");
             
-            $stmt_loc = $conn->prepare("SELECT location_id, is_locked FROM warehouse_locations WHERE location_code = ? AND warehouse_id = ? AND is_active = 1");
+            // MODIFICATION: Added server-side validation to ensure the selected location is a valid putaway location.
+            $stmt_loc = $conn->prepare("
+                SELECT wl.location_id, wl.is_locked 
+                FROM warehouse_locations wl
+                LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
+                WHERE wl.location_code = ? 
+                  AND wl.warehouse_id = ? 
+                  AND wl.is_active = 1
+                  AND (lt.type_name IS NULL OR lt.type_name NOT IN ('bin', 'shipping_area', 'block_area'))
+            ");
             $stmt_loc->bind_param("si", $location_barcode, $warehouse_id);
             $stmt_loc->execute();
             $location_data = $stmt_loc->get_result()->fetch_assoc();
             $stmt_loc->close();
-            if (!$location_data) throw new Exception("Active location '{$location_barcode}' not found in this warehouse.");
+            
+            if (!$location_data) throw new Exception("Location '{$location_barcode}' is not a valid putaway location (it may be inactive, a temporary area, or non-existent).");
             if ($location_data['is_locked'] == 1) {
-                throw new Exception("this location is locked you can't move in locked location");
+                throw new Exception("This location is locked. You cannot move items into a locked location.");
             }
             $location_id = $location_data['location_id'];
 
@@ -349,7 +392,7 @@ function handleProcessItem($conn, $warehouse_id, $user_id) {
                 $barcode_value = "RET-".($item['dot_code'] ?? 'NA')."-{$unique_id}";
                 $stmt_sticker->bind_param("iis", $new_inventory_id, $item['return_id'], $barcode_value);
                 if (!$stmt_sticker->execute()) {
-                    throw new Exception("Failed to generate sticker Article No: " . $stmt_sticker->error);
+                    throw new Exception("Failed to generate sticker barcode: " . $stmt_sticker->error);
                 }
             }
             $stmt_sticker->close();

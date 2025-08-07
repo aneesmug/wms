@@ -243,7 +243,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 try {
-                    const response = await fetchData(`api/inventory_api.php?action=location_stock&warehouse_id=${currentWarehouseId}&product_id=${productId}`);
+                    const response = await fetchData(`api/returns_api.php?action=get_putaway_locations&warehouse_id=${currentWarehouseId}`);
                     $locationSelect.empty().append(new Option('', '', true, true));
                     if (response.success && Array.isArray(response.data)) {
                         response.data.forEach(loc => {

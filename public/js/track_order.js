@@ -62,7 +62,8 @@ function displayTrackingInfo(order) {
     const trackingTimelineDiv = document.getElementById('trackingTimeline');
 
     orderStatusEl.textContent = order.status || 'N/A';
-    expectedDeliveryEl.textContent = order.expected_delivery_date ? new Date(order.expected_delivery_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'Not available';
+    // MODIFICATION: Changed to display the required_ship_date from the API response
+    expectedDeliveryEl.textContent = order.required_ship_date ? new Date(order.required_ship_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'Not available';
 
     let timelineHtml = '';
     if (order.history && order.history.length > 0) {
@@ -96,7 +97,7 @@ function createTimelineItem(item, isLatest) {
             </div>
             <div class="timeline-content">
                 <h6 class="mb-0">${item.status_update}</h6>
-                <p class="text-muted mb-0">${formattedDate} at ${formattedTime}</p>
+                <p class="text-muted mb-0">${item.notes || `${formattedDate} at ${formattedTime}`}</p>
             </div>
         </div>
     `;
@@ -110,9 +111,18 @@ function createTimelineItem(item, isLatest) {
 function getIconForStatus(status) {
     const s = status.toLowerCase();
     if (s.includes('delivered')) return 'bi-check-circle-fill';
-    if (s.includes('delivery')) return 'bi-truck';
-    if (s.includes('shipped') || s.includes('outbound')) return 'bi-box-arrow-up';
-    if (s.includes('picked') || s.includes('picking')) return 'bi-person-walking';
-    if (s.includes('new') || s.includes('created')) return 'bi-file-earmark-text';
+    if (s.includes('out for delivery')) return 'bi-truck';
+    if (s.includes('shipped') || s.includes('assigned')) return 'bi-box-arrow-up';
+    if (s.includes('picked') || s.includes('staged')) return 'bi-person-walking';
+    if (s.includes('new') || s.includes('created') || s.includes('pending')) return 'bi-file-earmark-text';
     return 'bi-record-circle'; // Default icon
+}
+
+
+function showError(title, message) {
+    Swal.fire({
+        icon: 'error',
+        title: title,
+        text: message
+    });
 }

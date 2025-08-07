@@ -66,6 +66,7 @@
                                                 <th>Reference #</th>
                                                 <th>Customer</th>
                                                 <th>Staged At</th>
+                                                <th>Assigned To</th>
                                                 <th>Tracking #</th>
                                                 <th>Ship By</th>
                                                 <th>Status</th>
@@ -88,6 +89,8 @@
                                     <div>
                                         <button id="editOrderBtn" class="btn btn-sm btn-outline-secondary d-none"><i class="bi bi-pencil"></i> Edit Order</button>
                                         <button id="printPickReportBtn" class="btn btn-sm btn-outline-info ms-2 d-none"><i class="bi bi-file-earmark-text me-1"></i> Print Pick Report</button>
+                                        <!-- MODIFICATION: Added the new delivery report button -->
+                                        <button id="printDeliveryReportBtn" class="btn btn-sm btn-outline-success ms-2 d-none"><i class="bi bi-receipt me-1"></i> Print Delivery Report</button>
                                     </div>
                                 </div>
                                 <input type="hidden" id="currentOrderId">
@@ -97,6 +100,10 @@
                                     <div class="col-md-4" id="shippingAreaDisplay"></div>
                                     <div class="col-md-4" id="trackingNumberDisplay"></div>
                                     <div class="col-md-4" id="proofOfDeliveryDisplay"></div>
+                                </div>
+                                <div class="row mb-3">
+                                    <div class="col-12" id="assignedDriverDisplay">
+                                    </div>
                                 </div>
                                 <div class="table-responsive">
                                     <table class="table table-bordered">
@@ -117,7 +124,6 @@
                                     </table>
                                 </div>
                                 <div id="addItemContainer" class="mt-3">
-                                    <!-- Item buttons will be dynamically added here -->
                                 </div>
                             </div>
                             <div class="card-footer text-end" id="managementActionsArea" style="display: none;">
@@ -139,7 +145,7 @@
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script> <!-- Added SheetJS library for Excel parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
     
     <!-- Custom Application Scripts -->
     <script src="js/main.js"></script>

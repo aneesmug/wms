@@ -17,6 +17,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const showCreateOrderModalBtn = document.getElementById('showCreateOrderModalBtn');
     const printPickReportBtn = document.getElementById('printPickReportBtn');
     const editOrderBtn = document.getElementById('editOrderBtn');
+    const assignedDriverDisplay = document.getElementById('assignedDriverDisplay');
+    const printDeliveryReportBtn = document.getElementById('printDeliveryReportBtn');
     
     // --- State Variables ---
     let selectedOrderId = null;
@@ -49,11 +51,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cancelOrderBtn) cancelOrderBtn.addEventListener('click', handleCancelOrder);
     if (statusFilter) statusFilter.addEventListener('change', filterOrdersByStatus);
     if (printPickReportBtn) printPickReportBtn.addEventListener('click', handlePrintPickReport);
+    if (printDeliveryReportBtn) printDeliveryReportBtn.addEventListener('click', handlePrintDeliveryReport);
+
 
     async function initializePage() {
         if (!currentWarehouseId) {
             Swal.fire({ icon: 'warning', title: 'No Warehouse Selected', text: 'Please select a warehouse on the Dashboard to enable outbound operations.'});
-            if(document.getElementById('outboundOrdersTableBody')) document.getElementById('outboundOrdersTableBody').innerHTML = `<tr><td colspan="8" class="text-center p-4">Please select a warehouse first.</td></tr>`;
+            if(document.getElementById('outboundOrdersTableBody')) document.getElementById('outboundOrdersTableBody').innerHTML = `<tr><td colspan="9" class="text-center p-4">Please select a warehouse first.</td></tr>`;
             if(orderProcessingArea) orderProcessingArea.classList.add('d-none');
             return;
         }
@@ -73,10 +77,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function initializeOrdersDataTable() {
         ordersTable = $('#outboundOrdersTable').DataTable({
             responsive: true,
-            "order": [[ 5, "desc" ]],
+            "order": [[ 0, "desc" ]],
             "columnDefs": [
-                { "targets": [0, 1, 2, 3, 4, 5, 6], "className": "align-middle" }, 
-                { "targets": 7, "className": "text-end align-middle" } 
+                { "targets": [0, 1, 2, 3, 4, 5, 6, 7], "className": "align-middle" }, 
+                { "targets": 8, "className": "text-end align-middle" } 
             ]
         });
         $('#outboundOrdersTable').on('draw.dt', addTableButtonListeners);
@@ -99,7 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const tableData = response.data.map(order => {
             let actionButtons = `<button data-order-id="${order.order_id}" data-order-number="${order.order_number}" class="btn btn-sm btn-outline-secondary view-details-btn" title="Details"><i class="bi bi-eye"></i></button>`;
             
-            const isProcessable = !['Shipped', 'Delivered', 'Cancelled', 'Returned', 'Partially Returned'].includes(order.status);
+            const isProcessable = !['Shipped', 'Delivered', 'Cancelled', 'Returned', 'Partially Returned'].includes(order.status) || order.status === 'Delivery Failed';
             if (isProcessable && canManageOutbound) {
                 actionButtons += ` <button data-order-id="${order.order_id}" data-order-number="${order.order_number}" class="btn btn-sm btn-primary select-order-btn ms-1" title="Process"><i class="bi bi-gear"></i></button>`;
             }
@@ -109,6 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 order.reference_number || 'N/A',
                 order.customer_name || 'N/A', 
                 order.shipping_area_code || 'N/A',
+                order.assigned_to || 'N/A',
                 order.tracking_number || 'N/A', 
                 order.required_ship_date, 
                 order.status, 
@@ -120,15 +125,15 @@ document.addEventListener('DOMContentLoaded', () => {
         ordersTable.rows.add(tableData).draw();
         ordersTable.rows().every(function() {
             const row = this.node();
-            const status = this.data()[6];
-            const statusMap = { 'Delivered': 'bg-success', 'Out for Delivery': 'bg-primary', 'Shipped': 'bg-info', 'Assigned': 'bg-orange', 'Ready for Pickup': 'bg-purple', 'Picked': 'bg-primary', 'Partially Picked': 'bg-warning text-dark', 'New': 'bg-secondary', 'Pending Pick': 'bg-secondary', 'Cancelled': 'bg-danger', 'Returned': 'bg-dark', 'Partially Returned': 'bg-secondary' };
+            const status = this.data()[7];
+            const statusMap = { 'Delivered': 'bg-success', 'Out for Delivery': 'bg-primary', 'Shipped': 'bg-info', 'Assigned': 'bg-orange', 'Ready for Pickup': 'bg-purple', 'Picked': 'bg-primary', 'Partially Picked': 'bg-warning text-dark', 'New': 'bg-secondary', 'Pending Pick': 'bg-secondary', 'Cancelled': 'bg-danger', 'Returned': 'bg-dark', 'Partially Returned': 'bg-secondary', 'Delivery Failed': 'bg-danger' };
             const statusClass = statusMap[status] || 'bg-secondary';
-            $(row).find('td').eq(6).html(`<span class="badge ${statusClass}">${status}</span>`); 
+            $(row).find('td').eq(7).html(`<span class="badge ${statusClass}">${status}</span>`); 
         });
     }
 
     function filterOrdersByStatus() {
-        ordersTable.column(6).search(this.value ? '^' + this.value + '$' : '', true, false).draw();
+        ordersTable.column(7).search(this.value ? '^' + this.value + '$' : '', true, false).draw();
     }
 
     async function handleShowCreateOrderModal() {
@@ -167,11 +172,13 @@ document.addEventListener('DOMContentLoaded', () => {
         
         shipOrderBtn.classList.add('d-none');
         printPickReportBtn.classList.add('d-none');
+        if(printDeliveryReportBtn) printDeliveryReportBtn.classList.add('d-none');
         if (editOrderBtn) editOrderBtn.classList.add('d-none');
         orderItemsTableBody.innerHTML = `<tr><td colspan="9" class="text-center p-4">Loading items...</td></tr>`;
         trackingNumberDisplay.innerHTML = '';
         if(shippingAreaDisplay) shippingAreaDisplay.innerHTML = '';
         if(proofOfDeliveryDisplay) proofOfDeliveryDisplay.innerHTML = '';
+        if(assignedDriverDisplay) assignedDriverDisplay.innerHTML = '';
 
         try {
             const response = await fetchData(`api/outbound_api.php?order_id=${orderId}`);
@@ -181,12 +188,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 selectedOrderDetails = response.data;
                 const order = response.data;
                 const canManage = ['operator', 'manager'].includes(currentWarehouseRole);
-                const isOrderMutable = ['New', 'Pending Pick', 'Partially Picked'].includes(order.status);
                 
+                const isEditable = ['New', 'Pending Pick', 'Partially Picked'].includes(order.status);
+                const isCancellable = ['New', 'Pending Pick', 'Partially Picked', 'Picked', 'Staged', 'Assigned', 'Out for Delivery', 'Delivery Failed'].includes(order.status);
+
                 managementActionsArea.style.display = (canManage) ? 'block' : 'none';
-                cancelOrderBtn.style.display = (canManage && isOrderMutable) ? 'inline-block' : 'none';
+                cancelOrderBtn.style.display = (canManage && isCancellable) ? 'inline-block' : 'none';
                 if (editOrderBtn) {
-                    editOrderBtn.style.display = (canManage && isOrderMutable) ? 'inline-block' : 'none';
+                    editOrderBtn.style.display = (canManage && isEditable) ? 'inline-block' : 'none';
+                }
+
+                if (['Delivered', 'Partially Returned', 'Returned', 'Cancelled'].includes(order.status) && printDeliveryReportBtn) {
+                    printDeliveryReportBtn.classList.remove('d-none');
                 }
 
                 const canCreateReturn = ['Shipped', 'Delivered', 'Partially Returned'].includes(order.status);
@@ -262,10 +275,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (order.status === 'Delivered' && order.delivery_photo_path) {
                     proofOfDeliveryDisplay.innerHTML = `<strong>Proof of Delivery:</strong> <a href="${order.delivery_photo_path}" target="_blank" class="btn btn-sm btn-outline-info ms-2"><i class="bi bi-camera-fill me-1"></i> View Photo</a>`;
                 }
+                
+                if (assignedDriverDisplay && order.assignments && order.assignments.length > 0) {
+                    const assignmentHtml = order.assignments.map(a => {
+                        let text = '';
+                        if (a.assignment_type === 'in_house') {
+                            text = `<div class="mb-2"><span class="badge bg-info text-dark">In-House: ${a.driver_name}</span></div>`;
+                        } else {
+                            text = `<div class="border rounded p-2 mb-2">
+                                        <div class="fw-bold">${a.third_party_driver_name} <span class="badge bg-secondary">${a.company_name}</span></div>
+                                        <small class="text-muted d-block">Mobile: ${a.third_party_driver_mobile || 'N/A'}</small>
+                                        <small class="text-muted d-block">Waybill No: ${a.waybill_number || 'N/A'}</small>
+                                        <div>
+                                            ${a.third_party_driver_id_path ? `<a href="${a.third_party_driver_id_path}" target="_blank" class="btn btn-sm btn-outline-secondary mt-1">View ID</a>` : ''}
+                                            ${a.third_party_driver_license_path ? `<a href="${a.third_party_driver_license_path}" target="_blank" class="btn btn-sm btn-outline-secondary mt-1">View License</a>` : ''}
+                                        </div>
+                                    </div>`;
+                        }
+                        return text;
+                    }).join('');
+                    assignedDriverDisplay.innerHTML = `<h6>Assigned To:</h6>${assignmentHtml}`;
+                }
+
 
                 if (addItemContainer) {
                     addItemContainer.innerHTML = '';
-                    if (canManage && isOrderMutable) {
+                    if (canManage && isEditable) {
                         addItemContainer.innerHTML = `
                             <div class="d-grid gap-2 d-md-flex justify-content-md-end">
                                 <button id="showAddItemModalBtn" class="btn btn-outline-primary"><i class="bi bi-plus-circle me-2"></i>Add Single Item</button>
@@ -289,7 +324,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (isFullyPicked && item.ordered_quantity > 0) itemRow.classList.add('table-success');
                     
                     let itemActionButtons = '';
-                    if (canManage && isOrderMutable) {
+                    if (canManage && isEditable) {
                          const isDisabled = item.picked_quantity > 0 ? 'disabled' : '';
                          itemActionButtons = `<button class="btn btn-sm btn-outline-primary edit-item-btn" title="Edit Ordered Quantity" data-item-id="${item.outbound_item_id}" data-ordered-qty="${item.ordered_quantity}" ${isDisabled}><i class="bi bi-pencil-square"></i></button> <button class="btn btn-sm btn-outline-danger delete-item-btn" title="Delete Ordered Item" data-item-id="${item.outbound_item_id}" ${isDisabled}><i class="bi bi-trash"></i></button>`;
                     }
@@ -997,6 +1032,218 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             printPickReportBtn.disabled = false;
             printPickReportBtn.innerHTML = '<i class="bi bi-file-earmark-text me-1"></i> Print Pick Report';
+        }
+    }
+
+    async function handlePrintDeliveryReport() {
+        if (!selectedOrderId) {
+            Swal.fire('Error', 'No order is selected.', 'error');
+            return;
+        }
+
+        printDeliveryReportBtn.disabled = true;
+        printDeliveryReportBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Generating...';
+
+        try {
+            const response = await fetchData(`api/outbound_api.php?action=getDeliveryReport&order_id=${selectedOrderId}`);
+            if (!response?.success || !response.data) {
+                throw new Error(response?.message || 'Could not fetch report data.');
+            }
+
+            const { order_details, delivery_details, delivered_items, returned_items } = response.data;
+            const isCancelled = order_details.status === 'Cancelled';
+            const reportTitle = isCancelled ? 'Cancelled Order Report' : 'Proof of Delivery';
+
+            let deliveredBy = 'N/A';
+            if (delivery_details) {
+                if (delivery_details.assignment_type === 'in_house') {
+                    deliveredBy = `In-House Driver: ${delivery_details.driver_name}`;
+                } else {
+                    deliveredBy = `${delivery_details.company_name} Driver: ${delivery_details.third_party_driver_name}`;
+                }
+            }
+
+            let deliveredItemsHtml = delivered_items.map((item, index) => `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>${item.product_name}</td>
+                    <td>${item.sku}</td>
+                    <td>${item.article_no}</td>
+                    <td class="text-center">${item.picked_quantity}</td>
+                    <td>${item.batch_number || ''}</td>
+                    <td>${item.dot_code || ''}</td>
+                </tr>
+            `).join('');
+
+            let returnedItemsHtml = '';
+            if (returned_items && returned_items.length > 0) {
+                const returnedRows = returned_items.map((item, index) => `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${item.product_name}</td>
+                        <td>${item.sku}</td>
+                        <td>${item.article_no}</td>
+                        <td class="text-center">${item.received_quantity}</td>
+                        <td>${item.reason || ''}</td>
+                        <td>${item.rma_number || ''}</td>
+                    </tr>
+                `).join('');
+
+                returnedItemsHtml = `
+                    <div class="items-section mt-4">
+                        <h5 class="section-title">Returned Items</h5>
+                        <table class="table table-bordered table-sm">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>#</th>
+                                    <th>Article Description</th>
+                                    <th>SKU</th>
+                                    <th>Article No.</th>
+                                    <th class="text-center">Qty</th>
+                                    <th>Reason</th>
+                                    <th>RMA #</th>
+                                </tr>
+                            </thead>
+                            <tbody>${returnedRows}</tbody>
+                        </table>
+                    </div>
+                `;
+            }
+
+            // MODIFICATION: Conditional HTML for delivery details and footer based on status
+            let deliveryDetailsHtml = '';
+            let footerHtml = '';
+            let deliveredItemsTitle = 'Delivered Items';
+
+            if (isCancelled) {
+                deliveryDetailsHtml = `
+                    <div class="info-box">
+                        <strong>Order Details:</strong><br>
+                        Order Number: ${order_details.order_number}<br>
+                        Reference: ${order_details.reference_number || 'N/A'}<br>
+                        <strong>Status: <span style="color: red;">Cancelled</span></strong>
+                    </div>
+                `;
+                deliveredItemsTitle = 'Items in Cancelled Order';
+                footerHtml = `<div class="text-center mt-2 small text-muted">This order was cancelled.</div>`;
+            } else {
+                deliveryDetailsHtml = `
+                    <div class="info-box">
+                        <strong>Delivery Details:</strong><br>
+                        Order Number: ${order_details.order_number}<br>
+                        Reference: ${order_details.reference_number || 'N/A'}<br>
+                        Delivered By: ${deliveredBy}<br>
+                        Delivery Date: ${new Date(order_details.actual_delivery_date).toLocaleString()}<br>
+                        Received By: ${order_details.delivered_to_name || 'N/A'}
+                    </div>
+                `;
+                footerHtml = `
+                    <div class="row">
+                        <div class="col-6 text-start"><strong>Signature:</strong> ___________________</div>
+                        <div class="col-6 text-end"><strong>Date:</strong> ___________________</div>
+                    </div>
+                    <div class="text-center mt-2 small text-muted">Thank you for your business!</div>
+                `;
+            }
+
+            const reportHtml = `
+                <div class="page">
+                    <div class="report-container">
+                        <div class="header-section">
+                            <div class="row align-items-center">
+                                <div class="col-4"><img src="https://wms.almutlak.local/img/Continental-Logo.png" alt="Logo 1" class="header-logo"></div>
+                                <div class="col-4 text-center"><h4>${reportTitle}</h4></div>
+                                <div class="col-4 text-end"><img src="https://wms.almutlak.local/img/logo_blk.png" alt="Logo 2" class="header-logo"></div>
+                            </div>
+                        </div>
+
+                        <div class="details-section">
+                            <div class="row">
+                                <div class="col-6">
+                                    <div class="info-box">
+                                        <strong>Customer Details:</strong><br>
+                                        ${order_details.customer_name}<br>
+                                        ${order_details.address_line1 || ''}<br>
+                                        ${order_details.address_line2 || ''}<br>
+                                        ${order_details.city || ''}<br>
+                                        Phone: ${order_details.phone || 'N/A'}
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    ${deliveryDetailsHtml}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="items-section">
+                            <h5 class="section-title">${deliveredItemsTitle}</h5>
+                            <table class="table table-bordered table-sm">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Article Description</th>
+                                        <th>SKU</th>
+                                        <th>Article No.</th>
+                                        <th class="text-center">Qty</th>
+                                        <th>Batch</th>
+                                        <th>DOT</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${deliveredItemsHtml}</tbody>
+                            </table>
+                        </div>
+
+                        ${returnedItemsHtml}
+
+                        <div class="footer">
+                            ${footerHtml}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const printFrame = document.createElement('iframe');
+            printFrame.style.display = 'none';
+            document.body.appendChild(printFrame);
+            printFrame.contentDocument.write(`
+                <html>
+                    <head>
+                        <title>Report - ${order_details.order_number}</title>
+                        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+                        <style>
+                            @media print {
+                                @page { size: A4; margin: 1cm; }
+                                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; -webkit-print-color-adjust: exact; }
+                                .page { width: 100%; height: 100%; display: flex; flex-direction: column; }
+                                .report-container { border: 1px solid #ccc; padding: 15px; flex-grow: 1; display: flex; flex-direction: column; }
+                                .header-section, .details-section { padding-bottom: 10px; margin-bottom: 15px; }
+                                .header-section { border-bottom: 2px solid #000; }
+                                .header-logo { max-height: 50px; width: auto; }
+                                .table th, .table td { vertical-align: middle; font-size: 0.8rem; }
+                                .table th { background-color: #e9ecef !important; }
+                                .table td:nth-child(2) { text-align: left; }
+                                .info-box { padding: 10px; height: 100%; font-size: 0.9rem; }
+                                .items-section { flex-grow: 1; }
+                                .section-title { font-size: 1rem; font-weight: bold; border-bottom: 1px solid #dee2e6; padding-bottom: 5px; margin-bottom: 10px; }
+                                .footer { flex-shrink: 0; margin-top: auto; font-size: 0.8em; border-top: 2px solid #000; padding-top: 10px; }
+                            }
+                        </style>
+                    </head>
+                    <body>${reportHtml}</body>
+                </html>
+            `);
+            printFrame.contentDocument.close();
+            printFrame.onload = function() {
+                printFrame.contentWindow.focus();
+                printFrame.contentWindow.print();
+                setTimeout(() => document.body.removeChild(printFrame), 500);
+            };
+
+        } catch (error) {
+            Swal.fire('Error', `Could not generate report: ${error.message}`, 'error');
+        } finally {
+            printDeliveryReportBtn.disabled = false;
+            printDeliveryReportBtn.innerHTML = '<i class="bi bi-receipt me-1"></i> Print Delivery Report';
         }
     }
 
