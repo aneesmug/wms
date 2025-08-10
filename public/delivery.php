@@ -10,8 +10,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link rel="stylesheet" href="css/style.css">
     <style>
-        .order-card, #deliveredOrdersTable tbody tr { cursor: pointer; }
-        .order-card:hover { background-color: #f8f9fa; }
+        #assignedOrdersTable tbody tr, #deliveredOrdersTable tbody tr { cursor: pointer; }
         #scanner-video { max-width: 100%; border-radius: 0.5rem; }
     </style>
 </head>
@@ -29,7 +28,7 @@
         <main class="container-fluid p-4">
             <div class="row g-4">
                 <!-- Orders Column with Tabs -->
-                <div class="col-lg-5 col-xl-4">
+                <div class="col-lg-12 col-xl-12">
                     <div class="card">
                         <div class="card-header p-0 border-bottom">
                             <ul class="nav nav-tabs nav-fill" id="deliveryTabs" role="tablist">
@@ -43,9 +42,18 @@
                         </div>
                         <div class="card-body p-0">
                             <div class="tab-content" id="deliveryTabsContent">
-                                <div class="tab-pane fade show active" id="active-orders" role="tabpanel" aria-labelledby="active-tab">
-                                    <div id="assignedOrdersList" class="list-group list-group-flush" style="max-height: 70vh; overflow-y: auto;">
-                                        <div class="p-4 text-center text-muted">Loading active orders...</div>
+                                <div class="tab-pane fade show active p-2" id="active-orders" role="tabpanel" aria-labelledby="active-tab">
+                                    <div class="table-responsive">
+                                        <table id="assignedOrdersTable" class="table table-striped table-hover" style="width:100%">
+                                            <thead>
+                                                <tr>
+                                                    <th>Order #</th>
+                                                    <th>Customer</th>
+                                                    <th>Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody></tbody>
+                                        </table>
                                     </div>
                                 </div>
                                 <div class="tab-pane fade p-2" id="history-orders" role="tabpanel" aria-labelledby="history-tab">
@@ -69,7 +77,7 @@
                 </div>
 
                 <!-- Order Details & Scanning Column -->
-                <div class="col-lg-7 col-xl-8">
+                <div class="col-lg-12 col-xl-12">
                     <div id="orderDetailsArea" class="d-none">
                         <div class="card">
                             <div class="card-header d-flex justify-content-between align-items-center">
@@ -102,7 +110,6 @@
                         </div>
                     </div>
 
-                    <!-- MODIFICATION: New Scan Area -->
                     <div id="scanArea" class="card mt-4 d-none">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <h5 class="card-title mb-0">Scan Items for Pickup</h5>

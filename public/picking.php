@@ -7,11 +7,30 @@
     <!-- Stylesheets -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link rel="stylesheet" href="css/style.css">
+    <style>
+        .order-card {
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            border-width: 1px;
+        }
+        .order-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            border-color: var(--bs-primary);
+        }
+        .order-card.selected {
+            border-color: var(--bs-primary);
+            border-width: 2px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .card-body-hover {
+            min-height: 140px;
+        }
+    </style>
 </head>
 <body class="bg-light">
 
@@ -32,39 +51,51 @@
 
         <main class="flex-grow-1 p-4">
             <div class="row g-4">
-                <!-- Orders Table Column -->
-                <div class="col-lg-5">
+                <!-- Orders Column -->
+                <div class="col-lg-12">
                     <div class="card h-100">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <h5 class="card-title mb-0">Orders for Picking</h5>
-                            <select id="pickingStatusFilter" class="form-select form-select-sm w-auto">
-                                <option value="Pending Pick">Pending Pick</option>
-                                <option value="Partially Picked">Partially Picked</option>
-                                <option value="Picked">Picked (Ready for Staging)</option>
-                                <option value="Staged">Staged (Ready for Driver)</option>
-                                <option value="Delivery Failed">Delivery Failed (Re-assign)</option>
-                                <option value="Assigned">Assigned</option>
-                                <option value="all">Show All</option>
-                            </select>
+                        <div class="card-header">
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                                <h5 class="card-title mb-0">Orders for Picking</h5>
+                                <div class="d-flex flex-wrap align-items-center gap-2">
+                                    <div class="input-group input-group-sm" style="width: 250px;">
+                                        <span class="input-group-text bg-light border-end-0"><i class="bi bi-search"></i></span>
+                                        <input type="search" id="orderSearchInput" class="form-control border-start-0" placeholder="Search by Order # or Customer...">
+                                    </div>
+                                    <select id="pickingStatusFilter" class="form-select form-select-sm w-auto">
+                                        <option value="Pending Pick">Pending Pick</option>
+                                        <option value="Partially Picked">Partially Picked</option>
+                                        <option value="Picked">Picked</option>
+                                        <option value="Staged">Staged</option>
+                                        <option value="Delivery Failed">Delivery Failed</option>
+                                        <option value="Assigned">Assigned</option>
+                                        <option value="all">Show All</option>
+                                    </select>
+                                </div>
+                            </div>
                         </div>
                         <div class="card-body">
-                            <table id="ordersForPickingTable" class="table table-striped table-hover" style="width:100%">
-                                <thead>
-                                    <tr>
-                                        <th>Order #</th>
-                                        <th>Customer</th>
-                                        <th>Date</th>
-                                        <th>Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody></tbody>
-                            </table>
+                            <!-- Notification Alert Area -->
+                            <div id="notificationArea" class="mb-3"></div>
+                            
+                            <!-- Order Cards Grid -->
+                            <div id="ordersGrid" class="row row-cols-1 row-cols-md-2 row-cols-xl-4 g-3">
+                                <!-- Order cards will be injected here by JS -->
+                            </div>
+                             <div id="noOrdersMessage" class="text-center p-5 d-none">
+                                <i class="bi bi-box-seam" style="font-size: 3rem;"></i>
+                                <h5 class="mt-3">No orders found for the selected filter.</h5>
+                            </div>
+
+
+                            <!-- Pagination -->
+                            <nav id="paginationNav" class="mt-4 d-flex justify-content-center"></nav>
                         </div>
                     </div>
                 </div>
 
                 <!-- Picking Process Column -->
-                <div class="col-lg-7">
+                <div class="col-lg-12">
                     <div id="pickingProcessArea" class="d-none">
                         <div class="card">
                             <div class="card-header">
@@ -147,8 +178,6 @@
     <!-- JavaScript Libraries -->
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>

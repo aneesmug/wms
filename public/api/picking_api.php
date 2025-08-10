@@ -32,6 +32,9 @@ switch ($action) {
     case 'getOrdersForPicking':
         handleGetOrdersForPicking($conn, $current_warehouse_id);
         break;
+    case 'getOrderCountsByStatus': // NEW ACTION
+        handleGetOrderCountsByStatus($conn, $current_warehouse_id);
+        break;
     case 'getOrderDetails':
         handleGetOrderDetails($conn, $current_warehouse_id);
         break;
@@ -115,6 +118,31 @@ function handleGetOrdersForPicking($conn, $warehouse_id) {
     $stmt->close();
     sendJsonResponse(['success' => true, 'data' => $orders]);
 }
+
+// NEW FUNCTION to get counts for all statuses
+function handleGetOrderCountsByStatus($conn, $warehouse_id) {
+    $stmt = $conn->prepare("
+        SELECT
+            CASE
+                WHEN status = 'New' THEN 'Pending Pick'
+                ELSE status
+            END AS status_group,
+            COUNT(order_id) as order_count
+        FROM outbound_orders
+        WHERE warehouse_id = ? AND status IN ('New', 'Pending Pick', 'Partially Picked', 'Picked', 'Staged', 'Assigned', 'Delivery Failed')
+        GROUP BY status_group
+    ");
+    $stmt->bind_param("i", $warehouse_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $counts = [];
+    while ($row = $result->fetch_assoc()) {
+        $counts[$row['status_group']] = $row['order_count'];
+    }
+    $stmt->close();
+    sendJsonResponse(['success' => true, 'data' => $counts]);
+}
+
 
 function handleGetOrderDetails($conn, $warehouse_id) {
     $order_id = filter_var($_GET['order_id'], FILTER_VALIDATE_INT);

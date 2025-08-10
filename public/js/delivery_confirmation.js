@@ -3,7 +3,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     const deliveryForm = document.getElementById('deliveryConfirmationForm');
     const submitBtn = document.getElementById('submitDeliveryBtn');
-    // MODIFICATION: Add new button element
     const reportFailureBtn = document.getElementById('reportFailureBtn');
 
     // Pre-fill tracking number if it's in the URL
@@ -47,6 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     confirmButtonText: 'Done'
                 }).then(() => {
                     deliveryForm.reset();
+                    document.getElementById('trackingNumberInput').value = ''; // Clear tracking number as well
                 });
             } else {
                 Swal.fire('Submission Failed', result.message, 'error');
@@ -60,12 +60,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // MODIFICATION: Add event listener for the failure report button
     if (reportFailureBtn) {
         reportFailureBtn.addEventListener('click', handleReportFailure);
     }
 
-    // MODIFICATION: New function to handle reporting a delivery failure
     async function handleReportFailure() {
         const trackingNumber = document.getElementById('trackingNumberInput').value.trim();
         if (!trackingNumber) {
@@ -113,7 +111,8 @@ document.addEventListener('DOMContentLoaded', () => {
             Swal.fire({ title: 'Submitting Report...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
             try {
-                const response = await fetch('api/driver_api.php?action=reportDeliveryFailure', {
+                // MODIFICATION: Changed action to the new public endpoint
+                const response = await fetch('api/driver_api.php?action=reportThirdPartyDeliveryFailure', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({

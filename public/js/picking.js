@@ -22,19 +22,26 @@ document.addEventListener('DOMContentLoaded', () => {
     const stagingActionsArea = document.getElementById('stagingActionsArea');
     const managementActionsArea = document.getElementById('managementActionsArea');
     const pickingStatusFilter = document.getElementById('pickingStatusFilter');
+    const orderSearchInput = document.getElementById('orderSearchInput');
+    const ordersGrid = document.getElementById('ordersGrid');
+    const paginationNav = document.getElementById('paginationNav');
+    const notificationArea = document.getElementById('notificationArea');
+    const noOrdersMessage = document.getElementById('noOrdersMessage');
 
     // --- State Variables ---
     let selectedOrderId = null;
     let selectedOrderNumber = '';
     let selectedTrackingNumber = '';
-    let allProducts = [];
-    let productInventoryDetails = [];
-    let ordersTable = null;
+    let allOrders = [];
     let currentOrderItems = []; 
     const currentWarehouseRole = localStorage.getItem('current_warehouse_role');
-    let allLocations = [];
     let allDrivers = [];
     let allDeliveryCompanies = [];
+    let hasCheckedOrdersOnce = false;
+    let lastKnownPendingCount = 0;
+    let currentPage = 1;
+    const ordersPerPage = 8;
+    let orderStatusCounts = {};
 
     const Toast = Swal.mixin({
         toast: true,
@@ -50,7 +57,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     initializePage();
 
-    // MODIFICATION: This function is corrected to handle both JSON and FormData requests properly.
     async function fetchData(endpoint, method = 'GET', body = null) {
         const options = { 
             method, 
@@ -76,7 +82,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function initializePage() {
-        initializeOrdersDataTable();
         setupEventListeners();
         
         $('#pickDotCodeSelect, #pickLocationSelect, #pickBatchNumberSelect').select2({ theme: 'bootstrap-5' });
@@ -89,41 +94,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             await Promise.all([ 
-                loadProductsForDropdown(), 
-                loadPickableOrders(),
-                loadLocations(),
+                fetchAndRenderOrders(),
                 loadDrivers(),
                 loadDeliveryCompanies()
             ]);
+            setInterval(updateOrderStatusCounts, 30000); 
+            updateOrderStatusCounts();
         } catch (error) {
             Swal.fire('Initialization Error', `Could not load initial page data. ${error.message}`, 'error');
         }
-    }
-
-    function initializeOrdersDataTable() {
-        ordersTable = $('#ordersForPickingTable').DataTable({
-            responsive: true,
-            ajax: {
-                url: 'api/picking_api.php?action=getOrdersForPicking',
-                data: function (d) { d.status = pickingStatusFilter.value; },
-                dataSrc: 'data'
-            },
-            columns: [
-                { data: 'order_number' },
-                { data: 'customer_name' },
-                { data: 'order_date' },
-                { data: 'status', render: (data) => `<span class="badge ${getStatusClass(data)}">${data}</span>` }
-            ],
-            order: [[2, 'asc']]
-        });
-        $('#ordersForPickingTable tbody').on('click', 'tr', function () {
-            const rowData = ordersTable.row(this).data();
-            if (rowData) {
-                selectOrder(rowData.order_id, rowData.order_number);
-                $('tr.table-primary').removeClass('table-primary');
-                $(this).addClass('table-primary');
-            }
-        });
     }
     
     function setupEventListeners() {
@@ -132,7 +111,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (printPickReportBtn) printPickReportBtn.addEventListener('click', handlePrintPickReport);
         if (stageOrderBtn) stageOrderBtn.addEventListener('click', handleStageOrder);
         if (assignDriverBtn) assignDriverBtn.addEventListener('click', openAssignDriverSweetAlert);
-        if (pickingStatusFilter) pickingStatusFilter.addEventListener('change', () => ordersTable.ajax.reload());
+        
+        if (pickingStatusFilter) pickingStatusFilter.addEventListener('change', () => { currentPage = 1; displayOrders(); });
+        if (orderSearchInput) orderSearchInput.addEventListener('input', () => { currentPage = 1; displayOrders(); });
         
         if (pickItemNumberInput) pickItemNumberInput.addEventListener('change', handleProductScan);
         if (pickDotCodeSelect) $(pickDotCodeSelect).on('change', handleDotSelect);
@@ -141,20 +122,114 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pickQuantityInput) pickQuantityInput.addEventListener('input', validatePickQuantity);
     }
 
-    async function loadProductsForDropdown() {
-        const response = await fetchData('api/products_api.php'); 
-        if (response?.success && Array.isArray(response.data)) allProducts = response.data;
-    }
-    
-    async function loadPickableOrders() {
-        ordersTable.ajax.reload();
-    }
-    
-    async function loadLocations() {
-        const data = await fetchData('api/locations_api.php?action=getPickableLocations');
-        if (data && data.success) allLocations = data.data;
+    async function fetchAndRenderOrders() {
+        const response = await fetchData('api/picking_api.php?action=getOrdersForPicking&status=all');
+        if (response?.success) {
+            allOrders = response.data;
+            displayOrders();
+        }
     }
 
+    function displayOrders() {
+        const status = pickingStatusFilter.value;
+        const searchTerm = orderSearchInput.value.toLowerCase();
+        let filteredOrders;
+
+        // *** FIX: Search is now independent of the status filter ***
+        if (searchTerm) {
+            // If there's a search term, filter ALL orders by it, ignoring the status dropdown
+            filteredOrders = allOrders.filter(order =>
+                order.order_number.toLowerCase().includes(searchTerm) ||
+                order.customer_name.toLowerCase().includes(searchTerm)
+            );
+        } else {
+            // If there's no search term, filter by the selected status
+            if (status !== 'all') {
+                filteredOrders = allOrders.filter(order => {
+                    if (status === 'Pending Pick') {
+                        return ['New', 'Pending Pick'].includes(order.status);
+                    }
+                    return order.status === status;
+                });
+            } else {
+                // If status is 'all' and no search term, show all orders
+                filteredOrders = allOrders;
+            }
+        }
+        
+        ordersGrid.innerHTML = '';
+        noOrdersMessage.classList.toggle('d-none', filteredOrders.length > 0);
+
+        if (filteredOrders.length === 0) {
+            renderPagination(0, 0); // Clear pagination
+            return;
+        }
+
+        // Paginate
+        const totalPages = Math.ceil(filteredOrders.length / ordersPerPage);
+        const startIndex = (currentPage - 1) * ordersPerPage;
+        const endIndex = startIndex + ordersPerPage;
+        const paginatedOrders = filteredOrders.slice(startIndex, endIndex);
+
+        // Render
+        paginatedOrders.forEach(order => {
+            const card = document.createElement('div');
+            card.className = 'col';
+            card.innerHTML = `
+                <div class="card h-100 order-card" data-order-id="${order.order_id}" data-order-number="${order.order_number}">
+                    <div class="card-body card-body-hover d-flex flex-column">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <h6 class="card-title text-primary mb-1">${order.order_number}</h6>
+                            <span class="badge ${getStatusClass(order.status)}">${order.status}</span>
+                        </div>
+                        <p class="card-subtitle mb-2 text-muted">${order.customer_name}</p>
+                        <p class="card-text small mt-auto mb-0">
+                            <strong>Date:</strong> ${new Date(order.order_date).toLocaleDateString()}
+                        </p>
+                    </div>
+                </div>
+            `;
+            ordersGrid.appendChild(card);
+        });
+
+        // Add click listeners to the new cards
+        ordersGrid.querySelectorAll('.order-card').forEach(card => {
+            card.addEventListener('click', () => {
+                ordersGrid.querySelectorAll('.order-card.selected').forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+                selectOrder(card.dataset.orderId, card.dataset.orderNumber);
+            });
+        });
+
+        renderPagination(totalPages, filteredOrders.length);
+    }
+
+    function renderPagination(totalPages) {
+        paginationNav.innerHTML = '';
+        if (totalPages <= 1) return;
+
+        const ul = document.createElement('ul');
+        ul.className = 'pagination';
+
+        for (let i = 1; i <= totalPages; i++) {
+            const li = document.createElement('li');
+            li.className = `page-item ${i === currentPage ? 'active' : ''}`;
+            const a = document.createElement('a');
+            a.className = 'page-link';
+            a.href = '#';
+            a.textContent = i;
+            a.dataset.page = i;
+            a.addEventListener('click', (e) => {
+                e.preventDefault();
+                currentPage = parseInt(e.target.dataset.page, 10);
+                displayOrders();
+            });
+            li.appendChild(a);
+            ul.appendChild(li);
+        }
+        paginationNav.appendChild(ul);
+    }
+    
     async function loadDrivers() {
         const data = await fetchData('api/users_api.php?action=getDrivers');
         if (data && data.success) {
@@ -223,12 +298,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 selectedTrackingNumber = order.tracking_number || '';
                 const canManage = ['picker', 'operator', 'manager'].includes(currentWarehouseRole);
                 
-                const isPickable = ['New', 'Pending Pick', 'Partially Picked'].includes(order.status);
+                const isFullyPicked = currentOrderItems.every(item => item.picked_quantity >= item.ordered_quantity) && currentOrderItems.length > 0;
+                let isPickable = ['New', 'Pending Pick', 'Partially Picked'].includes(order.status);
+
+                if (isFullyPicked) {
+                    isPickable = false;
+                }
+                
                 const canUnpick = ['Pending Pick', 'Partially Picked', 'Picked'].includes(order.status);
                 const canStage = order.status === 'Picked';
                 const canAssign = ['Staged', 'Delivery Failed'].includes(order.status);
 
-                if (isPickable && canManage) pickActionsArea.classList.remove('d-none');
+                if (isPickable && canManage) {
+                    pickActionsArea.classList.remove('d-none');
+                } else {
+                    pickActionsArea.classList.add('d-none');
+                }
+
                 if (canManage) stagingActionsArea.classList.remove('d-none');
                 if (canManage && canStage) stageOrderBtn.classList.remove('d-none');
                 
@@ -339,10 +425,14 @@ document.addEventListener('DOMContentLoaded', () => {
         $(pickLocationSelect).empty().append(new Option('Select DOT first', '')).prop('disabled', true).trigger('change');
         $(pickBatchNumberSelect).empty().append(new Option('Select location first', '')).prop('disabled', true).trigger('change');
         productInventoryDetails = [];
+        pickQuantityInput.disabled = false;
+        pickItemBtn.disabled = true;
 
         const itemNumber = parseInt(pickItemNumberInput.value, 10);
         if (isNaN(itemNumber) || itemNumber < 1 || itemNumber > currentOrderItems.length) {
-            Toast.fire({ icon: 'error', title: 'Invalid item number.' });
+            if (pickItemNumberInput.value !== '') {
+                Toast.fire({ icon: 'error', title: 'Invalid item number.' });
+            }
             return;
         }
 
@@ -351,6 +441,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (remainingToPick <= 0) {
             Toast.fire({ icon: 'warning', title: 'This item is fully picked.' });
+            pickItemNumberInput.value = ''; // FIX: Clear the input to allow selecting another item
+            $(pickDotCodeSelect).empty().append(new Option('Select DOT', '')).prop('disabled', true).trigger('change');
             return;
         }
 
@@ -505,8 +597,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (result?.success) {
             Toast.fire({ icon: 'success', title: result.message });
             
-            await loadOrderItems(selectedOrderId);
-            await loadPickableOrders();
+            await fetchAndRenderOrders(); // Refetch all orders to get the latest statuses
+            await loadOrderItems(selectedOrderId); // Reload the details of the current order
 
             const updatedOrderItem = currentOrderItems.find(item => item.product_id == product.product_id);
             const remainingToPick = updatedOrderItem ? (updatedOrderItem.ordered_quantity - updatedOrderItem.picked_quantity) : 0;
@@ -540,7 +632,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const apiResult = await fetchData('api/picking_api.php?action=unpickItem', 'POST', { pick_id: pickId });
                 if (apiResult?.success) {
                     Toast.fire({ icon: 'success', title: apiResult.message });
-                    await Promise.all([loadOrderItems(orderId), loadPickableOrders()]);
+                    await Promise.all([fetchAndRenderOrders(), loadOrderItems(orderId)]);
                     if (pickItemNumberInput.value) await handleProductScan();
                 }
             }
@@ -563,7 +655,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await fetchData('api/picking_api.php?action=stageOrder', 'POST', { order_id: selectedOrderId, shipping_area_location_id: locationId });
             if (result?.success) {
                 Toast.fire({ icon: 'success', title: result.message });
-                await Promise.all([loadOrderItems(selectedOrderId), loadPickableOrders()]);
+                await Promise.all([fetchAndRenderOrders(), loadOrderItems(selectedOrderId)]);
             }
         }
     }
@@ -640,10 +732,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                 ${companyOptions}
                             </select>
                         </div>
-                        <div id="driver-blocks-container">
-                            ${getDriverBlockHtml(0)}
+                        <div id="driver-details-wrapper" class="d-none">
+                            <div id="driver-blocks-container">
+                                ${getDriverBlockHtml(0)}
+                            </div>
+                            <button type="button" id="add-driver-btn" class="btn btn-sm btn-outline-primary mt-2"><i class="bi bi-plus-circle me-1"></i>Add Another Driver</button>
                         </div>
-                        <button type="button" id="add-driver-btn" class="btn btn-sm btn-outline-primary mt-2"><i class="bi bi-plus-circle me-1"></i>Add Another Driver</button>
                     </div>
                 </form>
             `,
@@ -661,6 +755,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const thirdPartyRadio = document.getElementById('thirdPartyRadioSwal');
                 const inHouseSection = document.getElementById('inHouseDriverSectionSwal');
                 const thirdPartySection = document.getElementById('thirdPartySectionSwal');
+                const driverDetailsWrapper = document.getElementById('driver-details-wrapper');
                 
                 const toggleVisibility = () => {
                     if (inHouseRadio.checked) {
@@ -674,6 +769,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 inHouseRadio.addEventListener('change', toggleVisibility);
                 thirdPartyRadio.addEventListener('change', toggleVisibility);
                 
+                $('#deliveryCompanySelectSwal').on('change', function() {
+                    if ($(this).val()) {
+                        driverDetailsWrapper.classList.remove('d-none');
+                    } else {
+                        driverDetailsWrapper.classList.add('d-none');
+                    }
+                });
+
                 const driverBlocksContainer = document.getElementById('driver-blocks-container');
                 document.getElementById('add-driver-btn').addEventListener('click', () => {
                     driverCounter++;
@@ -697,14 +800,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         Swal.showValidationMessage('Please select a driver.');
                         return false;
                     }
-                    // For in-house, return a plain object to be sent as JSON
                     return {
                         order_id: selectedOrderId,
                         assignment_type: assignmentType,
                         driver_user_id: driverId
                     };
                 } else {
-                    // For third-party, build FormData for file uploads
                     const formData = new FormData();
                     formData.append('order_id', selectedOrderId);
                     formData.append('assignment_type', assignmentType);
@@ -770,7 +871,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await fetchData('api/picking_api.php?action=assignDriver', 'POST', bodyOrFormData);
                 
                 if (data && data.success) {
-                    await Promise.all([loadOrderItems(selectedOrderId), loadPickableOrders()]);
+                    await Promise.all([fetchAndRenderOrders(), loadOrderItems(selectedOrderId)]);
 
                     if (bodyOrFormData instanceof FormData || bodyOrFormData.assignment_type === 'third_party') {
                         const pickupUrl = `${window.location.origin}/third_party_pickup.php`;
@@ -804,8 +905,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             }
                         });
                     } else {
-                        Swal.close();
-                        Toast.fire({ icon: 'success', title: 'Driver assigned successfully!' });
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'Driver Assigned!',
+                            text: 'The in-house driver has been successfully assigned to the order.'
+                        });
                     }
                 }
             }
@@ -1121,6 +1225,51 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             printPickReportBtn.disabled = false;
             printPickReportBtn.innerHTML = '<i class="bi bi-file-earmark-text me-1"></i> Print Pick Report';
+        }
+    }
+    
+    async function updateOrderStatusCounts() {
+        const response = await fetchData('api/picking_api.php?action=getOrderCountsByStatus');
+        
+        if (response?.success) {
+            orderStatusCounts = response.data;
+            
+            const newPendingCount = orderStatusCounts['Pending Pick'] || 0;
+            
+            if (newPendingCount > 0) {
+                const orderText = newPendingCount === 1 ? 'order' : 'orders';
+                notificationArea.innerHTML = `
+                    <div class="alert alert-primary alert-dismissible fade show" role="alert">
+                        You have <strong>${newPendingCount}</strong> new ${orderText} ready for picking. 
+                        <a href="#" id="viewPendingLink" class="alert-link">View them now</a>.
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                `;
+                document.getElementById('viewPendingLink').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    pickingStatusFilter.value = 'Pending Pick';
+                    pickingStatusFilter.dispatchEvent(new Event('change'));
+                });
+            } else {
+                notificationArea.innerHTML = '';
+            }
+
+            if (!hasCheckedOrdersOnce) {
+                lastKnownPendingCount = newPendingCount;
+                hasCheckedOrdersOnce = true;
+                return;
+            }
+    
+            if (newPendingCount > lastKnownPendingCount) {
+                const newOrders = newPendingCount - lastKnownPendingCount;
+                const toastOrderText = newOrders === 1 ? 'order has' : 'orders have';
+                Toast.fire({
+                    icon: 'info',
+                    title: `${newOrders} new ${toastOrderText} arrived!`
+                });
+            }
+            
+            lastKnownPendingCount = newPendingCount;
         }
     }
 

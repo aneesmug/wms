@@ -13,22 +13,29 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link rel="stylesheet" href="css/style.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .public-page-container {
+            max-width: 600px;
+        }
+        .logo {
+            max-width: 220px;
+        }
+    </style>
 </head>
-<body class="bg-light">
-    <div id="content">
-        <header class="bg-white shadow-sm border-bottom">
-            <div class="container-fluid px-4">
-                <div class="d-flex align-items-center py-3">
-                    <img src="img/logo.png" alt="Company Logo" style="height: 40px;" class="me-3">
-                    <h1 class="h4 mb-0 text-dark">Proof of Delivery</h1>
-                </div>
+<body>
+    <div class="container my-5">
+        <div class="public-page-container mx-auto">
+            <div class="text-center mb-4">
+                <img src="img/logo.png" alt="Company Logo" class="logo">
             </div>
-        </header>
-
-        <main class="container p-4">
-            <div class="card shadow-sm mx-auto" style="max-width: 600px;">
+            <div class="card shadow-sm">
                 <div class="card-body p-4">
-                    <h5 class="card-title text-center mb-4">Submit Proof of Delivery</h5>
+                    <h2 class="card-title text-center">Proof of Delivery</h2>
+                    <p class="card-text text-center text-muted mb-4">Enter the order details and upload a photo to confirm delivery.</p>
+                    
                     <form id="deliveryConfirmationForm" enctype="multipart/form-data">
                         <div class="mb-3">
                             <label for="trackingNumberInput" class="form-label">Tracking Number or Order Number</label>
@@ -36,7 +43,7 @@
                         </div>
                         <div class="mb-3">
                             <label for="confirmationCodeInput" class="form-label">Delivery Confirmation Code (Optional)</label>
-                            <input type="text" id="confirmationCodeInput" class="form-control form-control-lg" placeholder="Enter 6-digit code if provided by recipient">
+                            <input type="text" id="confirmationCodeInput" class="form-control form-control-lg" placeholder="Enter 6-digit code if provided">
                         </div>
                         <hr>
                         <div class="mb-3">
@@ -56,13 +63,12 @@
                             <button type="submit" id="submitDeliveryBtn" class="btn btn-success btn-lg">Confirm Delivery</button>
                         </div>
                     </form>
-                    <!-- MODIFICATION: Add button to report a failed attempt -->
                     <div class="text-center mt-3">
                         <button type="button" id="reportFailureBtn" class="btn btn-link text-danger">Report Failed Delivery Attempt</button>
                     </div>
                 </div>
             </div>
-        </main>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>

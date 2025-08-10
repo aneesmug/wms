@@ -295,6 +295,53 @@ function initializeAdvancedFilter(table, filterContainerId, columnsConfig) {
     render();
 }
 
+// --- General Input Handling ---
+
+/**
+ * Initializes a datepicker on any element with the 'datepicker-input' class.
+ * This is designed to be called when new inputs are added to the DOM (e.g., in a modal).
+ * @param {HTMLElement} element - The specific input element to initialize.
+ */
+function initializeDatepicker(element) {
+    if (element && typeof Datepicker !== 'undefined') {
+        new Datepicker(element, {
+            format: 'yyyy-mm-dd',
+            autohide: true,
+            buttonClass: 'btn'
+        });
+    }
+}
+
+/**
+ * Attaches a keydown event listener to the document to handle numeric-only inputs.
+ * It checks for inputs with the 'numeric-only' class.
+ */
+function setupNumericOnlyInputs() {
+    document.addEventListener('keydown', function(event) {
+        if (event.target.classList.contains('numeric-only')) {
+            // Allow control keys, navigation keys, and numbers
+            if (
+                // Allow: backspace, delete, tab, escape, enter
+                [46, 8, 9, 27, 13].indexOf(event.keyCode) !== -1 ||
+                // Allow: Ctrl+A, Command+A
+                (event.keyCode === 65 && (event.ctrlKey === true || event.metaKey === true)) ||
+                // Allow: home, end, left, right, down, up
+                (event.keyCode >= 35 && event.keyCode <= 40) ||
+                // Allow numbers and numpad numbers
+                ((event.keyCode >= 48 && event.keyCode <= 57) || (event.keyCode >= 96 && event.keyCode <= 105))
+            ) {
+                // let it happen, don't do anything
+                return;
+            }
+            // Ensure that it is a number and stop the keypress
+            if ((event.shiftKey || (event.keyCode < 48 || event.keyCode > 57)) && (event.keyCode < 96 || event.keyCode > 105)) {
+                event.preventDefault();
+            }
+        }
+    });
+}
+
+
 // --- Common Page Setup ---
 
 /**
@@ -339,6 +386,9 @@ function setupCommonEventListeners() {
     logoutButtons.forEach(btn => {
         if (btn) btn.addEventListener('click', handleLogout);
     });
+
+    // Initialize general input handlers
+    setupNumericOnlyInputs();
 }
 
 // This runs on every page load.

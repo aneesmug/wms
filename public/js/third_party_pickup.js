@@ -4,11 +4,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
     const step1 = document.getElementById('step1');
     const step2 = document.getElementById('step2');
+    const findOrderBtn = document.getElementById('findOrderBtn');
     const loadOrderBtn = document.getElementById('loadOrderBtn');
     const orderNumberInput = document.getElementById('orderNumberInput');
-    const driverNameInput = document.getElementById('driverNameInput');
+    const driverSelectionArea = document.getElementById('driverSelectionArea');
+    const driverSelect = document.getElementById('driverSelect');
 
     const orderNumberDisplay = document.getElementById('orderNumberDisplay');
+    const driverNameDisplay = document.getElementById('driverNameDisplay');
     const itemList = document.getElementById('itemList');
     const barcodeInput = document.getElementById('barcodeInput');
     const scanFeedback = document.getElementById('scanFeedback');
@@ -19,10 +22,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- State Variables ---
     let currentOrder = null;
+    let selectedDriverName = '';
     let codeReader = null;
     let selectedDeviceId = null;
     let torchCapability = false;
-    // MODIFICATION: Added a timer for scanner input
     let barcodeScannerTimer;
     const SCAN_TIMEOUT = 200; // ms
 
@@ -50,14 +53,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Event Listeners ---
-    loadOrderBtn.addEventListener('click', handleLoadOrder);
+    findOrderBtn.addEventListener('click', handleFindOrder);
+    loadOrderBtn.addEventListener('click', handleLoadOrderForScanning);
     
-    // MODIFICATION: Replaced single 'keypress' event with more robust input handling
-    // This handles manual entry with Enter/Tab and scanners that don't send a suffix key.
+    orderNumberInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault(); 
+            handleFindOrder(); 
+        }
+    });
+
     barcodeInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === 'Tab') {
-            e.preventDefault(); // Prevent default Tab behavior (moving to next field)
-            clearTimeout(barcodeScannerTimer); // Prevent the timer from firing as well
+            e.preventDefault();
+            clearTimeout(barcodeScannerTimer);
             handleBarcode(barcodeInput.value);
         }
     });
@@ -65,9 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
     barcodeInput.addEventListener('input', () => {
         clearTimeout(barcodeScannerTimer);
         barcodeScannerTimer = setTimeout(() => {
-            // This will trigger if a scanner inputs text without an Enter/Tab suffix,
-            // or if a user pauses after typing manually.
-            if (barcodeInput.value.length > 5) { // A reasonable minimum length for a barcode
+            if (barcodeInput.value.length > 5) {
                 handleBarcode(barcodeInput.value);
             }
         }, SCAN_TIMEOUT);
@@ -80,43 +87,62 @@ document.addEventListener('DOMContentLoaded', () => {
     torchButton.addEventListener('click', toggleTorch);
 
 
-    // --- Step 1: Load Order ---
-    async function handleLoadOrder() {
+    // --- Step 1: Find Order and Drivers ---
+    async function handleFindOrder() {
         const orderNumber = orderNumberInput.value.trim();
-        const driverName = driverNameInput.value.trim();
-
-        if (!orderNumber || !driverName) {
-            Swal.fire('Input Required', 'Please enter both the Order Number and your name.', 'warning');
+        if (!orderNumber) {
+            Swal.fire('Input Required', 'Please enter the Order Number or Tracking Number.', 'warning');
             return;
         }
 
-        loadOrderBtn.disabled = true;
-        loadOrderBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Loading...';
+        findOrderBtn.disabled = true;
+        findOrderBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+        // Reset previous state
+        driverSelectionArea.classList.add('d-none');
+        loadOrderBtn.classList.add('d-none');
+        driverSelect.innerHTML = '';
+        currentOrder = null;
 
         const result = await fetchData(`api/driver_api.php?action=getOrderForThirdParty&order_number=${orderNumber}`);
 
         if (result && result.success) {
             currentOrder = result.data;
-            if (!currentOrder.third_party_driver_name) {
-                currentOrder.third_party_driver_name = driverName;
-            } else {
-                driverNameInput.value = currentOrder.third_party_driver_name;
-                driverNameInput.readOnly = true;
-            }
-            displayOrderForScanning();
-            populateScanHistory(currentOrder.scan_history);
-            step1.classList.add('d-none');
-            step2.classList.remove('d-none');
-            initializeScanner();
+            
+            driverSelect.innerHTML = '<option value="">-- Select Your Name --</option>';
+            currentOrder.drivers.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                driverSelect.appendChild(option);
+            });
+
+            driverSelectionArea.classList.remove('d-none');
+            loadOrderBtn.classList.remove('d-none');
         }
 
-        loadOrderBtn.disabled = false;
-        loadOrderBtn.innerHTML = 'Load Order for Scanning';
+        findOrderBtn.disabled = false;
+        findOrderBtn.innerHTML = 'Find';
+    }
+
+    function handleLoadOrderForScanning() {
+        selectedDriverName = driverSelect.value;
+        if (!selectedDriverName) {
+            Swal.fire('Driver Not Selected', 'Please select your name from the list.', 'warning');
+            return;
+        }
+
+        displayOrderForScanning();
+        populateScanHistory(currentOrder.scan_history);
+        step1.classList.add('d-none');
+        step2.classList.remove('d-none');
+        initializeScanner();
     }
 
     // --- Step 2: Display and Scan ---
     function displayOrderForScanning() {
         orderNumberDisplay.textContent = currentOrder.order_number;
+        driverNameDisplay.textContent = selectedDriverName;
         itemList.innerHTML = '';
         currentOrder.items.forEach(item => {
             const li = document.createElement('li');
@@ -250,7 +276,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const body = {
             barcode: barcode,
             order_id: currentOrder.order_id,
-            scanner_name: driverNameInput.value.trim()
+            scanner_name: selectedDriverName
         };
 
         const result = await fetchData('api/driver_api.php?action=scanItemForThirdParty', 'POST', body);
@@ -280,8 +306,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     step2.classList.add('d-none');
                     step1.classList.remove('d-none');
                     orderNumberInput.value = '';
-                    driverNameInput.value = '';
-                    driverNameInput.readOnly = false;
+                    driverSelectionArea.classList.add('d-none');
+                    loadOrderBtn.classList.add('d-none');
                 });
             }
 

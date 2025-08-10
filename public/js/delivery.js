@@ -1,7 +1,6 @@
 // public/js/delivery.js
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
-    const assignedOrdersList = document.getElementById('assignedOrdersList');
     const orderDetailsArea = document.getElementById('orderDetailsArea');
     const noOrderSelected = document.getElementById('noOrderSelected');
     const orderNumberDisplay = document.getElementById('orderNumberDisplay');
@@ -32,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeOrders = [];
     let deliveredOrders = [];
     let historyTable = null;
+    let activeTable = null;
     let manualScanTimer;
 
     // --- API Helper ---
@@ -52,12 +52,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Initialization ---
     function initialize() {
-        initializeHistoryTable();
+        initializeTables();
         loadAllOrders();
         setupEventListeners();
     }
 
-    function initializeHistoryTable() {
+    function initializeTables() {
+        activeTable = $('#assignedOrdersTable').DataTable({
+            responsive: true,
+            order: [],
+            columnDefs: [
+                { targets: '_all', className: 'align-middle' },
+                { targets: [3], visible: false } // Hide the order_id column
+            ]
+        });
+
         historyTable = $('#deliveredOrdersTable').DataTable({
             responsive: true,
             order: [[3, 'desc']],
@@ -77,32 +86,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function loadAssignedOrders() {
         const result = await fetchData('api/driver_api.php?action=getAssignedOrders');
-        assignedOrdersList.innerHTML = '';
         if (result && result.success) {
             activeOrders = result.data;
-            if (activeOrders.length > 0) {
-                activeOrders.forEach(order => {
-                    const isScanned = order.scanned_items_count >= order.total_items;
-                    const card = document.createElement('a');
-                    card.href = '#';
-                    card.className = 'list-group-item list-group-item-action order-card';
-                    card.dataset.orderId = order.order_id;
-                    card.innerHTML = `
-                        <div class="d-flex w-100 justify-content-between">
-                            <h6 class="mb-1">${order.order_number}</h6>
-                            <small>${order.status}</small>
-                        </div>
-                        <p class="mb-1">${order.customer_name}</p>
-                        <small>${order.full_address}</small>
-                        <div class="progress mt-2" style="height: 5px;">
-                            <div class="progress-bar ${isScanned ? 'bg-success' : 'bg-primary'}" role="progressbar" style="width: ${((order.scanned_items_count || 0) / order.total_items) * 100}%" aria-valuenow="${order.scanned_items_count}" aria-valuemin="0" aria-valuemax="${order.total_items}"></div>
-                        </div>
-                    `;
-                    assignedOrdersList.appendChild(card);
-                });
-            } else {
-                assignedOrdersList.innerHTML = '<div class="p-4 text-center text-muted">No active orders assigned.</div>';
-            }
+            const tableData = activeOrders.map(order => {
+                const statusBadge = `<span class="badge bg-primary">${order.status}</span>`;
+                return [
+                    order.order_number,
+                    order.customer_name,
+                    statusBadge,
+                    order.order_id
+                ];
+            });
+            activeTable.clear();
+            activeTable.rows.add(tableData).draw();
         }
     }
 
@@ -129,18 +125,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function setupEventListeners() {
-        assignedOrdersList.addEventListener('click', (e) => {
-            const card = e.target.closest('.order-card');
-            if (card) {
-                e.preventDefault();
-                selectOrder(card.dataset.orderId);
+        $('#assignedOrdersTable tbody').on('click', 'tr', function () {
+            const rowData = activeTable.row(this).data();
+            if (rowData) {
+                const orderId = rowData[3];
+                selectOrder(orderId);
             }
         });
 
         $('#deliveredOrdersTable tbody').on('click', 'tr', function () {
             const rowData = historyTable.row(this).data();
             if (rowData) {
-                const orderId = rowData[4]; // Get order_id from hidden column
+                const orderId = rowData[4];
                 selectOrder(orderId);
             }
         });
@@ -168,17 +164,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Order Selection & Display ---
     function selectOrder(orderId) {
-        toggleScanArea(false); // Hide scanner when selecting a new order
-        document.querySelectorAll('.order-card.active').forEach(c => c.classList.remove('active'));
+        toggleScanArea(false);
+        activeTable.$('tr.table-primary').removeClass('table-primary');
         historyTable.$('tr.table-primary').removeClass('table-primary');
 
-        const activeCard = document.querySelector(`.order-card[data-order-id='${orderId}']`);
-        if(activeCard) {
-            activeCard.classList.add('active');
+        const activeRowIndex = activeTable.rows().data().toArray().findIndex(row => row[3] == orderId);
+        if (activeRowIndex > -1) {
+            $(activeTable.row(activeRowIndex).node()).addClass('table-primary');
         } else {
-            const rowIndex = historyTable.rows().data().toArray().findIndex(row => row[4] == orderId);
-            if (rowIndex > -1) {
-                $(historyTable.row(rowIndex).node()).addClass('table-primary');
+            const historyRowIndex = historyTable.rows().data().toArray().findIndex(row => row[4] == orderId);
+            if (historyRowIndex > -1) {
+                $(historyTable.row(historyRowIndex).node()).addClass('table-primary');
             }
         }
 
@@ -200,9 +196,9 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateUIForOrderStatus() {
         const isAssigned = selectedOrder.status === 'Assigned';
         const isOutForDelivery = selectedOrder.status === 'Out for Delivery';
-        const isComplete = ['Delivered', 'Delivery Failed', 'Returned', 'Partially Returned', 'Cancelled'].includes(selectedOrder.status);
+        const isComplete = ['Delivered', 'Delivery Failed', 'Returned', 'Partially Returned', 'Cancelled', 'Rejected'].includes(selectedOrder.status);
 
-        actionButtons.innerHTML = ''; // Clear previous buttons
+        actionButtons.innerHTML = '';
         if(isAssigned) {
             actionButtons.innerHTML = `
                 <button id="scanPickupBtn" class="btn btn-primary"><i class="bi bi-upc-scan me-1"></i> Scan for Pickup</button>
@@ -542,9 +538,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (new_order_status) {
                 toggleScanArea(false);
-                Swal.fire('Scan Complete!', 'All items scanned. The order is now Out for Delivery.', 'success');
-                loadAllOrders();
-                selectOrder(selectedOrder.order_id);
+                Swal.fire({
+                    title: 'Scan Complete!',
+                    text: 'All items scanned. The order is now Out for Delivery.',
+                    icon: 'success',
+                    timer: 2000,
+                    showConfirmButton: false
+                }).then(() => {
+                    location.reload();
+                });
             }
         } else {
             scanFeedback.innerHTML = `<div class="alert alert-danger">${result ? result.message : 'An unknown error occurred.'}</div>`;

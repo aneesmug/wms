@@ -8,7 +8,13 @@ $conn = getDbConnection();
 ob_start();
 
 $action = $_GET['action'] ?? '';
-$public_actions = ['getOrderForThirdParty', 'scanItemForThirdParty', 'reportThirdPartyIssue'];
+$public_actions = [
+    'getOrderForThirdParty', 
+    'scanItemForThirdParty', 
+    'reportThirdPartyIssue',
+    'verifyThirdPartyDelivery',
+    'reportThirdPartyDeliveryFailure'
+];
 
 if (!in_array($action, $public_actions)) {
     authenticate_user(true, ['driver']);
@@ -34,9 +40,10 @@ function checkAndUpdateOrderStatusAfterScan($conn, $order_id, $scanner_id, $is_t
     $total_ordered = (int)($stmt_ordered->get_result()->fetch_assoc()['total_ordered'] ?? 0);
     $stmt_ordered->close();
 
+    // MODIFICATION: Corrected logic to sum all scans for a third-party order, regardless of the driver.
     if ($is_third_party) {
-        $stmt_scanned = $conn->prepare("SELECT SUM(quantity_scanned) as total_scanned FROM outbound_driver_scans WHERE order_id = ? AND scanned_by_third_party_name = ?");
-        $stmt_scanned->bind_param("is", $order_id, $scanner_id);
+        $stmt_scanned = $conn->prepare("SELECT SUM(quantity_scanned) as total_scanned FROM outbound_driver_scans WHERE order_id = ?");
+        $stmt_scanned->bind_param("i", $order_id);
     } else {
         $stmt_scanned = $conn->prepare("SELECT SUM(quantity_scanned) as total_scanned FROM outbound_driver_scans WHERE order_id = ? AND scanned_by_driver_id = ?");
         $stmt_scanned->bind_param("ii", $order_id, $scanner_id);
@@ -64,7 +71,7 @@ function checkAndUpdateOrderStatusAfterScan($conn, $order_id, $scanner_id, $is_t
 
         if ($affected_rows > 0) {
             $log_user = $is_third_party ? null : $scanner_id;
-            $scanner_name = $is_third_party ? $scanner_id : "Driver ID: $scanner_id";
+            $scanner_name = $is_third_party ? "Third-party drivers" : "Driver ID: $scanner_id";
             logOrderHistory($conn, $order_id, $new_status, $log_user, "$scanner_name has scanned all items. Order is now out for delivery.");
             return ['updated' => true, 'new_status' => $new_status];
         }
@@ -105,6 +112,12 @@ switch ($action) {
     case 'reportThirdPartyIssue':
         handleReportThirdPartyIssue($conn);
         break;
+    case 'verifyThirdPartyDelivery':
+        handleVerifyThirdPartyDelivery($conn);
+        break;
+    case 'reportThirdPartyDeliveryFailure':
+        handleReportThirdPartyDeliveryFailure($conn);
+        break;
     default:
         sendJsonResponse(['success' => false, 'message' => 'Invalid driver action.'], 400);
         break;
@@ -132,7 +145,6 @@ function handleGetAssignedOrders($conn, $driver_id) {
 }
 
 function handleGetDeliveredOrders($conn, $driver_id) {
-    // MODIFICATION: The query now joins order_history to find all orders a driver was ever associated with.
     $stmt = $conn->prepare("
         SELECT DISTINCT
             oo.order_id, oo.order_number, oo.status, c.customer_name,
@@ -194,11 +206,16 @@ function handleRejectOrder($conn, $driver_id) {
             throw new Exception("This order cannot be rejected as it is not in 'Assigned' status.", 409);
         }
 
-        $new_status = 'Ready for Pickup';
+        $new_status = 'Staged';
         $stmt_update = $conn->prepare("UPDATE outbound_orders SET status = ? WHERE order_id = ?");
         $stmt_update->bind_param("si", $new_status, $order_id);
         $stmt_update->execute();
         $stmt_update->close();
+
+        $stmt_clear_scans = $conn->prepare("DELETE FROM outbound_driver_scans WHERE order_id = ? AND scanned_by_driver_id = ?");
+        $stmt_clear_scans->bind_param("ii", $order_id, $driver_id);
+        $stmt_clear_scans->execute();
+        $stmt_clear_scans->close();
 
         $stmt_delete = $conn->prepare("DELETE FROM outbound_order_assignments WHERE order_id = ? AND driver_user_id = ?");
         $stmt_delete->bind_param("ii", $order_id, $driver_id);
@@ -459,26 +476,25 @@ function handleReportFailedDelivery($conn, $driver_id) {
             throw new Exception("Can only report failure on orders that are 'Out for Delivery'.", 409);
         }
 
-        // MODIFICATION: Change status back to 'Ready for Pickup' to re-queue it.
-        $new_status = 'Ready for Pickup';
+        $new_status = 'Delivery Failed';
         $stmt_update = $conn->prepare("UPDATE outbound_orders SET status = ? WHERE order_id = ?");
         $stmt_update->bind_param("si", $new_status, $order_id);
         $stmt_update->execute();
         $stmt_update->close();
 
-        // MODIFICATION: After a failed attempt, clear the driver's scans so they must re-scan if reassigned.
         $stmt_clear_scans = $conn->prepare("DELETE FROM outbound_driver_scans WHERE order_id = ? AND scanned_by_driver_id = ?");
         $stmt_clear_scans->bind_param("ii", $order_id, $driver_id);
         $stmt_clear_scans->execute();
         $stmt_clear_scans->close();
         
-        // MODIFICATION: Un-assign the driver from the order.
         $stmt_unassign = $conn->prepare("DELETE FROM outbound_order_assignments WHERE order_id = ? AND driver_user_id = ?");
         $stmt_unassign->bind_param("ii", $order_id, $driver_id);
         $stmt_unassign->execute();
         $stmt_unassign->close();
 
-        logOrderHistory($conn, $order_id, 'Delivery Failed', $driver_id, "Delivery attempt failed. Reason: " . $reason);
+        $log_note = "Delivery attempt failed. Reason: " . $reason . ". Order returned for re-assignment.";
+        logOrderHistory($conn, $order_id, 'Delivery Failed', $driver_id, $log_note);
+        
         $conn->commit();
         sendJsonResponse(['success' => true, 'message' => 'Failed delivery attempt has been successfully reported.']);
 
@@ -498,14 +514,21 @@ function handleGetOrderForThirdParty($conn) {
     }
 
     $stmt = $conn->prepare("
-        SELECT oo.order_id, oo.order_number, ooa.third_party_driver_name
+        SELECT 
+            oo.order_id, 
+            oo.order_number, 
+            GROUP_CONCAT(DISTINCT ooa.third_party_driver_name SEPARATOR ',') as driver_names
         FROM outbound_orders oo
         JOIN outbound_order_assignments ooa ON oo.order_id = ooa.order_id
-        WHERE oo.order_number = ? AND oo.status = 'Assigned' AND ooa.assignment_type = 'third_party'
+        WHERE (oo.order_number = ? OR oo.tracking_number = ?) 
+        AND oo.status = 'Assigned' 
+        AND ooa.assignment_type = 'third_party'
+        GROUP BY oo.order_id, oo.order_number
     ");
-    $stmt->bind_param("s", $order_number);
+    $stmt->bind_param("ss", $order_number, $order_number);
     $stmt->execute();
-    $order = $stmt->get_result()->fetch_assoc();
+    $order_result = $stmt->get_result();
+    $order = $order_result->fetch_assoc();
     $stmt->close();
 
     if (!$order) {
@@ -513,6 +536,9 @@ function handleGetOrderForThirdParty($conn) {
         return;
     }
     
+    $order['drivers'] = explode(',', $order['driver_names']);
+    unset($order['driver_names']);
+
     $stmt_items = $conn->prepare("
         SELECT 
             oi.product_id, p.sku, p.product_name, oi.ordered_quantity,
@@ -665,6 +691,133 @@ function handleReportThirdPartyIssue($conn) {
     } catch (Exception $e) {
         $conn->rollback();
         sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 500);
+    }
+}
+
+function handleVerifyThirdPartyDelivery($conn) {
+    $tracking_number = sanitize_input($_POST['tracking_number'] ?? '');
+    $delivery_code = sanitize_input($_POST['delivery_code'] ?? '');
+    $receiver_name = sanitize_input($_POST['receiver_name'] ?? '');
+    $receiver_phone = sanitize_input($_POST['receiver_phone'] ?? '');
+
+    if (empty($tracking_number) || empty($receiver_name)) {
+        sendJsonResponse(['success' => false, 'message' => 'Tracking/Order Number and Receiver Name are required.'], 400);
+        return;
+    }
+
+    if (!isset($_FILES['delivery_photo']) || $_FILES['delivery_photo']['error'] !== UPLOAD_ERR_OK) {
+        sendJsonResponse(['success' => false, 'message' => 'A proof of delivery photo is required.'], 400);
+        return;
+    }
+
+    $conn->begin_transaction();
+    try {
+        $stmt_verify = $conn->prepare("SELECT order_id, delivery_confirmation_code, status FROM outbound_orders WHERE tracking_number = ? OR order_number = ?");
+        $stmt_verify->bind_param("ss", $tracking_number, $tracking_number);
+        $stmt_verify->execute();
+        $order = $stmt_verify->get_result()->fetch_assoc();
+        $stmt_verify->close();
+
+        if (!$order) {
+            throw new Exception("Order not found with the provided Tracking or Order Number.", 404);
+        }
+        if ($order['status'] !== 'Out for Delivery') {
+            throw new Exception("This order is not currently out for delivery. Status: " . $order['status'], 409);
+        }
+
+        if (!empty($delivery_code) && $order['delivery_confirmation_code'] !== $delivery_code) {
+            logOrderHistory($conn, $order['order_id'], 'Delivery Attempted', null, "Failed delivery attempt by third-party. Incorrect confirmation code provided.");
+            $conn->commit(); 
+            throw new Exception("Incorrect Delivery Code.", 403);
+        }
+
+        $photo = $_FILES['delivery_photo'];
+        $upload_dir = __DIR__ . '/../uploads/delivery_proof/';
+        if (!is_dir($upload_dir)) {
+            if (!mkdir($upload_dir, 0775, true)) {
+                 throw new Exception("Failed to create upload directory.");
+            }
+        }
+        $file_ext = strtolower(pathinfo($photo['name'], PATHINFO_EXTENSION));
+        $allowed_exts = ['jpg', 'jpeg', 'png', 'gif'];
+        if (!in_array($file_ext, $allowed_exts)) {
+            throw new Exception("Invalid file type. Only JPG, PNG, and GIF are allowed.");
+        }
+        $file_name = "delivery_{$order['order_id']}_" . time() . "." . $file_ext;
+        $file_path = $upload_dir . $file_name;
+        $db_path = "uploads/delivery_proof/" . $file_name;
+
+        if (!move_uploaded_file($photo['tmp_name'], $file_path)) {
+            throw new Exception("Failed to save delivery photo.");
+        }
+
+        $stmt = $conn->prepare("UPDATE outbound_orders SET status = 'Delivered', actual_delivery_date = NOW(), delivered_to_name = ?, delivered_to_phone = ?, delivery_photo_path = ? WHERE order_id = ?");
+        $stmt->bind_param("sssi", $receiver_name, $receiver_phone, $db_path, $order['order_id']);
+        $stmt->execute();
+        $stmt->close();
+
+        logOrderHistory($conn, $order['order_id'], 'Delivered', null, "Successfully delivered by third-party to {$receiver_name}. Photo proof uploaded.");
+        $conn->commit();
+        sendJsonResponse(['success' => true, 'message' => 'Order successfully marked as delivered!']);
+    } catch (Exception $e) {
+        $conn->rollback();
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], $e->getCode() ?: 400);
+    }
+}
+
+function handleReportThirdPartyDeliveryFailure($conn) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $tracking_number = sanitize_input($input['tracking_number'] ?? '');
+    $reason = sanitize_input($input['reason'] ?? '');
+    $notes = sanitize_input($input['notes'] ?? '');
+
+    if (!$tracking_number || empty($reason)) {
+        sendJsonResponse(['success' => false, 'message' => 'Tracking Number and a reason are required.'], 400);
+        return;
+    }
+
+    $conn->begin_transaction();
+    try {
+        $stmt_check = $conn->prepare("SELECT order_id, status FROM outbound_orders WHERE tracking_number = ? OR order_number = ?");
+        $stmt_check->bind_param("ss", $tracking_number, $tracking_number);
+        $stmt_check->execute();
+        $order = $stmt_check->get_result()->fetch_assoc();
+        $stmt_check->close();
+
+        if (!$order) {
+            throw new Exception("Order not found with the provided Tracking or Order Number.", 404);
+        }
+        if ($order['status'] !== 'Out for Delivery') {
+            throw new Exception("Can only report failure on orders that are 'Out for Delivery'. Current status: " . $order['status'], 409);
+        }
+
+        $new_status = 'Delivery Failed';
+        $stmt_update = $conn->prepare("UPDATE outbound_orders SET status = ? WHERE order_id = ?");
+        $stmt_update->bind_param("si", $new_status, $order['order_id']);
+        $stmt_update->execute();
+        $stmt_update->close();
+
+        $stmt_clear_scans = $conn->prepare("DELETE FROM outbound_driver_scans WHERE order_id = ?");
+        $stmt_clear_scans->bind_param("i", $order['order_id']);
+        $stmt_clear_scans->execute();
+        $stmt_clear_scans->close();
+        
+        $stmt_unassign = $conn->prepare("DELETE FROM outbound_order_assignments WHERE order_id = ?");
+        $stmt_unassign->bind_param("i", $order['order_id']);
+        $stmt_unassign->execute();
+        $stmt_unassign->close();
+
+        $full_reason = $reason;
+        if (!empty($notes)) {
+            $full_reason .= ". Notes: " . $notes;
+        }
+        logOrderHistory($conn, $order['order_id'], 'Delivery Failed', null, "Third-party delivery failed. Reason: " . $full_reason);
+        $conn->commit();
+        sendJsonResponse(['success' => true, 'message' => 'Failed delivery attempt has been reported. The warehouse has been notified.']);
+
+    } catch (Exception $e) {
+        $conn->rollback();
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], $e->getCode() ?: 500);
     }
 }
 
