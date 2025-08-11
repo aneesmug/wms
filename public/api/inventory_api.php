@@ -104,25 +104,40 @@ function handleGetInventory($conn, $warehouse_id) {
     $location_code = sanitize_input($_GET['location_code'] ?? '');
     $tire_type_id = filter_input(INPUT_GET, 'tire_type_id', FILTER_VALIDATE_INT);
 
+    // MODIFICATION: Simplified the query. It now correctly fetches all active products
+    // and joins any inventory they have. This works because products are no longer
+    // deactivated when moved to a block area.
     $sql = "
         SELECT
-            i.inventory_id, i.quantity, i.batch_number, i.dot_code, i.last_moved_at,
-            i.product_id, 
-            p.sku, p.product_name, p.article_no, p.expiry_years, p.tire_type_id,
-            wl.location_id, wl.location_code,
-            lt.type_name AS location_type
-        FROM inventory i
-        LEFT JOIN products p ON i.product_id = p.product_id
+            p.product_id, p.sku, p.product_name, p.article_no, p.expiry_years, p.tire_type_id, p.is_active,
+            i.inventory_id, COALESCE(i.quantity, 0) AS quantity, i.batch_number, i.dot_code, i.last_moved_at,
+            wl.location_id, wl.location_code, lt.type_name AS location_type
+        FROM products p
+        LEFT JOIN inventory i ON p.product_id = i.product_id AND i.warehouse_id = ?
         LEFT JOIN warehouse_locations wl ON i.location_id = wl.location_id
         LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
-        WHERE i.warehouse_id = ? AND i.quantity > 0
+        WHERE p.is_active = 1
     ";
+    
     $params = [$warehouse_id];
     $types = "i";
 
-    if ($product_id) { $sql .= " AND i.product_id = ?"; $params[] = $product_id; $types .= "i"; }
-    if (!empty($location_code)) { $sql .= " AND wl.location_code = ?"; $params[] = $location_code; $types .= "s"; }
-    if ($tire_type_id) { $sql .= " AND p.tire_type_id = ?"; $params[] = $tire_type_id; $types .= "i"; }
+    if ($product_id) { 
+        $sql .= " AND p.product_id = ?"; 
+        $params[] = $product_id; 
+        $types .= "i"; 
+    }
+    if ($tire_type_id) { 
+        $sql .= " AND p.tire_type_id = ?"; 
+        $params[] = $tire_type_id; 
+        $types .= "i"; 
+    }
+
+    if (!empty($location_code)) { 
+        $sql .= " AND wl.location_code = ?"; 
+        $params[] = $location_code; 
+        $types .= "s"; 
+    }
     
     $sql .= " ORDER BY p.product_name, wl.location_code";
 
@@ -131,12 +146,18 @@ function handleGetInventory($conn, $warehouse_id) {
     $stmt->execute();
     $inventory_data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
+    
     foreach ($inventory_data as &$item) {
-        $item['calculated_expiry_date'] = calculateExpiryDate($item['dot_code'], $item['expiry_years']);
+        $item['calculated_expiry_date'] = null;
+        if (!empty($item['dot_code'])) {
+            $item['calculated_expiry_date'] = calculateExpiryDate($item['dot_code'], $item['expiry_years']);
+        }
     }
     unset($item);
+    
     sendJsonResponse(['success' => true, 'data' => $inventory_data]);
 }
+
 
 function handleInventoryAdjustment($conn, $input, $warehouse_id) {
     $action_type = sanitize_input($input['action_type'] ?? '');
@@ -171,22 +192,13 @@ function handleInventoryAdjustment($conn, $input, $warehouse_id) {
             $to_location_type = getLocationTypeByCode($conn, $input['new_location_article_no'], $warehouse_id);
             $product_id = filter_var($input['product_id'] ?? 0, FILTER_VALIDATE_INT);
 
+            // MODIFICATION: Removed the logic that deactivates a product when it's moved to a block area.
             if ($action_type === 'block_item') {
-                if ($product_id) {
-                    $stmt_deactivate = $conn->prepare("UPDATE products SET is_active = 0 WHERE product_id = ?");
-                    $stmt_deactivate->bind_param("i", $product_id);
-                    $stmt_deactivate->execute();
-                    $stmt_deactivate->close();
-                }
-                $message = 'Item has been blocked, moved, and the product has been deactivated.';
-            } elseif ($from_location_type === 'block_area' && $to_location_type !== 'block_area') {
-                 if ($product_id) {
-                    $stmt_activate = $conn->prepare("UPDATE products SET is_active = 1 WHERE product_id = ?");
-                    $stmt_activate->bind_param("i", $product_id);
-                    $stmt_activate->execute();
-                    $stmt_activate->close();
-                }
-                $message = 'Item moved from block area and product has been reactivated.';
+                $message = 'Item has been blocked and moved successfully.';
+            } 
+            // MODIFICATION: Removed the logic that reactivates a product when it's moved from a block area.
+            elseif ($from_location_type === 'block_area' && $to_location_type !== 'block_area') {
+                $message = 'Item moved from block area successfully.';
             } else {
                  $message = 'Inventory transferred successfully.';
             }
@@ -235,6 +247,10 @@ function adjustInventoryQuantity($conn, $input, $warehouse_id) {
     $stmt_update->close();
 
     if ($affected_rows === 0 && $quantity_change > 0) {
+        if (empty($batch_number)) {
+            $batch_number = 'INV-' . strtoupper(bin2hex(random_bytes(4)));
+        }
+
         $stmt_insert = $conn->prepare("INSERT INTO inventory (warehouse_id, product_id, location_id, quantity, batch_number, dot_code, last_moved_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)");
         $stmt_insert->bind_param("iiiiss", $warehouse_id, $product_id, $location_id, $quantity_change, $batch_number, $dot_code);
         if (!$stmt_insert->execute()) {

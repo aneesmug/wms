@@ -454,7 +454,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleUpdateOrderItem(itemId, currentQty, orderId) {
-        const { value: newQty } = await Swal.fire({ title: 'Update Item Quantity', input: 'number', inputValue: currentQty, inputLabel: 'New Ordered Quantity', inputAttributes: { min: 1, class: 'form-control numeric-only' }, showCancelButton: true, inputValidator: (value) => { if (!value || parseInt(value, 10) <= 0) return 'Please enter a valid quantity greater than zero!'; } });
+        const { value: newQty } = await Swal.fire({ title: 'Update Item Quantity', input: 'number', inputValue: currentQty, inputLabel: 'New Ordered Quantity', allowOutsideClick: false, inputAttributes: { min: 1, class: 'form-control numeric-only' }, showCancelButton: true, inputValidator: (value) => { if (!value || parseInt(value, 10) <= 0) return 'Please enter a valid quantity greater than zero!'; } });
         if (newQty) {
             const result = await fetchData('api/outbound_api.php?action=updateOrderItem', 'POST', { outbound_item_id: itemId, new_quantity: parseInt(newQty, 10) });
             if (result?.success) {
