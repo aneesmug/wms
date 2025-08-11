@@ -71,6 +71,7 @@ $(document).ready(function() {
             showConfirmButton: true,
             confirmButtonText: 'Create Transfer Order',
             showCancelButton: true,
+            allowOutsideClick: false,
             didOpen: () => {
                 const modal = Swal.getPopup();
                 initializeModalLogic(modal, transferItems);
@@ -175,6 +176,7 @@ $(document).ready(function() {
                 Swal.fire({
                     title: 'Success!', text: data.message, icon: 'success', showCancelButton: true,
                     confirmButtonText: '<i class="bi bi-printer"></i> Print Delivery Note',
+                    allowOutsideClick: false,
                     cancelButtonText: 'Close'
                 }).then((result) => {
                     if (result.isConfirmed) {
@@ -405,7 +407,7 @@ $(document).ready(function() {
                         <fieldset id="swal_detailsFieldset" disabled>
                             <div class="mb-3">
                                 <label for="swal_quantity" class="form-label">Quantity</label>
-                                <input type="number" class="form-control" id="swal_quantity" min="1">
+                                <input type="number" class="form-control numeric-only" id="swal_quantity" min="1">
                             </div>
                             <div class="mb-3">
                                 <label for="swal_source_location_id" class="form-label">From Location (Source)</label>

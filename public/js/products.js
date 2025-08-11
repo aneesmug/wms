@@ -160,6 +160,7 @@ document.addEventListener('DOMContentLoaded', () => {
             width: '800px',
             showCancelButton: true,
             confirmButtonText: isEditing ? 'Update Product' : 'Save Product',
+            allowOutsideClick: false,
             preConfirm: () => {
                 const sku = Swal.getPopup().querySelector('#sku').value.trim();
                 const productName = Swal.getPopup().querySelector('#product_name').value.trim();

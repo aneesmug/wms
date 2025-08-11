@@ -142,12 +142,18 @@ document.addEventListener('DOMContentLoaded', () => {
             title: 'Create New Outbound Order',
             html: `<div class="p-2 text-start">
                     <div class="mb-3"><label for="swal-customer" class="form-label">Customer</label><select id="swal-customer" class="form-select"><option value="">Select a Customer</option>${customerOptions}</select></div>
-                    <div class="mb-3"><label for="swal-reference-number" class="form-label">Reference Number</label><input type="text" id="swal-reference-number" class="form-control" placeholder="Optional customer PO or reference..."></div>
-                    <div class="mb-3"><label for="swal-ship-date" class="form-label">Required Ship Date</label><input type="date" id="swal-ship-date" class="form-control"></div>
+                    <div class="mb-3"><label for="swal-reference-number" class="form-label">Reference Number</label><input type="text" id="swal-reference-number" class="form-control numeric-only" placeholder="Optional customer PO or reference..."></div>
+                    <div class="mb-3"><label for="swal-ship-date" class="form-label">Required Ship Date</label><input type="text" id="swal-ship-date" class="form-control datepicker-input"></div>
                     <div class="mb-3"><label for="swal-delivery-note" class="form-label">Delivery Note</label><textarea id="swal-delivery-note" class="form-control" rows="3" placeholder="Enter any special instructions for the delivery..."></textarea></div>
                 </div>`,
             showCancelButton: true,
             confirmButtonText: 'Create Order',
+            allowOutsideClick: false,
+            didOpen: () => {
+                const dateElement = document.getElementById('swal-ship-date');
+                // Pass the SweetAlert popup as the container for the datepicker
+                initializeDatepicker(dateElement, Swal.getPopup());
+            },
             preConfirm: () => {
                 const customerId = document.getElementById('swal-customer').value;
                 const requiredShipDate = document.getElementById('swal-ship-date').value;
@@ -375,11 +381,17 @@ document.addEventListener('DOMContentLoaded', () => {
             html: `<div class="p-2 text-start">
                     <div class="mb-3"><label for="swal-customer" class="form-label">Customer</label><select id="swal-customer" class="form-select">${customerOptions}</select></div>
                     <div class="mb-3"><label for="swal-reference-number" class="form-label">Reference Number</label><input type="text" id="swal-reference-number" class="form-control" value="${selectedOrderDetails.reference_number || ''}"></div>
-                    <div class="mb-3"><label for="swal-ship-date" class="form-label">Required Ship Date</label><input type="date" id="swal-ship-date" class="form-control" value="${selectedOrderDetails.required_ship_date || ''}"></div>
+                    <div class="mb-3"><label for="swal-ship-date" class="form-label">Required Ship Date</label><input type="text" id="swal-ship-date" class="form-control datepicker-input" value="${selectedOrderDetails.required_ship_date || ''}"></div>
                     <div class="mb-3"><label for="swal-delivery-note" class="form-label">Delivery Note</label><textarea id="swal-delivery-note" class="form-control" rows="3">${selectedOrderDetails.delivery_note || ''}</textarea></div>
                 </div>`,
             showCancelButton: true,
             confirmButtonText: 'Save Changes',
+            allowOutsideClick: false,
+            didOpen: () => {
+                const dateElement = document.getElementById('swal-ship-date');
+                // Pass the SweetAlert popup as the container for the datepicker
+                initializeDatepicker(dateElement, Swal.getPopup());
+            },
             preConfirm: () => {
                 const customerId = document.getElementById('swal-customer').value;
                 const requiredShipDate = document.getElementById('swal-ship-date').value;
@@ -408,7 +420,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     async function handleShipOrder() {
         if (!selectedOrderId) { Swal.fire('Error', 'Please select an order to ship.', 'error'); return; }
-        Swal.fire({ title: 'Confirm Shipment', text: 'Are you sure you want to ship this order?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#3085d6', cancelButtonColor: '#d33', confirmButtonText: 'Yes, ship it!' }).then(async (result) => {
+        Swal.fire({ title: 'Confirm Shipment', text: 'Are you sure you want to ship this order?', icon: 'warning', showCancelButton: true, allowOutsideClick: false, confirmButtonColor: '#3085d6', cancelButtonColor: '#d33', confirmButtonText: 'Yes, ship it!' }).then(async (result) => {
             if (result.isConfirmed) {
                 const apiResult = await fetchData('api/outbound_api.php?action=shipOrder', 'POST', { order_id: selectedOrderId });
                 if (apiResult?.success) {
@@ -423,7 +435,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function handleCancelOrder() {
         if (!selectedOrderId) { Swal.fire('Error', 'Please select an order to cancel.', 'error'); return; }
-        Swal.fire({ title: 'Confirm Cancellation', text: 'Are you sure you want to cancel this order? This will return any picked items to stock and cannot be undone.', icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', cancelButtonColor: '#3085d6', confirmButtonText: 'Yes, cancel it!' }).then(async (result) => {
+        Swal.fire({ title: 'Confirm Cancellation', allowOutsideClick: false, text: 'Are you sure you want to cancel this order? This will return any picked items to stock and cannot be undone.', icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', cancelButtonColor: '#3085d6', confirmButtonText: 'Yes, cancel it!' }).then(async (result) => {
             if (result.isConfirmed) {
                 const apiResult = await fetchData('api/outbound_api.php?action=cancelOrder', 'POST', { order_id: selectedOrderId });
                 if (apiResult?.success) {
@@ -442,7 +454,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleUpdateOrderItem(itemId, currentQty, orderId) {
-        const { value: newQty } = await Swal.fire({ title: 'Update Item Quantity', input: 'number', inputValue: currentQty, inputLabel: 'New Ordered Quantity', inputAttributes: { min: 1 }, showCancelButton: true, inputValidator: (value) => { if (!value || parseInt(value, 10) <= 0) return 'Please enter a valid quantity greater than zero!'; } });
+        const { value: newQty } = await Swal.fire({ title: 'Update Item Quantity', input: 'number', inputValue: currentQty, inputLabel: 'New Ordered Quantity', inputAttributes: { min: 1, class: 'form-control numeric-only' }, showCancelButton: true, inputValidator: (value) => { if (!value || parseInt(value, 10) <= 0) return 'Please enter a valid quantity greater than zero!'; } });
         if (newQty) {
             const result = await fetchData('api/outbound_api.php?action=updateOrderItem', 'POST', { outbound_item_id: itemId, new_quantity: parseInt(newQty, 10) });
             if (result?.success) {
@@ -453,7 +465,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleDeleteOrderItem(itemId, orderId) {
-        Swal.fire({ title: 'Confirm Deletion', text: 'Are you sure you want to remove this item from the order?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', cancelButtonColor: '#3085d6', confirmButtonText: 'Yes, delete it!' }).then(async (result) => {
+        Swal.fire({ title: 'Confirm Deletion', text: 'Are you sure you want to remove this item from the order?', icon: 'warning', showCancelButton: true, allowOutsideClick: false, confirmButtonColor: '#d33', cancelButtonColor: '#3085d6', confirmButtonText: 'Yes, delete it!' }).then(async (result) => {
             if (result.isConfirmed) {
                 const apiResult = await fetchData('api/outbound_api.php?action=deleteOrderItem', 'POST', { outbound_item_id: itemId });
                 if (apiResult?.success) {
@@ -477,12 +489,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="mb-3">
                         <label for="modalQuantityInput" class="form-label w-100">Quantity</label>
-                        <input type="number" id="modalQuantityInput" value="1" min="1" class="form-control">
+                        <input type="number" id="modalQuantityInput" value="1" min="1" class="form-control numeric-only">
                         <div id="quantityError" class="text-danger small mt-1"></div>
                     </div>
                 </div>`,
             showCancelButton: true,
             confirmButtonText: 'Add Item',
+            allowOutsideClick: false,
             didOpen: () => {
                 const $select = $('#modalProductSelect');
                 const $quantityInput = $('#modalQuantityInput');
@@ -637,10 +650,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>`,
             showCancelButton: true,
             confirmButtonText: 'Upload and Process',
+            allowOutsideClick: false,
             didOpen: () => {
                 document.getElementById('download-template-btn').addEventListener('click', (e) => {
                     e.preventDefault();
                     handleDownloadTemplate();
+                });
+
+                // --- NEW: File type validation on change ---
+                const fileInput = document.getElementById('bulk-upload-file');
+                const errorDiv = document.getElementById('bulk-upload-error');
+                const confirmButton = Swal.getConfirmButton();
+
+                fileInput.addEventListener('change', () => {
+                    const file = fileInput.files[0];
+                    if (file) {
+                        const fileName = file.name;
+                        const allowedExtensions = /(\.xlsx|\.xls)$/i; // Case-insensitive check for .xlsx or .xls
+                        if (!allowedExtensions.exec(fileName)) {
+                            errorDiv.textContent = 'Invalid file type. Please select an Excel file (.xlsx, .xls).';
+                            fileInput.value = ''; // Clear the invalid file selection
+                            confirmButton.disabled = true;
+                        } else {
+                            errorDiv.textContent = '';
+                            confirmButton.disabled = false;
+                        }
+                    } else {
+                         confirmButton.disabled = false;
+                    }
                 });
             },
             preConfirm: () => {
@@ -718,7 +755,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     Swal.fire({
                         title: 'Bulk Process Complete',
                         html: resultHtml,
-                        icon: apiResult.data.failed_count > 0 ? 'warning' : 'success'
+                        icon: apiResult.data.failed_count > 0 ? 'warning' : 'success',
+                        allowOutsideClick: false,
                     });
 
                     await loadOrderItems(selectedOrderId);
@@ -769,7 +807,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td>
                         <input 
                             type="number" 
-                            class="form-control form-control-sm return-qty-input" 
+                            class="form-control form-control-sm return-qty-input numeric-only" 
                             value="0" 
                             min="0" 
                             max="${item.returnable_quantity}"
@@ -796,6 +834,7 @@ document.addEventListener('DOMContentLoaded', () => {
             width: '900px',
             showCancelButton: true,
             confirmButtonText: 'Initiate Return',
+            allowOutsideClick: false,
             preConfirm: () => {
                 const reason = document.getElementById('swal-return-reason').value;
                 if (!reason) {

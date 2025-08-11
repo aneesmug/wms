@@ -125,6 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
             `,
             showCancelButton: true,
             confirmButtonText: isEditing ? 'Update' : 'Save',
+            allowOutsideClick: false,
             // MODIFICATION: Added client-side validation before the API call
             preConfirm: async () => {
                 // 1. Get form elements and values
@@ -184,7 +185,8 @@ document.addEventListener('DOMContentLoaded', () => {
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#d33',
-            confirmButtonText: 'Yes, delete it!'
+            confirmButtonText: 'Yes, delete it!',
+            allowOutsideClick: false,
         }).then(async (result) => {
             if (result.isConfirmed) {
                 const response = await fetchData('api/warehouses_api.php', 'DELETE', { warehouse_id: warehouseData.warehouse_id });

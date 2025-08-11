@@ -68,20 +68,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 <form id="swalCustomerForm" class="text-start mt-3">
                     <div class="row">
                         <div class="col-md-6 mb-3"><label for="swal-customerName" class="form-label">Customer Name*</label><input type="text" id="swal-customerName" class="form-control" value="${isEditing ? customer.customer_name : ''}" required></div>
-                        <div class="col-md-6 mb-3"><label for="swal-customerCode" class="form-label">Customer Code*</label><input type="text" id="swal-customerCode" class="form-control" value="${isEditing ? customer.customer_code || '' : ''}" required></div>
+                        <div class="col-md-6 mb-3"><label for="swal-customerCode" class="form-label">Customer Code*</label><input type="text" id="swal-customerCode" class="form-control numeric-only" value="${isEditing ? customer.customer_code || '' : ''}" required></div>
                         <div class="col-md-6 mb-3"><label for="swal-contactPerson" class="form-label">Contact Person*</label><input type="text" id="swal-contactPerson" class="form-control" value="${isEditing ? customer.contact_person || '' : ''}" required></div>
-                        <div class="col-md-6 mb-3"><label for="swal-email" class="form-label">Email</label><input type="email" id="swal-email" class="form-control" value="${isEditing ? customer.email || '' : ''}"></div>
-                        <div class="col-md-6 mb-3"><label for="swal-phone" class="form-label">Phone*</label><input type="tel" id="swal-phone" class="form-control" value="${isEditing ? customer.phone || '' : ''}" required></div>
-                        <div class="col-md-6 mb-3"><label for="swal-phone2" class="form-label">Alt. Phone</label><input type="tel" id="swal-phone2" class="form-control" value="${isEditing ? customer.phone2 || '' : ''}"></div>
+                        <div class="col-md-6 mb-3"><label for="swal-email" class="form-label">Email</label><input type="email" id="swal-email" class="form-control email-validation" value="${isEditing ? customer.email || '' : ''}"></div>
+                        <div class="col-md-6 mb-3"><label for="swal-phone" class="form-label">Phone*</label><input type="tel" id="swal-phone" class="form-control saudi-mobile-number" value="${isEditing ? customer.phone || '' : ''}" required></div>
+                        <div class="col-md-6 mb-3"><label for="swal-phone2" class="form-label">Alt. Phone</label><input type="tel" id="swal-phone2" class="form-control numeric-only" value="${isEditing ? customer.phone2 || '' : ''}"></div>
                         <div class="col-12 mb-3"><label for="swal-addressLine1" class="form-label">Address Line 1*</label><input type="text" id="swal-addressLine1" class="form-control" value="${isEditing ? customer.address_line1 || '' : ''}" required></div>
                         <div class="col-12 mb-3"><label for="swal-addressLine2" class="form-label">Address Line 2</label><input type="text" id="swal-addressLine2" class="form-control" value="${isEditing ? customer.address_line2 || '' : ''}"></div>
                         <div class="col-md-4 mb-3"><label for="swal-city" class="form-label">City*</label><input type="text" id="swal-city" class="form-control" value="${isEditing ? customer.city || '' : ''}" required></div>
                         <div class="col-md-4 mb-3"><label for="swal-state" class="form-label">State</label><input type="text" id="swal-state" class="form-control" value="${isEditing ? customer.state || '' : ''}"></div>
-                        <div class="col-md-4 mb-3"><label for="swal-zipCode" class="form-label">Zip Code</label><input type="text" id="swal-zipCode" class="form-control" value="${isEditing ? customer.zip_code || '' : ''}"></div>
+                        <div class="col-md-4 mb-3"><label for="swal-zipCode" class="form-label">Zip Code</label><input type="text" id="swal-zipCode" class="form-control numeric-only" value="${isEditing ? customer.zip_code || '' : ''}"></div>
                         <div class="col-12 mb-3"><label for="swal-country" class="form-label">Country*</label><input type="text" id="swal-country" class="form-control" value="${isEditing ? customer.country || '' : ''}" required></div>
                     </div>
                 </form>`,
-            width: '800px', showCancelButton: true, confirmButtonText: isEditing ? 'Save Changes' : 'Create Customer', focusConfirm: false,
+            width: '800px', showCancelButton: true, confirmButtonText: isEditing ? 'Save Changes' : 'Create Customer', focusConfirm: false, allowOutsideClick: false,
             preConfirm: () => {
                 const requiredFields = {
                     'swal-customerName': 'Customer Name',
@@ -142,7 +142,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function handleDeleteClick(event) {
         const id = event.target.closest('button').dataset.id;
-        Swal.fire({ title: 'Delete Customer?', text: "This may fail if they have existing orders. This action cannot be undone.", icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', cancelButtonColor: '#3085d6', confirmButtonText: 'Yes, delete it!' }).then(async (result) => {
+        Swal.fire({ title: 'Delete Customer?', text: "This may fail if they have existing orders. This action cannot be undone.", icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', cancelButtonColor: '#3085d6', confirmButtonText: 'Yes, delete it!', allowOutsideClick: false, }).then(async (result) => {
             if (result.isConfirmed) {
                 try {
                     const apiResult = await fetchData(`api/customers_api.php?action=delete`, 'POST', { id: id });

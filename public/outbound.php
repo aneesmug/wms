@@ -1,6 +1,5 @@
 <?php
-// No direct changes were needed in this file as the logic is handled by the associated JavaScript and backend APIs.
-// However, as requested, here is the final version of the file.
+// 005-outbound.php
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-100">
@@ -15,6 +14,8 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Datepicker CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vanillajs-datepicker@1.3.4/dist/css/datepicker-bs5.min.css">
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="bg-light">
@@ -89,7 +90,6 @@
                                     <div>
                                         <button id="editOrderBtn" class="btn btn-sm btn-outline-secondary d-none"><i class="bi bi-pencil"></i> Edit Order</button>
                                         <button id="printPickReportBtn" class="btn btn-sm btn-outline-info ms-2 d-none"><i class="bi bi-file-earmark-text me-1"></i> Print Pick Report</button>
-                                        <!-- MODIFICATION: Added the new delivery report button -->
                                         <button id="printDeliveryReportBtn" class="btn btn-sm btn-outline-success ms-2 d-none"><i class="bi bi-receipt me-1"></i> Print Delivery Report</button>
                                     </div>
                                 </div>
@@ -146,6 +146,8 @@
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+    <!-- Datepicker JS -->
+    <script src="https://cdn.jsdelivr.net/npm/vanillajs-datepicker@1.3.4/dist/js/datepicker-full.min.js"></script>
     
     <!-- Custom Application Scripts -->
     <script src="js/main.js"></script>

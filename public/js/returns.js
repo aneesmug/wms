@@ -204,6 +204,7 @@ document.addEventListener('DOMContentLoaded', () => {
             focusConfirm: false,
             showCancelButton: true,
             confirmButtonText: 'Submit Inspection',
+            allowOutsideClick: false,
             didOpen: async () => {
                 const conditionSelect = document.getElementById('swal-condition');
                 const locationGroup = document.getElementById('putaway-location-group');
@@ -328,6 +329,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     showCancelButton: true,
                     confirmButtonText: '<i class="bi bi-printer"></i> Print Stickers',
                     cancelButtonText: 'Close',
+                    allowOutsideClick: false,
                 }).then((dialogResult) => {
                     if (dialogResult.isConfirmed && result.inventory_id) {
                         $('#print-frame-returns').attr('src', `print_label_returns.php?inventory_id=${result.inventory_id}`);

@@ -263,7 +263,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="mb-3"><label for="swalAdjustNewLocation" class="form-label">To Location</label><select id="swalAdjustNewLocation" class="form-select" style="width:100%;"></select></div>
                     </div>
                 </form>`,
-            confirmButtonText: 'Submit', showCancelButton: true, focusConfirm: false,
+            confirmButtonText: 'Submit', showCancelButton: true, focusConfirm: false, allowOutsideClick: false,
             didOpen: async () => {
                 const popup = Swal.getPopup();
                 const adjustmentTypeSelect = popup.querySelector('#swalAdjustmentType');

@@ -298,47 +298,103 @@ function initializeAdvancedFilter(table, filterContainerId, columnsConfig) {
 // --- General Input Handling ---
 
 /**
- * Initializes a datepicker on any element with the 'datepicker-input' class.
- * This is designed to be called when new inputs are added to the DOM (e.g., in a modal).
+ * Initializes a datepicker on an element, preventing past date selection.
  * @param {HTMLElement} element - The specific input element to initialize.
+ * @param {HTMLElement} [container=document.body] - The container to append the datepicker to. Defaults to body.
  */
-function initializeDatepicker(element) {
+function initializeDatepicker(element, container = document.body) {
     if (element && typeof Datepicker !== 'undefined') {
         new Datepicker(element, {
             format: 'yyyy-mm-dd',
             autohide: true,
-            buttonClass: 'btn'
+            buttonClass: 'btn',
+            container: container,
+            minDate: new Date() // This prevents selecting dates before today
         });
     }
 }
 
+
 /**
- * Attaches a keydown event listener to the document to handle numeric-only inputs.
- * It checks for inputs with the 'numeric-only' class.
+ * Attaches an event listener to the document body to handle numeric-only inputs.
+ * This method is more robust as it handles pasted values and works reliably with dynamic elements.
  */
 function setupNumericOnlyInputs() {
-    document.addEventListener('keydown', function(event) {
+    document.body.addEventListener('input', function(event) {
         if (event.target.classList.contains('numeric-only')) {
-            // Allow control keys, navigation keys, and numbers
-            if (
-                // Allow: backspace, delete, tab, escape, enter
-                [46, 8, 9, 27, 13].indexOf(event.keyCode) !== -1 ||
-                // Allow: Ctrl+A, Command+A
-                (event.keyCode === 65 && (event.ctrlKey === true || event.metaKey === true)) ||
-                // Allow: home, end, left, right, down, up
-                (event.keyCode >= 35 && event.keyCode <= 40) ||
-                // Allow numbers and numpad numbers
-                ((event.keyCode >= 48 && event.keyCode <= 57) || (event.keyCode >= 96 && event.keyCode <= 105))
-            ) {
-                // let it happen, don't do anything
-                return;
-            }
-            // Ensure that it is a number and stop the keypress
-            if ((event.shiftKey || (event.keyCode < 48 || event.keyCode > 57)) && (event.keyCode < 96 || event.keyCode > 105)) {
-                event.preventDefault();
-            }
+            // Replace any character that is not a digit with an empty string
+            event.target.value = event.target.value.replace(/\D/g, '');
         }
     });
+}
+
+/**
+ * Attaches event listeners to handle validation for Saudi Arabian mobile numbers.
+ * Any input with the class 'saudi-mobile-number' will be validated.
+ */
+function setupSaudiMobileValidation() {
+    // This listener handles real-time input formatting
+    document.body.addEventListener('input', function(event) {
+        if (event.target.classList.contains('saudi-mobile-number')) {
+            const input = event.target;
+            let value = input.value.replace(/\D/g, ''); // Remove non-digits
+
+            // Enforce "05" prefix if starting to type
+            if (value.length > 0 && value.substring(0, 2) !== '05') {
+                 if(value.length === 1 && value !== '0') {
+                    value = '0' + value;
+                 }
+                 if(value.length === 2 && value !== '05') {
+                    value = '05';
+                 }
+            }
+
+            // Limit to 10 digits
+            if (value.length > 10) {
+                value = value.substring(0, 10);
+            }
+            
+            input.value = value;
+        }
+    });
+
+    // This listener validates the final format when the user leaves the input field
+    document.body.addEventListener('blur', function(event) {
+        if (event.target.classList.contains('saudi-mobile-number')) {
+            const input = event.target;
+            const value = input.value;
+            // Regex for a valid Saudi number: starts with 05 and is followed by 8 digits.
+            const isValid = /^05\d{8}$/.test(value);
+
+            if (value && !isValid) {
+                // Using Bootstrap's validation class to show an error state
+                input.classList.add('is-invalid');
+            } else {
+                input.classList.remove('is-invalid');
+            }
+        }
+    }, true); // Use capture phase to ensure it runs reliably
+}
+
+/**
+ * Attaches event listeners to handle validation for email inputs.
+ * Any input with the class 'email-validation' will be validated.
+ */
+function setupEmailValidation() {
+    document.body.addEventListener('blur', function(event) {
+        if (event.target.classList.contains('email-validation')) {
+            const input = event.target;
+            const value = input.value;
+            // A common regex for email validation
+            const isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+            if (value && !isValid) {
+                input.classList.add('is-invalid');
+            } else {
+                input.classList.remove('is-invalid');
+            }
+        }
+    }, true);
 }
 
 
@@ -389,6 +445,8 @@ function setupCommonEventListeners() {
 
     // Initialize general input handlers
     setupNumericOnlyInputs();
+    setupSaudiMobileValidation(); // Activate the new mobile validation handler
+    setupEmailValidation(); // Activate the new email validation handler
 }
 
 // This runs on every page load.

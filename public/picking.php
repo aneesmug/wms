@@ -129,7 +129,7 @@
                                     <div class="row g-3 align-items-end">
                                         <div class="col-md-2">
                                             <label for="pickItemNumberInput" class="form-label">Item #</label>
-                                            <input type="number" class="form-control" id="pickItemNumberInput" placeholder="e.g., 1">
+                                            <input type="text" class="form-control numeric-only" id="pickItemNumberInput" placeholder="e.g., 1">
                                         </div>
                                         <div class="col-md-3">
                                             <label for="pickDotCodeSelect" class="form-label">DOT</label>
@@ -145,7 +145,7 @@
                                         </div>
                                         <div class="col-md-1">
                                             <label for="pickQuantityInput" class="form-label">Qty</label>
-                                            <input type="number" class="form-control" id="pickQuantityInput" min="1" value="1">
+                                            <input type="number" class="form-control numeric-only" id="pickQuantityInput" min="1" value="1">
                                         </div>
                                         <div class="col-md-1">
                                             <button id="pickItemBtn" class="btn btn-success w-100" disabled><i class="bi bi-check-lg"></i></button>

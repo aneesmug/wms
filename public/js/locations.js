@@ -33,8 +33,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 title: 'No Warehouse Selected',
                 text: 'Please select a warehouse on the Dashboard.',
                 icon: 'warning',
-                confirmButtonText: 'Go to Dashboard'
-            }).then(() => { window.location.href = 'dashboard.html'; });
+                confirmButtonText: 'Go to Dashboard',
+                allowOutsideClick: false,
+            }).then(() => { window.location.href = 'dashboard.php'; });
             if (addNewLocationBtn) addNewLocationBtn.style.display = 'none';
             if (addNewLocationTypeBtn) addNewLocationTypeBtn.style.display = 'none';
             if (locationTypeFilter) locationTypeFilter.parentElement.style.display = 'none';
@@ -176,7 +177,8 @@ document.addEventListener('DOMContentLoaded', () => {
             showCancelButton: true,
             confirmButtonColor: '#3085d6',
             cancelButtonColor: '#d33',
-            confirmButtonText: `Yes, ${action} it!`
+            confirmButtonText: `Yes, ${action} it!`,
+            allowOutsideClick: false,
         }).then(async (result) => {
             if (result.isConfirmed) {
                 const response = await fetchData('api/locations_api.php?action=toggle_lock', 'PUT', {
@@ -212,6 +214,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </form>`,
             showCancelButton: true,
             confirmButtonText: isUpdating ? 'Update' : 'Save',
+            allowOutsideClick: false,
             preConfirm: () => {
                 const typeName = document.getElementById('swalTypeName').value;
                 if (!typeName) {
@@ -290,6 +293,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </form>`,
             showCancelButton: true,
             confirmButtonText: isUpdating ? 'Update' : 'Save',
+            allowOutsideClick: false,
             preConfirm: () => {
                 const locationCode = document.getElementById('swalLocationCode').value;
                 if (!locationCode) {
@@ -327,7 +331,8 @@ document.addEventListener('DOMContentLoaded', () => {
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#d33',
-            confirmButtonText: 'Yes, delete it!'
+            confirmButtonText: 'Yes, delete it!',
+            allowOutsideClick: false,
         }).then(async (result) => {
             if (result.isConfirmed) {
                 const deleteResult = await fetchData(`api/locations_api.php?action=delete_type`, 'DELETE', {id: typeId});
@@ -348,7 +353,8 @@ document.addEventListener('DOMContentLoaded', () => {
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#d33',
-            confirmButtonText: 'Yes, delete it!'
+            confirmButtonText: 'Yes, delete it!',
+            allowOutsideClick: false,
         }).then(async (result) => {
             if (result.isConfirmed) {
                 const deleteResult = await fetchData(`api/locations_api.php?action=delete_location`, 'DELETE', {id: locationId});

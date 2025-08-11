@@ -627,7 +627,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleUnpickItem(pickId, orderId) {
-        Swal.fire({ title: 'Confirm Unpick', text: 'Are you sure you want to return this picked item to stock?', icon: 'warning', showCancelButton: true, confirmButtonColor: '#d33', confirmButtonText: 'Yes, unpick it!' }).then(async (result) => {
+        Swal.fire({ title: 'Confirm Unpick', text: 'Are you sure you want to return this picked item to stock?', icon: 'warning', showCancelButton: true, allowOutsideClick:false, confirmButtonColor: '#d33', confirmButtonText: 'Yes, unpick it!' }).then(async (result) => {
             if (result.isConfirmed) {
                 const apiResult = await fetchData('api/picking_api.php?action=unpickItem', 'POST', { pick_id: pickId });
                 if (apiResult?.success) {
@@ -650,7 +650,7 @@ document.addEventListener('DOMContentLoaded', () => {
             opts[area.location_id] = area.location_code;
             return opts;
         }, {});
-        const { value: locationId } = await Swal.fire({ title: 'Select Shipping Area', input: 'select', inputOptions: shippingAreaOptions, inputPlaceholder: 'Select an area', showCancelButton: true, inputValidator: (value) => !value && 'You need to select a shipping area!' });
+        const { value: locationId } = await Swal.fire({ title: 'Select Shipping Area', input: 'select', inputOptions: shippingAreaOptions, allowOutsideClick:false, inputPlaceholder: 'Select an area', showCancelButton: true, allowOutsideClick: false, inputValidator: (value) => !value && 'You need to select a shipping area!' });
         if (locationId) {
             const result = await fetchData('api/picking_api.php?action=stageOrder', 'POST', { order_id: selectedOrderId, shipping_area_location_id: locationId });
             if (result?.success) {
@@ -744,6 +744,7 @@ document.addEventListener('DOMContentLoaded', () => {
             width: '800px',
             showCancelButton: true,
             confirmButtonText: 'Confirm Assignment',
+            allowOutsideClick: false,
             didOpen: () => {
                 const swalContainer = document.getElementById('assignDriverFormSwal');
                 $('#driverSelectSwal, #deliveryCompanySelectSwal').select2({
@@ -895,6 +896,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             `,
                             confirmButtonText: 'Close',
                             showDenyButton: true,
+                            allowOutsideClick:false,
                             denyButtonText: '<i class="bi bi-clipboard"></i> Copy Links',
                         }).then((result) => {
                             if (result.isDenied) {
@@ -908,7 +910,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         Swal.fire({
                             icon: 'success',
                             title: 'Driver Assigned!',
-                            text: 'The in-house driver has been successfully assigned to the order.'
+                            text: 'The in-house driver has been successfully assigned to the order.',
+                            allowOutsideClick: false,
+                        }).then(isConfirm => {
+                            if (isConfirm) location.reload();
                         });
                     }
                 }

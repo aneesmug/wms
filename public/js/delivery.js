@@ -327,6 +327,7 @@ document.addEventListener('DOMContentLoaded', () => {
             showCancelButton: true,
             confirmButtonText: 'Submit Report',
             confirmButtonColor: '#d33',
+            allowOutsideClick: false,
             preConfirm: () => {
                 const reason = document.getElementById('swal-failure-reason').value;
                 const notes = document.getElementById('swal-failure-notes').value.trim();
@@ -377,11 +378,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="mb-3">
                         <label for="swal-receiverPhone" class="form-label">Receiver's Phone (Optional)</label>
-                        <input type="tel" class="form-control" id="swal-receiverPhone" placeholder="Enter phone number">
+                        <input type="tel" class="form-control saudi-mobile-number" id="swal-receiverPhone" placeholder="Enter phone number">
                     </div>
                     <div class="mb-3">
                         <label for="swal-deliveryCode" class="form-label">Delivery Confirmation Code</label>
-                        <input type="text" class="form-control" id="swal-deliveryCode" placeholder="Ask customer for code (if applicable)">
+                        <input type="text" class="form-control numeric-only" id="swal-deliveryCode" placeholder="Ask customer for code (if applicable)">
                     </div>
                      <div class="mb-3">
                         <label for="swal-deliveryPhoto" class="form-label">Proof of Delivery Photo <span class="text-danger">*</span></label>
@@ -390,6 +391,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </form>`,
             showCancelButton: true,
             confirmButtonText: 'Submit Confirmation',
+            allowOutsideClick: false,
             preConfirm: async () => {
                 const receiverName = document.getElementById('swal-receiverName').value;
                 const deliveryPhoto = document.getElementById('swal-deliveryPhoto').files[0];

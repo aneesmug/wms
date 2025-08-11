@@ -206,16 +206,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 <form id="swalCustomerForm" class="text-start mt-3">
                     <div class="row">
                         <div class="col-md-6 mb-3"><label for="swal-customerName" class="form-label">Customer Name*</label><input type="text" id="swal-customerName" class="form-control" value="${customer.customer_name || ''}" required></div>
-                        <div class="col-md-6 mb-3"><label for="swal-customerCode" class="form-label">Customer Code*</label><input type="text" id="swal-customerCode" class="form-control" value="${customer.customer_code || ''}" required></div>
+                        <div class="col-md-6 mb-3"><label for="swal-customerCode" class="form-label">Customer Code*</label><input type="text" id="swal-customerCode" class="form-control numeric-only" value="${customer.customer_code || ''}" required></div>
                         <div class="col-md-6 mb-3"><label for="swal-contactPerson" class="form-label">Contact Person*</label><input type="text" id="swal-contactPerson" class="form-control" value="${customer.contact_person || ''}" required></div>
-                        <div class="col-md-6 mb-3"><label for="swal-email" class="form-label">Email</label><input type="email" id="swal-email" class="form-control" value="${customer.email || ''}"></div>
-                        <div class="col-md-6 mb-3"><label for="swal-phone" class="form-label">Phone*</label><input type="tel" id="swal-phone" class="form-control" value="${customer.phone || ''}" required></div>
-                        <div class="col-md-6 mb-3"><label for="swal-phone2" class="form-label">Alt. Phone</label><input type="tel" id="swal-phone2" class="form-control" value="${customer.phone2 || ''}"></div>
+                        <div class="col-md-6 mb-3"><label for="swal-email" class="form-label">Email</label><input type="email" id="swal-email" class="form-control email-validation" value="${customer.email || ''}"></div>
+                        <div class="col-md-6 mb-3"><label for="swal-phone" class="form-label">Phone*</label><input type="tel" id="swal-phone" class="form-control saudi-mobile-number" value="${customer.phone || ''}" required></div>
+                        <div class="col-md-6 mb-3"><label for="swal-phone2" class="form-label">Alt. Phone</label><input type="tel" id="swal-phone2" class="form-control numeric-only" value="${customer.phone2 || ''}"></div>
                         <div class="col-12 mb-3"><label for="swal-addressLine1" class="form-label">Address Line 1*</label><input type="text" id="swal-addressLine1" class="form-control" value="${customer.address_line1 || ''}" required></div>
                         <div class="col-12 mb-3"><label for="swal-addressLine2" class="form-label">Address Line 2</label><input type="text" id="swal-addressLine2" class="form-control" value="${customer.address_line2 || ''}"></div>
                         <div class="col-md-4 mb-3"><label for="swal-city" class="form-label">City*</label><input type="text" id="swal-city" class="form-control" value="${customer.city || ''}" required></div>
                         <div class="col-md-4 mb-3"><label for="swal-state" class="form-label">State</label><input type="text" id="swal-state" class="form-control" value="${customer.state || ''}"></div>
-                        <div class="col-md-4 mb-3"><label for="swal-zipCode" class="form-label">Zip Code</label><input type="text" id="swal-zipCode" class="form-control" value="${customer.zip_code || ''}"></div>
+                        <div class="col-md-4 mb-3"><label for="swal-zipCode" class="form-label">Zip Code</label><input type="text" id="swal-zipCode" class="form-control numeric-only" value="${customer.zip_code || ''}"></div>
                         <div class="col-12 mb-3"><label for="swal-country" class="form-label">Country*</label><input type="text" id="swal-country" class="form-control" value="${customer.country || ''}" required></div>
                     </div>
                 </form>`,

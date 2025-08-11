@@ -1,5 +1,5 @@
 <?php
-// 003-inbound.php
+// 004-inbound.php
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-100">
@@ -14,8 +14,9 @@
     <link href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" />
-    <!-- SweetAlert2 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <!-- Datepicker CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vanillajs-datepicker@1.3.4/dist/css/datepicker-bs5.min.css">
     <!-- Custom CSS -->
     <link rel="stylesheet" href="css/style.css">
 </head>
@@ -103,11 +104,11 @@
                                     </div>
                                     <div class="col-md-6">
                                         <label for="itemQuantity" class="form-label">Quantity</label>
-                                        <input type="number" id="itemQuantity" name="itemQuantity" value="1" min="1" class="form-control" required>
+                                        <input type="number" id="itemQuantity" name="itemQuantity" value="1" min="1" class="form-control numeric-only" required>
                                     </div>
                                     <div class="col-md-6">
                                         <label for="unitCost" class="form-label">Unit Cost</label>
-                                        <input type="number" id="unitCost" name="unitCost" placeholder="0.00" step="0.01" min="0" class="form-control">
+                                        <input type="number" id="unitCost" name="unitCost" placeholder="0.00" step="0.01" min="0" class="form-control numeric-only">
                                     </div>
                                     <div class="col-12">
                                         <label for="inboundBatchNumber" class="form-label">Batch Number (Source)</label>
@@ -155,8 +156,9 @@
     <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
     <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.bootstrap5.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-    <!-- SweetAlert2 JS -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
+    <!-- Datepicker JS -->
+    <script src="https://cdn.jsdelivr.net/npm/vanillajs-datepicker@1.3.4/dist/js/datepicker-full.min.js"></script>
     
     <script>
         // Initialize Bootstrap tooltips for the desktop sidebar icons

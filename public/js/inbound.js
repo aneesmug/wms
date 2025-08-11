@@ -268,6 +268,7 @@ $(document).ready(function() {
                 showCancelButton: true,
                 confirmButtonText: '<i class="bi bi-printer"></i> Print Stickers',
                 cancelButtonText: 'Close',
+                allowOutsideClick: false,
             }).then((dialogResult) => {
                 if (dialogResult.isConfirmed) {
                     $('#print-frame').remove(); 
@@ -523,17 +524,22 @@ $(document).ready(function() {
             html: `
                 <form id="swal-receiveShipmentForm" class="row g-3 text-start needs-validation" novalidate>
                     <div class="col-12"><label for="swal-supplierSelect" class="form-label">Supplier</label><select id="swal-supplierSelect" class="form-select" required>${supplierOptionsHtml}</select></div>
-                    <div class="col-md-6"><label for="swal-blNumber" class="form-label">B/L Number</label><input type="text" id="swal-blNumber" class="form-control" required></div>
-                    <div class="col-md-6"><label for="swal-containerNumber" class="form-label">Container No.</label><input type="text" id="swal-containerNumber" class="form-control" required></div>
-                    <div class="col-md-6"><label for="swal-serialNumber" class="form-label">Serial No.</label><input type="text" id="swal-serialNumber" class="form-control" required></div>
-                    <div class="col-md-6"><label for="swal-expectedArrivalDate" class="form-label">Expected Arrival</label><input type="date" id="swal-expectedArrivalDate" class="form-control" required></div>
+                    <div class="col-md-6"><label for="swal-blNumber" class="form-label">B/L Number</label><input type="text" id="swal-blNumber" class="form-control numeric-only" required></div>
+                    <div class="col-md-6"><label for="swal-containerNumber" class="form-label">Container No.</label><input type="text" id="swal-containerNumber" class="form-control numeric-only" required></div>
+                    <div class="col-md-6"><label for="swal-serialNumber" class="form-label">Serial No.</label><input type="text" id="swal-serialNumber" class="form-control numeric-only" required></div>
+                    <div class="col-md-6"><label for="swal-expectedArrivalDate" class="form-label">Expected Arrival</label><input type="text" id="swal-expectedArrivalDate" class="form-control datepicker-input" required></div>
                 </form>
             `,
             confirmButtonText: 'Create Receipt',
+            showCancelButton: true,
+            allowOutsideClick: false,
             focusConfirm: false,
             didOpen: () => {
                 $('#swal-supplierSelect').select2({ theme: 'bootstrap-5', dropdownParent: $('.swal2-popup') });
-                document.getElementById('swal-expectedArrivalDate').valueAsDate = new Date();
+                const dateElement = document.getElementById('swal-expectedArrivalDate');
+                // Pass the SweetAlert popup as the container for the datepicker
+                initializeDatepicker(dateElement, Swal.getPopup()); 
+                dateElement.value = new Date().toISOString().split('T')[0]; // Set default value
             },
             preConfirm: () => {
                 const supplierId = $('#swal-supplierSelect').val();
@@ -668,6 +674,7 @@ $(document).ready(function() {
             html: modalHtml,
             width: '90vw',
             confirmButtonText: 'Close',
+            allowOutsideClick: false,
             didOpen: () => {
                 $('.swal2-container').on('click', '.reprint-btn', function() {
                     const inventoryId = $(this).data('inventory-id');
@@ -691,7 +698,7 @@ $(document).ready(function() {
                 <form id="swal-editForm" class="text-start">
                     <div class="mb-3">
                         <label for="swal-quantity" class="form-label">Quantity</label>
-                        <input type="number" id="swal-quantity" class="form-control" value="${item.received_quantity}" min="1">
+                        <input type="number" id="swal-quantity" class="form-control numeric-only" value="${item.received_quantity}" min="1">
                     </div>
                     <div class="mb-3">
                         <label for="swal-dot" class="form-label">DOT Code</label>
@@ -700,6 +707,7 @@ $(document).ready(function() {
                 </form>
             `,
             confirmButtonText: 'Update',
+            allowOutsideClick: false,
             didOpen: () => {
                 const dotSelect = $('#swal-dot');
                 dotSelect.select2({
@@ -742,6 +750,7 @@ $(document).ready(function() {
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#d33',
+            allowOutsideClick: false,
             confirmButtonText: 'Yes, delete it!'
         }).then(async (result) => {
             if (result.isConfirmed) {
