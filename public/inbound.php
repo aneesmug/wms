@@ -1,5 +1,5 @@
 <?php
-// 004-inbound.php
+// 005-inbound.php
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-100">
@@ -72,10 +72,7 @@
                                                 <th>Receipt ID</th> <!-- Hidden -->
                                                 <th>Receipt No.</th>
                                                 <th>Supplier</th>
-                                                <th>B/L No.</th> <!-- Hidden -->
-                                                <th>Container No.</th> <!-- Hidden -->
-                                                <th>Serial No.</th> <!-- Hidden -->
-                                                <th>Expected Date</th>
+                                                <th>Arrival Date</th>
                                                 <th>Status</th>
                                                 <th>Actions</th>
                                             </tr>
@@ -88,58 +85,75 @@
                     </div>
                 </div>
 
-                <!-- Processing Section (Initially Hidden) -->
+                <!-- NEW: Processing Section (Initially Hidden) -->
                 <div id="processingSection" class="row g-4 mt-4 d-none">
-                    <!-- Form Column -->
-                    <div class="col-lg-7">
-                        <div id="receivePutawaySection" class="card shadow-sm">
-                            <div class="card-header">
-                                <h5 class="card-title mb-0">Process Receipt <span id="selectedReceiptDisplay" class="text-primary fw-normal"></span></h5>
+                    <!-- Container Management Column -->
+                    <div class="col-lg-5">
+                        <div class="card shadow-sm h-100">
+                             <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0">Receipt <span id="selectedReceiptNumber" class="text-primary"></span></h5>
+                                <button id="addContainerBtn" class="btn btn-success btn-sm"><i class="bi bi-plus-circle"></i> Add Container</button>
                             </div>
                             <div class="card-body">
-                                 <div class="row g-3">
-                                    <div class="col-12">
-                                        <label for="scanarticle_noInput" class="form-label">Product</label>
-                                        <select id="scanarticle_noInput" name="scanarticle_noInput" class="form-select" style="width: 100%;"></select>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label for="itemQuantity" class="form-label">Quantity</label>
-                                        <input type="number" id="itemQuantity" name="itemQuantity" value="1" min="1" class="form-control numeric-only" required>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label for="unitCost" class="form-label">Unit Cost</label>
-                                        <input type="number" id="unitCost" name="unitCost" placeholder="0.00" step="0.01" min="0" class="form-control numeric-only">
-                                    </div>
-                                    <div class="col-12">
-                                        <label for="inboundBatchNumber" class="form-label">Batch Number (Source)</label>
-                                        <input type="text" id="inboundBatchNumber" name="inboundBatchNumber" placeholder="Auto-generated or select from right" class="form-control">
-                                    </div>
-                                    <div class="col-12">
-                                        <label for="inboundDotCode" class="form-label">DOT Manufacture Code (WW/YY)</label>
-                                        <select id="inboundDotCode" name="inboundDotCode" class="form-select" style="width: 100%;" required>
-                                            <!-- Options will be populated by JavaScript -->
-                                        </select>
-                                    </div>
-                                    <div class="col-12">
-                                        <label for="scanLocationInput" class="form-label">Location for Putaway</label>
-                                        <select id="scanLocationInput" name="scanLocationInput" class="form-select" style="width: 100%;"></select>
-                                    </div>
-                                    <div class="col-12 d-grid gap-2 d-md-flex justify-content-md-end">
-                                        <button id="receiveItemBtn" class="btn btn-info text-white">Receive</button>
-                                        <button id="putawayItemBtn" class="btn btn-secondary">Putaway</button>
-                                    </div>
+                                <h6 class="card-subtitle mb-2 text-muted">Containers</h6>
+                                <div id="containerList" class="list-group" style="max-height: 450px; overflow-y: auto;">
+                                    <!-- JS populates this -->
+                                    <div class="list-group-item">Select a receipt to see its containers.</div>
                                 </div>
                             </div>
                         </div>
                     </div>
-                    <!-- Putaway Candidates Column -->
-                    <div class="col-lg-5">
-                        <div class="card shadow-sm h-100">
+
+                    <!-- Item Processing Column -->
+                    <div class="col-lg-7">
+                        <div id="itemProcessingCard" class="card shadow-sm">
+                            <div class="card-header">
+                                <h5 class="card-title mb-0">Process Items for Container: <span id="selectedContainerNumber" class="text-primary">None</span></h5>
+                            </div>
                             <div class="card-body">
-                                <h6 class="card-subtitle mb-2 text-muted">Items Ready for Putaway</h6>
-                                <div id="putawayCandidatesList" class="list-group" style="max-height: 400px; overflow-y: auto;">
-                                    <!-- JS populates this -->
-                                </div>
+                                 <div id="itemForm" class="row g-3">
+                                    <!-- This form will be disabled until a container is selected -->
+                                    <fieldset id="itemFormFields" disabled>
+                                        <div class="row g-3">
+                                            <div class="col-12">
+                                                <label for="scanarticle_noInput" class="form-label">Product</label>
+                                                <select id="scanarticle_noInput" name="scanarticle_noInput" class="form-select" style="width: 100%;"></select>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label for="itemQuantity" class="form-label">Quantity</label>
+                                                <input type="number" id="itemQuantity" name="itemQuantity" value="1" min="1" class="form-control numeric-only" required>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label for="unitCost" class="form-label">Unit Cost</label>
+                                                <input type="number" id="unitCost" name="unitCost" placeholder="0.00" step="0.01" min="0" class="form-control numeric-only">
+                                            </div>
+                                            <div class="col-12">
+                                                <label for="inboundDotCode" class="form-label">DOT Manufacture Code (WW/YY)</label>
+                                                <select id="inboundDotCode" name="inboundDotCode" class="form-select" style="width: 100%;" required></select>
+                                            </div>
+                                            <div class="col-12 d-grid">
+                                                <button id="receiveItemBtn" class="btn btn-info text-white">Receive Item</button>
+                                            </div>
+                                        </div>
+                                    </fieldset>
+                                 </div>
+                                 <hr>
+                                 <h6 class="card-subtitle mb-2 text-muted">Items Ready for Putaway</h6>
+                                 <div id="putawayCandidatesList" class="list-group mb-3" style="max-height: 200px; overflow-y: auto;">
+                                     <!-- JS populates this -->
+                                     <div class="list-group-item">Select a container to see items to put away.</div>
+                                 </div>
+                                 <fieldset id="putawayFormFields" disabled>
+                                     <div class="row g-3">
+                                         <div class="col-12">
+                                             <label for="scanLocationInput" class="form-label">Location for Putaway</label>
+                                             <select id="scanLocationInput" name="scanLocationInput" class="form-select" style="width: 100%;"></select>
+                                         </div>
+                                         <div class="col-12 d-grid">
+                                             <button id="putawayItemBtn" class="btn btn-secondary">Putaway Selected Item</button>
+                                         </div>
+                                     </div>
+                                 </fieldset>
                             </div>
                         </div>
                     </div>
