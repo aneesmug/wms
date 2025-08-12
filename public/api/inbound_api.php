@@ -350,8 +350,8 @@ function handleReceiveItem($conn, $warehouse_id) {
             $user_message = "Item received successfully.";
         }
 
-        updateReceiptStatus($conn, $receipt_id);
         updateContainerStatus($conn, $container_id);
+        updateReceiptStatus($conn, $receipt_id);
         $conn->commit();
         sendJsonResponse(['success' => true, 'message' => $user_message]);
     } catch (Exception $e) {
@@ -437,8 +437,8 @@ function handlePutawayItem($conn, $warehouse_id) {
         }
         $stmt_sticker->close();
 
-        updateReceiptStatus($conn, $receipt_id);
         updateContainerStatus($conn, $container_id);
+        updateReceiptStatus($conn, $receipt_id);
 
         $conn->commit();
         sendJsonResponse(['success' => true, 'message' => "Item putaway successfully.", 'inventory_id' => $new_inventory_id]);
@@ -474,8 +474,8 @@ function handleUpdateReceivedItem($conn, $warehouse_id) {
         if (!$stmt_update->execute()) { throw new Exception("Failed to update item record."); }
         $stmt_update->close();
 
-        updateReceiptStatus($conn, $item['receipt_id']);
         updateContainerStatus($conn, $item['container_id']);
+        updateReceiptStatus($conn, $item['receipt_id']);
         $conn->commit();
         sendJsonResponse(['success' => true, 'message' => 'Received item updated successfully.']);
     } catch (Exception $e) {
@@ -505,8 +505,8 @@ function handleDeleteReceivedItem($conn, $warehouse_id) {
         $stmt_delete->execute();
         $stmt_delete->close();
 
-        updateReceiptStatus($conn, $item['receipt_id']);
         updateContainerStatus($conn, $item['container_id']);
+        updateReceiptStatus($conn, $item['receipt_id']);
         $conn->commit();
         sendJsonResponse(['success' => true, 'message' => 'Received item deleted successfully.']);
     } catch (Exception $e) { 
@@ -561,7 +561,7 @@ function updateReceiptStatus($conn, $receipt_id) {
             if ($container['status'] === 'Completed') {
                 $completed_containers++;
             }
-            if ($container['status'] !== 'Expected') {
+            if ($container['status'] !== 'Expected' && $container['status'] !== 'Completed') {
                 $any_processing = true;
             }
         }
@@ -603,7 +603,7 @@ function updateContainerStatus($conn, $container_id) {
 
     $new_status = 'Arrived';
     if (($summary['total_received'] ?? 0) > 0) {
-        if (($summary['total_putaway'] ?? 0) >= ($summary['total_received'] ?? 0)) {
+        if (isset($summary['total_received']) && ($summary['total_putaway'] ?? 0) >= $summary['total_received']) {
             $new_status = 'Completed';
         } elseif (($summary['total_putaway'] ?? 0) > 0) {
             $new_status = 'Partially Putaway';

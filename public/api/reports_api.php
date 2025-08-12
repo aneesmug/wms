@@ -24,9 +24,10 @@ switch ($action) {
     
     // Global Reports
     case 'allWarehouseStockSummary': getAllWarehouseStockSummary($conn); break;
-    case 'blockedAndLockedStock': getBlockedAndLockedStock($conn); break; // New
+    case 'blockedAndLockedStock': getBlockedAndLockedStock($conn); break;
 
     // Inbound Operations
+    case 'grReport': getGrReport($conn, $current_warehouse_id); break;
     case 'inboundHistory': getInboundHistory($conn, $current_warehouse_id); break;
     case 'receivingDiscrepancy': getReceivingDiscrepancy($conn, $current_warehouse_id); break;
     case 'supplierPerformance': getSupplierPerformance($conn, $current_warehouse_id); break;
@@ -52,7 +53,7 @@ switch ($action) {
     case 'pickerPerformance': getPickerPerformance($conn, $current_warehouse_id); break;
     case 'userProductivity': getUserProductivity($conn, $current_warehouse_id); break;
     case 'orderFulfillmentLeadTime': getOrderFulfillmentLeadTime($conn, $current_warehouse_id); break;
-
+    
     // Financial & Auditing
     case 'inventoryValuation': getInventoryValuation($conn, $current_warehouse_id); break;
     case 'stockAdjustmentHistory': getStockAdjustmentHistory($conn, $current_warehouse_id); break;
@@ -63,6 +64,67 @@ switch ($action) {
         sendJsonResponse(['success' => false, 'message' => 'Invalid report action specified.'], 400);
         break;
 }
+
+// --- NEW GR REPORT FUNCTION ---
+
+function getGrReport($conn, $warehouse_id) {
+    $receipt_number = sanitize_input($_GET['filter'] ?? null);
+    if (empty($receipt_number)) {
+        sendJsonResponse(['success' => false, 'message' => 'Receipt Number is required for this report.'], 400);
+        return;
+    }
+
+    $sql = "
+        SELECT 
+            p.article_no AS `Item Number`,
+            p.product_name AS `Product Name`,
+            ii.received_quantity AS `Quantity`,
+            ii.dot_code AS `Batch Number`,
+            irc.bl_number AS `Customer Reference`,
+            irc.container_number AS `Customer Requisition`,
+            irc.reference_number AS `Reference No`,
+            DATE(irc.actual_arrival_date) AS `Requested receipt date`,
+            w.warehouse_name AS Warehouse,
+            irc.serial_number AS `Serial No`
+        FROM inbound_items ii
+        JOIN products p ON ii.product_id = p.product_id
+        JOIN inbound_receipts ir ON ii.receipt_id = ir.receipt_id
+        JOIN inbound_receipt_containers irc ON ii.container_id = irc.container_id
+        JOIN warehouses w ON ir.warehouse_id = w.warehouse_id
+        WHERE ir.receipt_number = ? AND ir.warehouse_id = ?
+        ORDER BY irc.reference_number ASC
+    ";
+    
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("si", $receipt_number, $warehouse_id);
+    $stmt->execute();
+    $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+
+    if (!empty($data)) {
+        $total_quantity = 0;
+        foreach ($data as $row) {
+            $total_quantity += (int)$row['Quantity'];
+        }
+
+        // Add a total row
+        $data[] = [
+            'Item Number' => '',
+            'Product Name' => 'Total',
+            'Quantity' => $total_quantity,
+            'Batch Number' => '',
+            'Customer Reference' => '',
+            'Customer Requisition' => '',
+            'Reference No' => '',
+            'Requested receipt date' => '',
+            'Warehouse' => '',
+            'Serial No' => ''
+        ];
+    }
+    
+    sendJsonResponse(['success' => true, 'data' => $data]);
+}
+
 
 // --- Dashboard Functions (Existing - Unchanged) ---
 
@@ -517,10 +579,10 @@ function getPickerPerformance($conn, $warehouse_id) {
 }
 
 function getOrderFulfillmentLeadTime($conn, $warehouse_id) {
-    $sql = "SELECT oo.order_number, c.customer_name, oo.order_date, MIN(oip.picked_at) AS first_pick_time, MAX(oip.picked_at) AS last_pick_time, oo.actual_ship_date, ROUND(TIMESTAMPDIFF(MINUTE, MIN(oip.picked_at), MAX(oip.picked_at)) / 60, 2) AS time_to_pick_hours, DATEDIFF(oo.actual_ship_date, oo.order_date) AS time_to_ship_days FROM outbound_orders oo JOIN customers c ON oo.customer_id = c.customer_id LEFT JOIN outbound_items oi ON oo.order_id = oi.order_id LEFT JOIN outbound_item_picks oip ON oi.outbound_item_id = oip.outbound_item_id WHERE oo.warehouse_id = ? ";
+    $sql = "SELECT oo.order_number, c.customer_name, oo.order_date, (SELECT MIN(picked_at) FROM outbound_item_picks oip JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id WHERE oi.order_id = oo.order_id) AS first_pick_time, oo.actual_ship_date, oo.out_for_delivery_date, oo.actual_delivery_date, ROUND(TIMESTAMPDIFF(MINUTE, oo.order_date, (SELECT MIN(picked_at) FROM outbound_item_picks oip JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id WHERE oi.order_id = oo.order_id)) / 60, 2) AS time_to_pick_hours, ROUND(TIMESTAMPDIFF(HOUR, (SELECT MAX(picked_at) FROM outbound_item_picks oip JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id WHERE oi.order_id = oo.order_id), oo.actual_ship_date), 2) AS time_to_ship_hours, DATEDIFF(oo.actual_delivery_date, oo.actual_ship_date) AS transit_days FROM outbound_orders oo JOIN customers c ON oo.customer_id = c.customer_id WHERE oo.warehouse_id = ?";
     $params = [$warehouse_id]; $types = "i";
     $sql = addDateFilter($sql, $params, $types, 'oo.order_date');
-    $sql .= " GROUP BY oo.order_id ORDER BY oo.order_date DESC";
+    $sql .= " ORDER BY oo.order_date DESC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param($types, ...$params);
     $stmt->execute();

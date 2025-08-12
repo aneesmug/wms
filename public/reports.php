@@ -54,6 +54,7 @@
                                         </optgroup>
 
                                         <optgroup label="Inbound Operations">
+                                            <option value="grReport" data-filter-required="true" data-filter-label="Receipt No." data-filter-placeholder="Enter Receipt Number...">Goods Received Note (GRN)</option>
                                             <option value="inboundHistory">Inbound History</option>
                                             <option value="receivingDiscrepancy">Receiving Discrepancy</option>
                                             <option value="supplierPerformance">Supplier Performance</option>
