@@ -1,3 +1,12 @@
+<!-- 
+/********************************************************************
+* MODIFICATION SUMMARY:
+* - Added a new "Change Driver" button to the staging actions area.
+* - This button will be controlled by picking.js to appear when a driver has already been assigned to an order,
+* allowing users to re-assign a different driver if needed.
+* - Updated the search input placeholder to include "Customer Name/Code".
+********************************************************************/
+-->
 <!DOCTYPE html>
 <html lang="en" class="h-100">
 <head>
@@ -64,7 +73,7 @@
                                 <div class="d-flex flex-wrap align-items-center gap-2">
                                     <div class="input-group input-group-sm" style="width: 250px;">
                                         <span class="input-group-text bg-light border-end-0"><i class="bi bi-search"></i></span>
-                                        <input type="search" id="orderSearchInput" class="form-control border-start-0" placeholder="Search by Order # or Customer...">
+                                        <input type="search" id="orderSearchInput" class="form-control border-start-0" placeholder="Search by Order #, Customer Name/Code...">
                                     </div>
                                     <select id="pickingStatusFilter" class="form-select form-select-sm w-auto">
                                         <option value="all">Show All</option>
@@ -166,10 +175,10 @@
                                             <p class="mb-0"><strong>Driver:</strong> <span id="driverInfoDisplay" class="">Not Assigned</span></p>
                                         </div>
                                         <div class="d-flex gap-2 flex-wrap">
-                                            <!-- MODIFICATION: Added scrapOrderBtn -->
                                             <button id="scrapOrderBtn" class="btn btn-danger d-none"><i class="bi bi-trash-fill me-1"></i> Scrap Items</button>
                                             <button id="stageOrderBtn" class="btn btn-warning d-none">Stage for Pickup</button>
                                             <button id="assignDriverBtn" class="btn btn-primary d-none"><i class="bi bi-person-plus-fill me-1"></i> Assign Driver</button>
+                                            <button id="changeDriverBtn" class="btn btn-info d-none"><i class="bi bi-person-vcard me-1"></i> Change Driver</button>
                                         </div>
                                     </div>
                                 </div>

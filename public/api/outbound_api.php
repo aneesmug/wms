@@ -611,6 +611,14 @@ function handleShipOrder($conn, $warehouse_id, $user_id) {
 }
 
 function handleCancelOrder($conn, $warehouse_id, $user_id) {
+    /********************************************************************
+    * MODIFICATION SUMMARY:
+    * - Added comprehensive cleanup for canceled orders to ensure stock is always returned correctly.
+    * - The function now fetches all associated 'picks' for the order.
+    * - For each pick, it correctly returns the quantity to the master inventory.
+    * - It then deletes related records in `outbound_driver_scans` and `outbound_pick_stickers` before deleting the pick itself.
+    * - This prevents orphaned data and ensures the transaction completes successfully, fixing the stock quantity issue.
+    ********************************************************************/
     $input = json_decode(file_get_contents('php://input'), true);
     $order_id = filter_var($input['order_id'] ?? 0, FILTER_VALIDATE_INT);
     if (empty($order_id)) { 
@@ -633,63 +641,77 @@ function handleCancelOrder($conn, $warehouse_id, $user_id) {
             throw new Exception("Cannot cancel an order that is already {$order['status']}."); 
         }
         
-        $stmt_items = $conn->prepare("SELECT p.picked_quantity, p.location_id, p.batch_number, p.dot_code, oi.product_id FROM outbound_item_picks p JOIN outbound_items oi ON p.outbound_item_id = oi.outbound_item_id WHERE oi.order_id = ?");
+        // Fetch all pick details, including the pick_id for cleanup
+        $stmt_items = $conn->prepare("
+            SELECT p.pick_id, p.picked_quantity, p.location_id, p.batch_number, p.dot_code, oi.product_id 
+            FROM outbound_item_picks p 
+            JOIN outbound_items oi ON p.outbound_item_id = oi.outbound_item_id 
+            WHERE oi.order_id = ?
+        ");
         $stmt_items->bind_param("i", $order_id);
         $stmt_items->execute();
         $picked_items = $stmt_items->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt_items->close();
         
-        foreach ($picked_items as $item) {
-            $stmt_update_inv = $conn->prepare("
-                UPDATE inventory 
-                SET quantity = quantity + ? 
-                WHERE product_id = ? 
-                  AND location_id = ? 
-                  AND batch_number <=> ? 
-                  AND dot_code = ? 
-                  AND warehouse_id = ?
-            ");
-            $stmt_update_inv->bind_param(
-                "iiissi", 
-                $item['picked_quantity'], 
-                $item['product_id'], 
-                $item['location_id'], 
-                $item['batch_number'], 
-                $item['dot_code'], 
-                $warehouse_id
-            );
-            $stmt_update_inv->execute();
-            
-            if ($stmt_update_inv->affected_rows === 0) {
-                $stmt_insert_inv = $conn->prepare("
-                    INSERT INTO inventory (product_id, warehouse_id, location_id, quantity, batch_number, dot_code) 
-                    VALUES (?, ?, ?, ?, ?, ?)
+        $pick_ids = array_column($picked_items, 'pick_id');
+
+        // Only proceed if there are items that were actually picked.
+        if (!empty($pick_ids)) {
+            // Return items to inventory
+            foreach ($picked_items as $item) {
+                $stmt_update_inv = $conn->prepare("
+                    UPDATE inventory 
+                    SET quantity = quantity + ? 
+                    WHERE product_id = ? AND location_id = ? AND batch_number <=> ? AND dot_code = ? AND warehouse_id = ?
                 ");
-                $stmt_insert_inv->bind_param(
-                    "iiiiss", 
-                    $item['product_id'], 
-                    $warehouse_id, 
-                    $item['location_id'], 
-                    $item['picked_quantity'], 
-                    $item['batch_number'], 
-                    $item['dot_code']
-                );
-                $stmt_insert_inv->execute();
-                $stmt_insert_inv->close();
+                $stmt_update_inv->bind_param("iiissi", $item['picked_quantity'], $item['product_id'], $item['location_id'], $item['batch_number'], $item['dot_code'], $warehouse_id);
+                $stmt_update_inv->execute();
+                
+                if ($stmt_update_inv->affected_rows === 0) {
+                    $stmt_insert_inv = $conn->prepare("
+                        INSERT INTO inventory (product_id, warehouse_id, location_id, quantity, batch_number, dot_code) 
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ");
+                    $stmt_insert_inv->bind_param("iiiiss", $item['product_id'], $warehouse_id, $item['location_id'], $item['picked_quantity'], $item['batch_number'], $item['dot_code']);
+                    $stmt_insert_inv->execute();
+                    $stmt_insert_inv->close();
+                }
+                $stmt_update_inv->close();
             }
-            $stmt_update_inv->close();
+
+            // Clean up related records (scans, stickers, picks)
+            $placeholders = implode(',', array_fill(0, count($pick_ids), '?'));
+            $types = str_repeat('i', count($pick_ids));
+
+            // Delete driver scans linked to the stickers of the picks being cancelled
+            $stmt_delete_scans = $conn->prepare("
+                DELETE FROM outbound_driver_scans 
+                WHERE sticker_id IN (SELECT sticker_id FROM outbound_pick_stickers WHERE pick_id IN ($placeholders))
+            ");
+            $stmt_delete_scans->bind_param($types, ...$pick_ids);
+            $stmt_delete_scans->execute();
+            $stmt_delete_scans->close();
+
+            // Delete the pick stickers
+            $stmt_delete_stickers = $conn->prepare("DELETE FROM outbound_pick_stickers WHERE pick_id IN ($placeholders)");
+            $stmt_delete_stickers->bind_param($types, ...$pick_ids);
+            $stmt_delete_stickers->execute();
+            $stmt_delete_stickers->close();
+            
+            // Delete the item picks
+            $stmt_delete_picks = $conn->prepare("DELETE FROM outbound_item_picks WHERE pick_id IN ($placeholders)");
+            $stmt_delete_picks->bind_param($types, ...$pick_ids);
+            $stmt_delete_picks->execute();
+            $stmt_delete_picks->close();
         }
         
-        $stmt_delete_picks = $conn->prepare("DELETE FROM outbound_item_picks WHERE outbound_item_id IN (SELECT outbound_item_id FROM outbound_items WHERE order_id = ?)");
-        $stmt_delete_picks->bind_param("i", $order_id);
-        $stmt_delete_picks->execute();
-        $stmt_delete_picks->close();
-        
+        // Reset picked quantities on the order items
         $stmt_reset_items = $conn->prepare("UPDATE outbound_items SET picked_quantity = 0 WHERE order_id = ?");
         $stmt_reset_items->bind_param("i", $order_id);
         $stmt_reset_items->execute();
         $stmt_reset_items->close();
         
+        // Update the order status to 'Cancelled'
         $stmt_cancel = $conn->prepare("UPDATE outbound_orders SET status = 'Cancelled' WHERE order_id = ?");
         $stmt_cancel->bind_param("i", $order_id);
         $stmt_cancel->execute();
@@ -901,3 +923,5 @@ function updateOutboundItemAndOrderStatus($conn, $order_id, $user_id) {
         $stmt_update_order->close();
     }
 }
+
+?>

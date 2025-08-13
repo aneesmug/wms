@@ -1,4 +1,15 @@
 // public/js/inventory.js
+// MODIFICATION SUMMARY:
+// 1. Implemented new `formatLocation` and `validateLocationCapacity` helper functions inside the `openAdjustmentModal` and `openAddStockModal` methods.
+// 2. These functions provide the same user experience as in `returns.js`:
+//    - Locations with no capacity set are disabled and marked with a grey "Availability not set" badge.
+//    - Locations with insufficient space for the entered quantity are disabled and marked with a red "Space not available" badge.
+//    - Available locations show a green badge with the remaining space.
+// 3. Event listeners on the quantity input fields now trigger this validation in real-time.
+// 4. The `populateLocationSelect` function was updated to only handle setting the raw `data-available` attribute, simplifying its role.
+// 5. Fixed an issue where the availability badge would disappear after a location was selected.
+// 6. Corrected the initialization of the main page's Select2 filters to ensure they render correctly.
+// 7. Added initial Select2 initialization in the modals to ensure they are styled correctly upon opening.
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
@@ -33,13 +44,23 @@ document.addEventListener('DOMContentLoaded', () => {
     if (clearSearchBtn) {
         clearSearchBtn.addEventListener('click', () => {
             searchProductInput.value = '';
-            searchLocationSelect.value = '';
-            searchTireTypeSelect.value = '';
-            loadInventory();
+            $('#searchLocationSelect').val(null).trigger('change');
+            $('#searchTireTypeSelect').val(null).trigger('change');
         });
     }
-    if (searchLocationSelect) searchLocationSelect.addEventListener('change', loadInventory);
-    if (searchTireTypeSelect) searchTireTypeSelect.addEventListener('change', loadInventory);
+    
+    $('#searchLocationSelect').select2({
+        theme: 'bootstrap-5',
+        placeholder: "Filter by Location",
+        allowClear: true
+    }).on('change', loadInventory);
+
+    $('#searchTireTypeSelect').select2({
+        theme: 'bootstrap-5',
+        placeholder: "Filter by Tire Type",
+        allowClear: true
+    }).on('change', loadInventory);
+
 
     async function initializePage() {
         initializeDataTable();
@@ -51,7 +72,6 @@ document.addEventListener('DOMContentLoaded', () => {
             await loadInventory();
         } else {
             Toast.fire({ icon: 'warning', title: 'Please select a warehouse on the Dashboard.' });
-            if (searchLocationSelect) searchLocationSelect.innerHTML = '<option value="">Select a warehouse first.</option>';
         }
     }
     
@@ -96,7 +116,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 { data: 'batch_expiry' },
                 { data: 'last_moved' }, 
                 { data: 'actions', orderable: false, searchable: false },
-                // Add location_type and is_active to data but keep them hidden
                 { data: 'location_type', visible: false },
                 { data: 'is_active', visible: false }
             ],
@@ -119,16 +138,16 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetchData(`api/locations_api.php?warehouse_id=${warehouseId}`);
             if (response.success && Array.isArray(response.data)) {
-                searchLocationSelect.innerHTML = '<option value="">All Locations</option>';
+                const $select = $('#searchLocationSelect');
+                $select.empty().append(new Option('All Locations', '', false, false));
                 response.data
                     .filter(loc => loc.is_active)
                     .sort((a, b) => a.location_code.localeCompare(b.location_code))
                     .forEach(location => {
-                        const option = document.createElement('option');
-                        option.value = location.location_code;
-                        option.textContent = location.location_code;
-                        searchLocationSelect.appendChild(option);
+                        const option = new Option(location.location_code, location.location_code, false, false);
+                        $select.append(option);
                     });
+                $select.val(null).trigger('change.select2');
             }
         } catch (error) {
             console.error('Error loading locations:', error);
@@ -140,13 +159,13 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetchData('api/products_api.php?action=get_tire_types');
             if (response.success && Array.isArray(response.data)) {
-                searchTireTypeSelect.innerHTML = '<option value="">All Tire Types</option>';
+                const $select = $('#searchTireTypeSelect');
+                $select.empty().append(new Option('All Tire Types', '', false, false));
                 response.data.forEach(type => {
-                    const option = document.createElement('option');
-                    option.value = type.tire_type_id;
-                    option.textContent = type.tire_type_name;
-                    searchTireTypeSelect.appendChild(option);
+                    const option = new Option(type.tire_type_name, type.tire_type_id, false, false);
+                    $select.append(option);
                 });
+                $select.val(null).trigger('change.select2');
             }
         } catch (error) {
             console.error('Error loading tire types:', error);
@@ -157,8 +176,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!currentWarehouseId) return;
         $('.dataTables_processing', inventoryDataTable.table().container()).show();
         const product_search_article_no = searchProductInput.value.trim();
-        const location_search_code = searchLocationSelect.value;
-        const tire_type_id = searchTireTypeSelect.value;
+        const location_search_code = $('#searchLocationSelect').val();
+        const tire_type_id = $('#searchTireTypeSelect').val();
 
         let url = 'api/inventory_api.php?';
         const queryParams = [];
@@ -243,10 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 productNameHtml += ' <span class="badge bg-danger ms-2">Blocked</span>';
             }
 
-            // MODIFICATION: The object returned for each row now includes all raw data fields
-            // needed by the modal functions. This ensures the correct data is passed.
             return {
-                // Raw data for modals
                 product_id: item.product_id,
                 product_article_no: item.article_no || '',
                 location_code: item.location_code || '',
@@ -254,8 +270,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 dot_code: item.dot_code || '',
                 location_type: item.location_type,
                 is_active: item.is_active,
-
-                // Data for display in the table
                 sku: item.sku || '<span class="text-danger">Missing Product</span>',
                 product_name: productNameHtml,
                 article_no: item.article_no || 'N/A',
@@ -269,7 +283,6 @@ document.addEventListener('DOMContentLoaded', () => {
         inventoryDataTable.clear();
         inventoryDataTable.rows.add(rows).draw();
         
-        // Pass the full row data to the modal function
         $('#inventoryTable tbody').off('click', '.adjust-btn').on('click', '.adjust-btn', function() {
             const rowData = inventoryDataTable.row($(this).closest('tr')).data();
             openAdjustmentModal(rowData);
@@ -321,7 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="mb-3">
                         <label for="swalAdjustQuantity" class="form-label">Quantity to Move</label>
-                        <input type="number" id="swalAdjustQuantity" class="form-control" placeholder="e.g., 5 for add/transfer, -2 for remove" required>
+                        <input type="number" id="swalAdjustQuantity" class="form-control numeric-only" placeholder="e.g., 5 for add/transfer, -2 for remove" required>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3"><label for="swalAdjustBatchNumber" class="form-label">Batch Number</label><input type="text" id="swalAdjustBatchNumber" class="form-control" value="${batch_number}" readonly></div>
@@ -337,20 +350,62 @@ document.addEventListener('DOMContentLoaded', () => {
                 const adjustmentTypeSelect = popup.querySelector('#swalAdjustmentType');
                 const newLocationContainer = popup.querySelector('#swalNewLocationContainer');
                 const quantityInput = popup.querySelector('#swalAdjustQuantity');
-                
                 const newLocationSelect = $('#swalAdjustNewLocation');
 
-                const initializeSelect2 = (selector, placeholder) => selector.select2({ 
-                    placeholder, 
-                    dropdownParent: $('.swal2-popup'), 
-                    theme: 'bootstrap-5', 
-                    templateResult: formatLocation, 
-                    templateSelection: (loc) => loc.text,
-                    dropdownCssClass: 'select2-dropdown-above'
-                });
-                
-                initializeSelect2(newLocationSelect, 'Select destination location...');
+                const formatLocation = (location) => {
+                    if (!location.id) return location.text;
+                    const $option = $(location.element);
+                    const availableStr = $option.data('available');
+                    const available = (availableStr === null || typeof availableStr === 'undefined') ? null : parseInt(availableStr, 10);
+                    const quantityToMove = parseInt(quantityInput.value, 10) || 0;
+                    
+                    let badge = '';
+                    if (available === null || isNaN(available)) {
+                        badge = `<span class="badge bg-secondary float-end">Availability not set</span>`;
+                    } else if (quantityToMove > 0 && quantityToMove > available) {
+                        badge = `<span class="badge bg-danger float-end">Space not available (Avail: ${available})</span>`;
+                    } else {
+                        badge = `<span class="badge bg-success float-end">Available: ${available}</span>`;
+                    }
+                    return $(`<div>${location.text} ${badge}</div>`);
+                };
 
+                // FIX: Initialize Select2 immediately
+                newLocationSelect.select2({
+                    placeholder: 'Select destination location...',
+                    dropdownParent: $('.swal2-popup'),
+                    theme: 'bootstrap-5',
+                    templateResult: formatLocation,
+                    templateSelection: formatLocation,
+                    escapeMarkup: m => m
+                });
+
+                const validateLocationCapacity = () => {
+                    const quantityToValidate = parseInt(quantityInput.value, 10) || 0;
+                    if (quantityToValidate <= 0 && adjustmentTypeSelect.value !== 'adjust_quantity') return;
+
+                    let isSelectedDisabled = false;
+                    newLocationSelect.find('option').each(function() {
+                        const option = $(this);
+                        if (!option.val()) return;
+                        const availableStr = option.data('available');
+                        const available = (availableStr === null || typeof availableStr === 'undefined') ? null : parseInt(availableStr, 10);
+
+                        if (available === null || isNaN(available) || quantityToValidate > available) {
+                            option.prop('disabled', true);
+                            if (option.is(':selected')) isSelectedDisabled = true;
+                        } else {
+                            option.prop('disabled', false);
+                        }
+                    });
+
+                    if (isSelectedDisabled) newLocationSelect.val(null);
+                    
+                    newLocationSelect.trigger('change.select2');
+                };
+                
+                quantityInput.addEventListener('input', validateLocationCapacity);
+                
                 const loadAndPopulateLocations = async (filter = null) => {
                     const locationsResponse = await fetchData(`api/inventory_api.php?action=location_stock&warehouse_id=${currentWarehouseId}&product_id=${product_id}`);
                     if (locationsResponse.success) {
@@ -361,6 +416,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             filteredLocations = filteredLocations.filter(loc => loc.type_name !== 'block_area');
                         }
                         populateLocationSelect(newLocationSelect, filteredLocations, location_code);
+                        validateLocationCapacity();
                     }
                 };
 
@@ -371,14 +427,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     newLocationSelect.empty().trigger('change');
 
-                    if (action === 'transfer') {
-                        await loadAndPopulateLocations('non_block');
-                    } else if (action === 'block_item') {
-                        await loadAndPopulateLocations('block_only');
+                    if (action === 'transfer' || action === 'block_item') {
+                        await loadAndPopulateLocations(action === 'block_item' ? 'block_only' : 'non_block');
                     }
                 });
 
-                // If the item is already blocked, default to the transfer/unblock view
                 if (isBlocked) {
                     adjustmentTypeSelect.value = 'transfer';
                     adjustmentTypeSelect.dispatchEvent(new Event('change'));
@@ -416,23 +469,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     function populateLocationSelect(selectElement, locations, excludeLocationCode) {
-        selectElement.empty().append(new Option('', '', true, true)).trigger('change');
+        selectElement.empty().append(new Option('', '', true, true));
         locations.forEach(loc => {
             if (loc.location_code !== excludeLocationCode) {
                 const option = new Option(loc.location_code, loc.location_code, false, false);
                 $(option).data('available', loc.available_capacity);
-                $(option).data('html', loc.availability_html);
-                $(option).data('original-html', loc.availability_html);
                 selectElement.append(option);
             }
         });
         selectElement.trigger('change');
-    }
-
-    function formatLocation(location) {
-        if (!location.id) return location.text;
-        const html = $(location.element).data('html');
-        return $(`<div class="d-flex justify-content-between"><span>${location.text}</span>${html || ''}</div>`);
     }
 
     async function handleInventoryAdjustment(data) {
@@ -468,7 +513,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="mb-3">
                         <label for="swalAddQuantity" class="form-label">Quantity to Add</label>
-                        <input type="number" id="swalAddQuantity" class="form-control" placeholder="e.g., 10" required min="1">
+                        <input type="number" id="swalAddQuantity" class="form-control numeric-only" placeholder="e.g., 10" required min="1">
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
@@ -491,54 +536,72 @@ document.addEventListener('DOMContentLoaded', () => {
                 const quantityInput = popup.querySelector('#swalAddQuantity');
                 const dotCodeSelect = $('#swalAddDotCode');
 
-                const initializeSelect2 = (selector, placeholder, data = null) => {
-                    const config = {
-                        placeholder,
-                        dropdownParent: $('.swal2-popup'),
-                        theme: 'bootstrap-5',
-                    };
-                    if (data) {
-                        config.data = data;
+                dotCodeSelect.select2({
+                    placeholder: 'Select a DOT code...',
+                    dropdownParent: $('.swal2-popup'),
+                    theme: 'bootstrap-5',
+                    data: dotCodeOptions
+                }).val(null).trigger('change');
+
+                const formatLocation = (location) => {
+                    if (!location.id) return location.text;
+                    const $option = $(location.element);
+                    const availableStr = $option.data('available');
+                    const available = (availableStr === null || typeof availableStr === 'undefined') ? null : parseInt(availableStr, 10);
+                    const quantityToMove = parseInt(quantityInput.value, 10) || 0;
+                    
+                    let badge = '';
+                    if (available === null || isNaN(available)) {
+                        badge = `<span class="badge bg-secondary float-end">Availability not set</span>`;
+                    } else if (quantityToMove > 0 && quantityToMove > available) {
+                        badge = `<span class="badge bg-danger float-end">Space not available (Avail: ${available})</span>`;
+                    } else {
+                        badge = `<span class="badge bg-success float-end">Available: ${available}</span>`;
                     }
-                    return selector.select2(config);
+                    return $(`<div>${location.text} ${badge}</div>`);
                 };
                 
-                initializeSelect2(dotCodeSelect, 'Select a DOT code...', dotCodeOptions).val(null).trigger('change');
-                initializeSelect2(locationSelect, 'Select destination location...');
-                
-                const updateLocationCapacity = () => {
-                    const quantity = parseInt(quantityInput.value, 10) || 0;
-                    
+                // FIX: Initialize Select2 immediately
+                locationSelect.select2({
+                    placeholder: 'Select destination location...',
+                    dropdownParent: $('.swal2-popup'),
+                    theme: 'bootstrap-5',
+                    templateResult: formatLocation,
+                    templateSelection: formatLocation,
+                    escapeMarkup: m => m
+                });
+
+                const validateLocationCapacity = () => {
+                    const quantityToValidate = parseInt(quantityInput.value, 10) || 0;
+                    if (quantityToValidate <= 0) return;
+
+                    let isSelectedDisabled = false;
                     locationSelect.find('option').each(function() {
                         const option = $(this);
                         if (!option.val()) return;
-                        const available = parseInt(option.data('available'), 10);
-                        
-                        if (quantity > 0 && !isNaN(available) && quantity > available) {
+                        const availableStr = option.data('available');
+                        const available = (availableStr === null || typeof availableStr === 'undefined') ? null : parseInt(availableStr, 10);
+
+                        if (available === null || isNaN(available) || quantityToValidate > available) {
                             option.prop('disabled', true);
-                            option.data('html', `<span class="badge bg-danger">No Space (Avail: ${available})</span>`);
+                            if (option.is(':selected')) isSelectedDisabled = true;
                         } else {
                             option.prop('disabled', false);
-                            option.data('html', option.data('original-html'));
                         }
                     });
 
-                    locationSelect.select2('destroy').select2({
-                        placeholder: 'Select destination location...',
-                        dropdownParent: $('.swal2-popup'),
-                        theme: 'bootstrap-5',
-                        templateResult: formatLocation,
-                        templateSelection: (loc) => loc.text,
-                        dropdownCssClass: 'select2-dropdown-above'
-                    });
+                    if (isSelectedDisabled) locationSelect.val(null);
+                    
+                    locationSelect.trigger('change.select2');
                 };
 
-                quantityInput.addEventListener('input', updateLocationCapacity);
+                quantityInput.addEventListener('input', validateLocationCapacity);
 
                 const locations = await fetchData(`api/inventory_api.php?action=location_stock&warehouse_id=${currentWarehouseId}&product_id=${product_id}`);
                 if (locations.success) {
                     const nonBlockLocations = locations.data.filter(loc => loc.type_name !== 'block_area');
                     populateLocationSelect(locationSelect, nonBlockLocations, null);
+                    validateLocationCapacity();
                 }
             },
             preConfirm: () => {

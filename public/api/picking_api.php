@@ -3,6 +3,13 @@
  * api/picking_api.php
  * Handles all backend logic for the order picking process.
  */
+/********************************************************************
+* MODIFICATION SUMMARY:
+* - Modified the `handleAssignDriver` function to allow changing a driver after an order has been assigned or is out for delivery.
+* - The status check now permits 'Assigned' and 'Out for Delivery' statuses, in addition to 'Staged' and 'Delivery Failed'.
+* - This enables the new "Change Driver" functionality on the frontend.
+* - Added `customer_code` to the SELECT statement in `handleGetOrdersForPicking` to enable searching and displaying by customer code.
+********************************************************************/
 
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../helpers/auth_helper.php';
@@ -90,7 +97,7 @@ function handleGetOrdersForPicking($conn, $warehouse_id) {
     $status_filter = $_GET['status'] ?? 'Pending Pick';
     $allowed_statuses = ['New', 'Pending Pick', 'Partially Picked', 'Picked', 'Staged', 'Assigned', 'Delivery Failed'];
     
-    $sql = "SELECT o.order_id, o.order_number, COALESCE(c.customer_name, 'Scrap Order') as customer_name, o.order_date, o.status, o.reference_number, o.required_ship_date 
+    $sql = "SELECT o.order_id, o.order_number, c.customer_id, c.customer_code, reference_number,  COALESCE(c.customer_name, 'Scrap Order') as customer_name, o.order_date, o.status, o.reference_number, o.required_ship_date 
             FROM outbound_orders o
             LEFT JOIN customers c ON o.customer_id = c.customer_id
             WHERE o.warehouse_id = ?";
@@ -613,8 +620,8 @@ function handleAssignDriver($conn, $warehouse_id, $user_id) {
 
         $original_status = $order['status'];
 
-        if (!$order || !in_array($original_status, ['Staged', 'Delivery Failed'])) {
-            throw new Exception("Order must be in 'Staged' or 'Delivery Failed' status to be assigned.");
+        if (!$order || !in_array($original_status, ['Staged', 'Delivery Failed', 'Assigned', 'Out for Delivery'])) {
+            throw new Exception("Order status must be 'Staged', 'Assigned', 'Out for Delivery', or 'Delivery Failed' to assign/change driver.");
         }
 
         if (is_null($order['stickers_printed_at'])) {

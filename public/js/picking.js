@@ -1,4 +1,13 @@
 // public/js/picking.js
+/********************************************************************
+* MODIFICATION SUMMARY:
+* - Added a new "Change Driver" button and its corresponding event listener.
+* - The `loadOrderItems` function was updated to manage the visibility of the "Assign Driver" and "Change Driver" buttons.
+* - "Change Driver" now appears if a driver is already assigned and the order status is appropriate (Staged, Assigned, etc.).
+* - The "Assign Driver" button will only show if no driver is assigned yet.
+* - Both buttons use the same `openAssignDriverSweetAlert` modal, streamlining the assignment/re-assignment process.
+* - Updated `displayOrders` function to allow searching by customer code and to display the customer code on the order card.
+********************************************************************/
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
@@ -17,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const stageOrderBtn = document.getElementById('stageOrderBtn');
     const scrapOrderBtn = document.getElementById('scrapOrderBtn');
     const assignDriverBtn = document.getElementById('assignDriverBtn');
+    const changeDriverBtn = document.getElementById('changeDriverBtn');
     const shippingAreaDisplay = document.getElementById('shippingAreaDisplay');
     const driverInfoDisplay = document.getElementById('driverInfoDisplay');
     const pickActionsArea = document.getElementById('pickActionsArea');
@@ -113,6 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (stageOrderBtn) stageOrderBtn.addEventListener('click', handleStageOrder);
         if (scrapOrderBtn) scrapOrderBtn.addEventListener('click', handleScrapOrder);
         if (assignDriverBtn) assignDriverBtn.addEventListener('click', openAssignDriverSweetAlert);
+        if (changeDriverBtn) changeDriverBtn.addEventListener('click', openAssignDriverSweetAlert);
         
         if (pickingStatusFilter) pickingStatusFilter.addEventListener('change', () => { currentPage = 1; displayOrders(); });
         if (orderSearchInput) orderSearchInput.addEventListener('input', () => { currentPage = 1; displayOrders(); });
@@ -140,7 +151,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (searchTerm) {
             filteredOrders = allOrders.filter(order =>
                 order.order_number.toLowerCase().includes(searchTerm) ||
-                order.customer_name.toLowerCase().includes(searchTerm)
+                order.customer_name.toLowerCase().includes(searchTerm) ||
+                (order.customer_code && order.customer_code.toLowerCase().includes(searchTerm))
             );
         } else {
             if (status !== 'all') {
@@ -178,7 +190,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             <h6 class="card-title text-primary mb-1">${order.order_number}</h6>
                             <span class="badge ${getStatusClass(order.status)}">${order.status}</span>
                         </div>
-                        <p class="card-subtitle mb-2 text-muted">${order.customer_name}</p>
+                         <div class="mb-2">
+                            <p class="card-subtitle mb-0 text-muted">${order.customer_name}</p>
+                            <p class="card-subtitle mb-0 text-muted">Refrence No: ${order.reference_number}</p>
+                            <p class="card-text small text-muted">Code: ${order.customer_code || 'N/A'}</p>
+                        </div>
                         <p class="card-text small mt-auto mb-0">
                             <strong>Date:</strong> ${new Date(order.order_date).toLocaleDateString()}
                         </p>
@@ -274,10 +290,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (stageOrderBtn) stageOrderBtn.classList.add('d-none');
         if (scrapOrderBtn) scrapOrderBtn.classList.add('d-none');
-        if (assignDriverBtn) {
-            assignDriverBtn.classList.add('d-none');
-            assignDriverBtn.disabled = true; 
-        }
+        if (assignDriverBtn) assignDriverBtn.classList.add('d-none');
+        if (changeDriverBtn) changeDriverBtn.classList.add('d-none');
         if (pickActionsArea) pickActionsArea.classList.add('d-none');
         if (stagingActionsArea) stagingActionsArea.classList.add('d-none');
         if(shippingAreaDisplay) shippingAreaDisplay.innerHTML = '<span class="badge bg-secondary">Not Staged</span>';
@@ -303,7 +317,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 const canUnpick = ['Pending Pick', 'Partially Picked', 'Picked'].includes(order.status);
                 const canStageOrScrap = order.status === 'Picked';
-                const canAssign = ['Staged', 'Delivery Failed'].includes(order.status);
+                
+                const driverAssigned = order.assignment && order.assignment.length > 0;
+                const canAssign = !driverAssigned && ['Staged', 'Delivery Failed'].includes(order.status);
+                const canChangeDriver = driverAssigned && ['Staged', 'Assigned', 'Out for Delivery', 'Delivery Failed'].includes(order.status);
 
                 if (isPickable && canManage) {
                     pickActionsArea.classList.remove('d-none');
@@ -321,19 +338,25 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
                 
-                if (canManage && canAssign) {
-                    assignDriverBtn.classList.remove('d-none');
-                    if (order.stickers_printed_at) {
-                        assignDriverBtn.disabled = false;
-                        assignDriverBtn.title = 'Assign a driver for this order.';
-                    } else {
-                        assignDriverBtn.disabled = true;
-                        assignDriverBtn.title = 'You must print stickers for this order before assigning a driver.';
-                        const warningMsg = document.createElement('small');
-                        warningMsg.id = 'sticker-print-warning';
-                        warningMsg.className = 'text-danger ms-2 fw-bold';
-                        warningMsg.textContent = 'Please print stickers first!';
-                        assignDriverBtn.parentElement.appendChild(warningMsg);
+                if (canManage) {
+                    if (canChangeDriver) {
+                        if (changeDriverBtn) changeDriverBtn.classList.remove('d-none');
+                    } else if (canAssign) {
+                        if (assignDriverBtn) {
+                            assignDriverBtn.classList.remove('d-none');
+                            if (order.stickers_printed_at) {
+                                assignDriverBtn.disabled = false;
+                                assignDriverBtn.title = 'Assign a driver for this order.';
+                            } else {
+                                assignDriverBtn.disabled = true;
+                                assignDriverBtn.title = 'You must print stickers for this order before assigning a driver.';
+                                const warningMsg = document.createElement('small');
+                                warningMsg.id = 'sticker-print-warning';
+                                warningMsg.className = 'text-danger ms-2 fw-bold';
+                                warningMsg.textContent = 'Please print stickers first!';
+                                assignDriverBtn.parentElement.appendChild(warningMsg);
+                            }
+                        }
                     }
                 }
                 
@@ -691,6 +714,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
 
     async function openAssignDriverSweetAlert() {
         if (!selectedOrderId) {

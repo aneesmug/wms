@@ -740,27 +740,45 @@ $(document).ready(function() {
         const response = await fetchData('api/inbound_api.php?action=getProductsWithInventory');
         productSelect.empty().append(new Option('', ''));
         if (response?.success && Array.isArray(response.data)) {
-            const productData = response.data.map(product => ({ id: product.article_no, text: `${product.product_name} (${product.sku})`, disabled: product.is_active != 1, product: product }));
-            productSelect.select2({ placeholder: 'Search for a product by name or article no', theme: "bootstrap-5", data: productData, templateResult: formatProductOption, templateSelection: formatProductSelection }).prop('disabled', false);
+            const productData = response.data.map(product => ({ 
+                id: product.article_no, 
+                text: `${product.product_name} (SKU: ${product.sku} / Art: ${product.article_no})`, 
+                disabled: product.is_active != 1, 
+                product: product 
+            }));
+            productSelect.select2({ 
+                placeholder: 'Search by Name, SKU, or Article No.', 
+                theme: "bootstrap-5", 
+                data: productData, 
+                templateResult: formatProductOption, 
+                templateSelection: formatProductSelection 
+            }).prop('disabled', false);
             productSelect.val(null).trigger('change');
         }
     }
 
     function formatProductOption(state) {
-        if (!state.id) return state.text;
+        if (!state.id) { return state.text; }
         const product = state.product;
-        let badge = product.is_active != 1 ? '<span class="badge bg-danger">Inactive</span>' : '';
+
+        let productNameHtml = `${product.product_name} (${product.sku})`;
+        if (product.is_active != 1) {
+            productNameHtml += ' <span class="badge bg-danger">Inactive</span>';
+        }
+
+        const articleNoHtml = `<span class="badge bg-success">Art. ${product.article_no}</span>`;
+
         return $(`
-            <div class="d-flex justify-content-between">
-                <span>${state.text} ${badge}</span>
-                <small class="badge bg-info text-dark align-self-center">Art. ${product.article_no}</small>
+            <div class="d-flex justify-content-between align-items-center w-100">
+                <span>${productNameHtml}</span>
+                ${articleNoHtml}
             </div>
         `);
     }
 
     function formatProductSelection(state) {
         if (!state.id || !state.product) return state.text;
-        return `${state.product.product_name} (${state.product.sku})`;
+        return `${state.product.product_name} (Art: ${state.product.article_no})`;
     }
 
     async function loadAvailableLocations() {

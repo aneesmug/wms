@@ -1,5 +1,9 @@
 <?php
 // api/returns_api.php
+// MODIFICATION SUMMARY:
+// 1. Added a new 'get_warehouses' action to fetch all active warehouses.
+// 2. Modified 'get_putaway_locations' to fetch locations for a specific warehouse ID passed as a parameter, defaulting to the current session's warehouse if not provided.
+// 3. Updated 'process_item' to accept a 'putaway_warehouse_id' and use it for location validation and inventory creation, allowing items to be put away in different warehouses.
 
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../helpers/auth_helper.php';
@@ -19,7 +23,11 @@ switch ($method) {
     case 'GET':
         authorize_user_role(['viewer', 'operator', 'manager']);
         if ($action === 'get_putaway_locations') {
-            handleGetPutawayLocations($conn, $current_warehouse_id);
+            // MODIFICATION: No longer pass $current_warehouse_id directly
+            handleGetPutawayLocations($conn);
+        } elseif ($action === 'get_warehouses') {
+            // MODIFICATION: Added new action to get all warehouses
+            handleGetWarehouses($conn);
         } else {
             handleGetReturns($conn, $current_warehouse_id);
         }
@@ -31,6 +39,7 @@ switch ($method) {
         } 
         elseif ($action === 'process_item') {
             authorize_user_role(['operator', 'manager']);
+            // MODIFICATION: Pass current_warehouse_id for context, but the function will use the one from the payload.
             handleProcessItem($conn, $current_warehouse_id, $current_user_id);
         } else {
             sendJsonResponse(['success' => false, 'message' => 'Invalid POST action'], 400);
@@ -41,7 +50,26 @@ switch ($method) {
         break;
 }
 
-function handleGetPutawayLocations($conn, $warehouse_id) {
+// MODIFICATION: New function to get all active warehouses
+function handleGetWarehouses($conn) {
+    $stmt = $conn->prepare("SELECT warehouse_id, warehouse_name FROM warehouses WHERE is_active = 1 ORDER BY warehouse_name");
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $warehouses = $result->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    sendJsonResponse(['success' => true, 'data' => $warehouses]);
+}
+
+
+// MODIFICATION: Function now gets warehouse_id from GET param
+function handleGetPutawayLocations($conn) {
+    // If warehouse_id is provided in the request, use it. Otherwise, default to the user's current warehouse.
+    $warehouse_id_to_use = $_GET['warehouse_id'] ?? get_current_warehouse_id();
+    if (!$warehouse_id_to_use) {
+        sendJsonResponse(['success' => false, 'message' => 'Warehouse ID not specified or found.'], 400);
+        return;
+    }
+
     $stmt = $conn->prepare("
         SELECT 
             wl.location_id, wl.location_code, wl.max_capacity_units,
@@ -56,7 +84,7 @@ function handleGetPutawayLocations($conn, $warehouse_id) {
         GROUP BY wl.location_id, wl.location_code, wl.max_capacity_units
         ORDER BY wl.location_code ASC
     ");
-    $stmt->bind_param("i", $warehouse_id);
+    $stmt->bind_param("i", $warehouse_id_to_use);
     $stmt->execute();
     $result = $stmt->get_result();
     $locations = [];
@@ -296,12 +324,14 @@ function handleCreateReturn($conn, $user_id) {
     }
 }
 
-function handleProcessItem($conn, $warehouse_id, $user_id) {
+function handleProcessItem($conn, $current_warehouse_id, $user_id) {
     $input = json_decode(file_get_contents('php://input'), true);
     $return_item_id = filter_var($input['return_item_id'] ?? 0, FILTER_VALIDATE_INT);
     $quantity = filter_var($input['quantity'] ?? 0, FILTER_VALIDATE_INT);
     $condition = sanitize_input($input['condition'] ?? '');
     $location_barcode = sanitize_input($input['location_barcode'] ?? '');
+    // MODIFICATION: Get the target warehouse ID from the request. Default to the current warehouse if not provided.
+    $putaway_warehouse_id = filter_var($input['putaway_warehouse_id'] ?? $current_warehouse_id, FILTER_VALIDATE_INT);
     
     if (!$return_item_id || $quantity <= 0 || empty($condition)) {
         sendJsonResponse(['success' => false, 'message' => 'Item ID, quantity, and condition are required.'], 400);
@@ -340,7 +370,7 @@ function handleProcessItem($conn, $warehouse_id, $user_id) {
         if ($condition === 'Good') {
             if (empty($location_barcode)) throw new Exception("Location barcode is required for 'Good' items.");
             
-            // MODIFICATION: Added server-side validation to ensure the selected location is a valid putaway location.
+            // MODIFICATION: Validate location against the specified putaway warehouse.
             $stmt_loc = $conn->prepare("
                 SELECT wl.location_id, wl.is_locked 
                 FROM warehouse_locations wl
@@ -350,12 +380,12 @@ function handleProcessItem($conn, $warehouse_id, $user_id) {
                   AND wl.is_active = 1
                   AND (lt.type_name IS NULL OR lt.type_name NOT IN ('bin', 'shipping_area', 'block_area'))
             ");
-            $stmt_loc->bind_param("si", $location_barcode, $warehouse_id);
+            $stmt_loc->bind_param("si", $location_barcode, $putaway_warehouse_id);
             $stmt_loc->execute();
             $location_data = $stmt_loc->get_result()->fetch_assoc();
             $stmt_loc->close();
             
-            if (!$location_data) throw new Exception("Location '{$location_barcode}' is not a valid putaway location (it may be inactive, a temporary area, or non-existent).");
+            if (!$location_data) throw new Exception("Location '{$location_barcode}' is not a valid putaway location in the selected warehouse.");
             if ($location_data['is_locked'] == 1) {
                 throw new Exception("This location is locked. You cannot move items into a locked location.");
             }
@@ -363,6 +393,7 @@ function handleProcessItem($conn, $warehouse_id, $user_id) {
 
             $new_batch_number = 'RET-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(4)));
             
+            // MODIFICATION: Use the specified putaway_warehouse_id for the new inventory record.
             $stmt_inv_insert = $conn->prepare("
                 INSERT INTO inventory (
                     warehouse_id, product_id, source_inbound_item_id, location_id, quantity, 
@@ -370,7 +401,7 @@ function handleProcessItem($conn, $warehouse_id, $user_id) {
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $stmt_inv_insert->bind_param("iiiissssd", 
-                $warehouse_id, $item['product_id'], $return_item_id, $location_id, $quantity, 
+                $putaway_warehouse_id, $item['product_id'], $return_item_id, $location_id, $quantity, 
                 $new_batch_number, $calculated_expiry_date, $item['dot_code'], $unit_cost
             );
 
@@ -380,9 +411,10 @@ function handleProcessItem($conn, $warehouse_id, $user_id) {
             $new_inventory_id = $stmt_inv_insert->insert_id;
             $stmt_inv_insert->close();
             
+            // MODIFICATION: Use the specified putaway_warehouse_id for the stock adjustment.
             $notes = "Stock added from return item ID: {$return_item_id} for Order ID: {$item['order_id']}.";
             $stmt_adj = $conn->prepare("INSERT INTO stock_adjustments (product_id, warehouse_id, location_id, user_id, quantity_adjusted, reason_code, notes) VALUES (?, ?, ?, ?, ?, 'Return', ?)");
-            $stmt_adj->bind_param("iiiiis", $item['product_id'], $warehouse_id, $location_id, $user_id, $quantity, $notes);
+            $stmt_adj->bind_param("iiiiis", $item['product_id'], $putaway_warehouse_id, $location_id, $user_id, $quantity, $notes);
             $stmt_adj->execute();
             $stmt_adj->close();
 

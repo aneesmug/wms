@@ -1,13 +1,17 @@
 <?php
-// api/inventory.php
+// api/inventory_api.php
+// MODIFICATION SUMMARY:
+// 1. Modified `handleGetLocationStock` to send raw `available_capacity` data (a number or null) instead of pre-formatted HTML. This makes the API cleaner and gives the frontend full control over the display logic.
 
 require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../helpers/auth_helper.php';
 
 $conn = getDbConnection();
 ob_start();
 
 authenticate_user(true, null);
 $current_warehouse_id = get_current_warehouse_id();
+$current_user_id = $_SESSION['user_id'];
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -25,7 +29,7 @@ switch ($method) {
     case 'POST':
         authorize_user_role(['manager']);
         $input = json_decode(file_get_contents('php://input'), true);
-        handleInventoryAdjustment($conn, $input, $current_warehouse_id);
+        handleInventoryAdjustment($conn, $input, $current_warehouse_id, $current_user_id);
         break;
     default:
         sendJsonResponse(['success' => false, 'message' => 'Method Not Allowed'], 405);
@@ -50,19 +54,18 @@ function calculateExpiryDate($dot_code, $expiry_years) {
     $year = (int)substr($dot_code, 2, 2);
     $full_year = 2000 + $year;
     if ($week < 1 || $week > 53) return null;
-    $manufacture_date = new DateTime();
-    $manufacture_date->setISODate($full_year, $week);
-    $manufacture_date->add(new DateInterval("P{$expiry_years}Y"));
-    return $manufacture_date->format('Y-m-d');
+    try {
+        $manufacture_date = new DateTime();
+        $manufacture_date->setISODate($full_year, $week);
+        $manufacture_date->add(new DateInterval("P{$expiry_years}Y"));
+        return $manufacture_date->format('Y-m-d');
+    } catch (Exception $e) {
+        return null;
+    }
 }
 
+// MODIFICATION: This function now sends raw capacity data for the frontend to interpret.
 function handleGetLocationStock($conn, $warehouse_id) {
-    $product_id = filter_input(INPUT_GET, 'product_id', FILTER_VALIDATE_INT);
-    if (!$product_id) {
-        sendJsonResponse(['success' => false, 'message' => 'Product ID is required to check location stock.'], 400);
-        return;
-    }
-    
     $sql = "
         SELECT 
             wl.location_id, wl.location_code, wl.max_capacity_units, lt.type_name,
@@ -84,15 +87,12 @@ function handleGetLocationStock($conn, $warehouse_id) {
 
     foreach ($locations as &$location) {
         $max_cap = $location['max_capacity_units'];
-        $occupied = $location['occupied_capacity'];
-        $available_capacity = ($max_cap !== null) ? ($max_cap - $occupied) : null;
-        $location['available_capacity'] = $available_capacity;
+        // If max_capacity_units is NULL, available_capacity is also NULL (unknown/infinite).
         if ($max_cap === null) {
-            $location['availability_html'] = '<span class="badge bg-success">Available: &infin;</span>';
-        } elseif ($available_capacity > 0) {
-            $location['availability_html'] = '<span class="badge bg-success">Available: ' . $available_capacity . '</span>';
+            $location['available_capacity'] = null;
         } else {
-            $location['availability_html'] = '<span class="badge bg-danger">Stock Full</span>';
+            $occupied = (int)$location['occupied_capacity'];
+            $location['available_capacity'] = (int)$max_cap - $occupied;
         }
     }
     unset($location);
@@ -104,9 +104,6 @@ function handleGetInventory($conn, $warehouse_id) {
     $location_code = sanitize_input($_GET['location_code'] ?? '');
     $tire_type_id = filter_input(INPUT_GET, 'tire_type_id', FILTER_VALIDATE_INT);
 
-    // MODIFICATION: Simplified the query. It now correctly fetches all active products
-    // and joins any inventory they have. This works because products are no longer
-    // deactivated when moved to a block area.
     $sql = "
         SELECT
             p.product_id, p.sku, p.product_name, p.article_no, p.expiry_years, p.tire_type_id, p.is_active,
@@ -159,7 +156,7 @@ function handleGetInventory($conn, $warehouse_id) {
 }
 
 
-function handleInventoryAdjustment($conn, $input, $warehouse_id) {
+function handleInventoryAdjustment($conn, $input, $warehouse_id, $user_id) {
     $action_type = sanitize_input($input['action_type'] ?? '');
     if (empty($action_type)) {
         sendJsonResponse(['success' => false, 'message' => "Action type is required."], 400);
@@ -171,7 +168,7 @@ function handleInventoryAdjustment($conn, $input, $warehouse_id) {
         $message = '';
         if ($action_type === 'adjust_quantity') {
             checkLocationLock($conn, $input['current_location_article_no'], $warehouse_id);
-            adjustInventoryQuantity($conn, $input, $warehouse_id);
+            adjustInventoryQuantity($conn, $input, $warehouse_id, $user_id);
             $message = 'Inventory quantity adjusted successfully.';
         } elseif ($action_type === 'transfer' || $action_type === 'block_item') {
             checkLocationLock($conn, $input['current_location_article_no'], $warehouse_id);
@@ -186,19 +183,10 @@ function handleInventoryAdjustment($conn, $input, $warehouse_id) {
                 }
             }
             
-            transferInventory($conn, $input, $warehouse_id);
+            transferInventory($conn, $input, $warehouse_id, $user_id);
             
-            $from_location_type = getLocationTypeByCode($conn, $input['current_location_article_no'], $warehouse_id);
-            $to_location_type = getLocationTypeByCode($conn, $input['new_location_article_no'], $warehouse_id);
-            $product_id = filter_var($input['product_id'] ?? 0, FILTER_VALIDATE_INT);
-
-            // MODIFICATION: Removed the logic that deactivates a product when it's moved to a block area.
             if ($action_type === 'block_item') {
                 $message = 'Item has been blocked and moved successfully.';
-            } 
-            // MODIFICATION: Removed the logic that reactivates a product when it's moved from a block area.
-            elseif ($from_location_type === 'block_area' && $to_location_type !== 'block_area') {
-                $message = 'Item moved from block area successfully.';
             } else {
                  $message = 'Inventory transferred successfully.';
             }
@@ -215,7 +203,7 @@ function handleInventoryAdjustment($conn, $input, $warehouse_id) {
 }
 
 
-function adjustInventoryQuantity($conn, $input, $warehouse_id) {
+function adjustInventoryQuantity($conn, $input, $warehouse_id, $user_id) {
     $product_id = filter_var($input['product_id'] ?? 0, FILTER_VALIDATE_INT);
     $location_article_no = sanitize_input($input['current_location_article_no'] ?? '');
     $quantity_change = filter_var($input['quantity_change'] ?? 0, FILTER_VALIDATE_INT);
@@ -261,12 +249,19 @@ function adjustInventoryQuantity($conn, $input, $warehouse_id) {
         throw new Exception("Insufficient stock. The specified item batch/DOT was not found at this location.");
     }
     
+    $reason_code = $quantity_change > 0 ? 'Manual Add' : 'Manual Remove';
+    $notes = "Manual adjustment of {$quantity_change} units for product ID {$product_id} at location {$location_article_no}.";
+    $stmt_adj = $conn->prepare("INSERT INTO stock_adjustments (product_id, warehouse_id, location_id, user_id, quantity_adjusted, reason_code, notes) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    $stmt_adj->bind_param("iiiiiss", $product_id, $warehouse_id, $location_id, $user_id, $quantity_change, $reason_code, $notes);
+    $stmt_adj->execute();
+    $stmt_adj->close();
+
     $stmt_cleanup = $conn->prepare("DELETE FROM inventory WHERE quantity <= 0");
     $stmt_cleanup->execute();
     $stmt_cleanup->close();
 }
 
-function transferInventory($conn, $input, $warehouse_id) {
+function transferInventory($conn, $input, $warehouse_id, $user_id) {
     $product_id = filter_var($input['product_id'] ?? 0, FILTER_VALIDATE_INT);
     $from_location_article_no = sanitize_input($input['current_location_article_no'] ?? '');
     $to_location_article_no = sanitize_input($input['new_location_article_no'] ?? '');
@@ -293,8 +288,8 @@ function transferInventory($conn, $input, $warehouse_id) {
         throw new Exception("Insufficient stock for this batch/DOT to perform transfer. Available: " . ($source_item['quantity'] ?? 0));
     }
 
-    adjustInventoryQuantity($conn, ['product_id' => $product_id, 'current_location_article_no' => $from_location_article_no, 'quantity_change' => -$quantity, 'batch_number' => $batch_number, 'dot_code' => $dot_code], $warehouse_id);
-    adjustInventoryQuantity($conn, ['product_id' => $product_id, 'current_location_article_no' => $to_location_article_no, 'quantity_change' => $quantity, 'batch_number' => $batch_number, 'dot_code' => $dot_code], $warehouse_id);
+    adjustInventoryQuantity($conn, ['product_id' => $product_id, 'current_location_article_no' => $from_location_article_no, 'quantity_change' => -$quantity, 'batch_number' => $batch_number, 'dot_code' => $dot_code], $warehouse_id, $user_id);
+    adjustInventoryQuantity($conn, ['product_id' => $product_id, 'current_location_article_no' => $to_location_article_no, 'quantity_change' => $quantity, 'batch_number' => $batch_number, 'dot_code' => $dot_code], $warehouse_id, $user_id);
 }
 
 function getLocationDataFromarticle_no($conn, $location_code, $warehouse_id) {

@@ -1,4 +1,9 @@
 // public/js/returns.js
+// MODIFICATION SUMMARY:
+// 1. Added a "Putaway Destination" selector to choose between "Same Warehouse" and "Another Warehouse".
+// 2. The "Select Another Warehouse" dropdown is now hidden by default and only appears when "Another Warehouse" is chosen.
+// 3. When "Another Warehouse" is selected, the current warehouse is excluded from the list.
+// 4. The logic has been streamlined to fetch all warehouses once and filter the list on the client-side based on the user's selection.
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
@@ -196,9 +201,24 @@ document.addEventListener('DOMContentLoaded', () => {
                             <option value="Scrap">Scrap</option>
                         </select>
                     </div>
-                    <div id="putaway-location-group" class="mb-3">
-                        <label for="swal-location-select" class="form-label">Putaway Location</label>
-                        <select id="swal-location-select" class="form-select" style="width:100%"></select>
+                    <div id="putaway-group" class="mb-3">
+                        <!-- MODIFICATION: New selector for destination type -->
+                        <div class="mb-3">
+                            <label for="swal-putaway-type" class="form-label">Putaway Destination</label>
+                            <select id="swal-putaway-type" class="form-select">
+                                <option value="same" selected>Same Warehouse</option>
+                                <option value="other">Another Warehouse</option>
+                            </select>
+                        </div>
+                        <!-- MODIFICATION: This container will be shown/hidden -->
+                        <div class="mb-3" id="warehouse-select-container" style="display: none;">
+                           <label for="swal-warehouse-select" class="form-label">Select Another Warehouse</label>
+                           <select id="swal-warehouse-select" class="form-select" style="width:100%"></select>
+                        </div>
+                        <div id="putaway-location-group" class="mb-3">
+                           <label for="swal-location-select" class="form-label">Putaway Location</label>
+                           <select id="swal-location-select" class="form-select" style="width:100%"></select>
+                        </div>
                     </div>
                 </form>`,
             focusConfirm: false,
@@ -207,75 +227,65 @@ document.addEventListener('DOMContentLoaded', () => {
             allowOutsideClick: false,
             didOpen: async () => {
                 const conditionSelect = document.getElementById('swal-condition');
-                const locationGroup = document.getElementById('putaway-location-group');
+                const putawayGroup = document.getElementById('putaway-group');
                 const quantityInput = document.getElementById('swal-quantity');
                 const $locationSelect = $('#swal-location-select');
+                const $warehouseSelect = $('#swal-warehouse-select');
+                // MODIFICATION: Get new elements
+                const $putawayTypeSelect = $('#swal-putaway-type');
+                const $warehouseSelectContainer = $('#warehouse-select-container');
+
+                let allWarehouses = []; // To store the fetched list of warehouses
 
                 const formatLocation = (location) => {
                     if (!location.id) return location.text;
                     
                     const $option = $(location.element);
-                    const available = parseInt($option.data('available'), 10);
-                    const isFull = $option.data('full') === true;
-                    const quantityToMove = parseInt(quantityInput.value, 10) || 0;
+                    const availableStr = $option.data('available');
+                    const available = (availableStr === null || typeof availableStr === 'undefined') ? null : parseInt(availableStr, 10);
+                    const quantity = parseInt(quantityInput.value, 10);
+                    const quantityToMove = (!isNaN(quantity) && quantity > 0) ? quantity : 0;
                     
                     let badge = '';
 
-                    if (isFull) {
-                        badge = `<span class="badge bg-danger float-end">Full</span>`;
-                    } else if (!isNaN(available) && quantityToMove > available) {
-                        badge = `<span class="badge bg-danger float-end">Not enough space (Avail: ${available})</span>`;
-                    } else if (available !== null && available !== undefined) {
-                        badge = `<span class="badge bg-success float-end">Available: ${available}</span>`;
+                    if (available === null || isNaN(available)) {
+                        badge = `<span class="badge bg-secondary float-end">Availability not set</span>`;
+                    } else if (quantityToMove > 0 && quantityToMove > available) {
+                        badge = `<span class="badge bg-danger float-end">Space not available (Avail: ${available})</span>`;
                     } else {
-                        badge = `<span class="badge bg-success float-end">Available: &infin;</span>`;
+                        badge = `<span class="badge bg-success float-end">Available: ${available}</span>`;
                     }
                     
                     return $(`<div>${location.text} ${badge}</div>`);
                 };
 
-                $locationSelect.select2({
-                    placeholder: 'Loading locations...',
-                    theme: 'bootstrap-5',
-                    dropdownParent: $('.swal2-container'),
-                    templateResult: formatLocation,
-                    templateSelection: formatLocation,
-                    escapeMarkup: m => m
-                });
-
-                try {
-                    const response = await fetchData(`api/returns_api.php?action=get_putaway_locations&warehouse_id=${currentWarehouseId}`);
-                    $locationSelect.empty().append(new Option('', '', true, true));
-                    if (response.success && Array.isArray(response.data)) {
-                        response.data.forEach(loc => {
-                            const option = new Option(loc.location_code, loc.location_code, false, false);
-                            option.dataset.available = loc.available_capacity;
-                            option.dataset.full = loc.is_full;
-                            $locationSelect.append(option);
-                        });
-                    }
-                    validateLocationCapacity();
-                } catch (e) {
-                    console.error("Failed to load locations", e);
-                    $locationSelect.select2({ placeholder: 'Error loading locations', theme: 'bootstrap-5', dropdownParent: $('.swal2-container') });
-                }
-
-                function validateLocationCapacity() {
+                const validateLocationCapacity = () => {
                     const quantity = parseInt(quantityInput.value, 10);
-                    if (isNaN(quantity) || quantity <= 0) return;
+                    const quantityToValidate = (!isNaN(quantity) && quantity > 0) ? quantity : 1;
+
+                    let isSelectedDisabled = false;
 
                     $locationSelect.find('option').each(function() {
                         const option = $(this);
                         if (!option.val()) return;
                         
-                        const available = parseInt(option.data('available'), 10);
-                        if (!isNaN(available) && quantity > available) {
+                        const availableStr = option.data('available');
+                        const available = (availableStr === null || typeof availableStr === 'undefined') ? null : parseInt(availableStr, 10);
+
+                        if (available === null || isNaN(available) || quantityToValidate > available) {
                             option.prop('disabled', true);
+                            if(option.is(':selected')) {
+                                isSelectedDisabled = true;
+                            }
                         } else {
                             option.prop('disabled', false);
                         }
                     });
                     
+                    if(isSelectedDisabled) {
+                        $locationSelect.val(null);
+                    }
+
                     $locationSelect.select2('destroy').select2({
                         placeholder: 'Scan or select a location...',
                         theme: 'bootstrap-5',
@@ -286,15 +296,106 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                 }
 
+                const loadLocations = async (warehouseId) => {
+                    $locationSelect.empty().select2({
+                        placeholder: 'Loading locations...',
+                        theme: 'bootstrap-5',
+                        dropdownParent: $('.swal2-container')
+                    });
+
+                    try {
+                        const response = await fetchData(`api/returns_api.php?action=get_putaway_locations&warehouse_id=${warehouseId}`);
+                        $locationSelect.empty().append(new Option('', '', true, true));
+                        if (response.success && Array.isArray(response.data)) {
+                            response.data.forEach(loc => {
+                                const option = new Option(loc.location_code, loc.location_code, false, false);
+                                option.dataset.available = loc.available_capacity;
+                                option.dataset.full = loc.is_full;
+                                $locationSelect.append(option);
+                            });
+                        }
+                        validateLocationCapacity();
+                    } catch (e) {
+                        console.error("Failed to load locations", e);
+                        $locationSelect.select2({ placeholder: 'Error loading locations', theme: 'bootstrap-5', dropdownParent: $('.swal2-container') });
+                    }
+                };
+                
+                // MODIFICATION: Helper to populate warehouse dropdown based on filter
+                const populateWarehouseSelect = (excludeCurrent = false) => {
+                    $warehouseSelect.empty();
+                    const warehousesToShow = excludeCurrent 
+                        ? allWarehouses.filter(wh => wh.warehouse_id != currentWarehouseId)
+                        : allWarehouses;
+                    
+                    warehousesToShow.forEach(wh => {
+                        const option = new Option(wh.warehouse_name, wh.warehouse_id, false, false);
+                        $warehouseSelect.append(option);
+                    });
+                    // Set a placeholder and trigger change to load locations for the first item
+                    $warehouseSelect.val(null).select2({
+                        placeholder: 'Select a warehouse...',
+                        theme: 'bootstrap-5',
+                        dropdownParent: $('.swal2-container')
+                    }).trigger('change');
+                };
+                
+                // Initialize selects
+                $locationSelect.select2({ placeholder: 'Select a warehouse first', theme: 'bootstrap-5', dropdownParent: $('.swal2-container') });
+
+                // Fetch all warehouses ONCE
+                try {
+                    const response = await fetchData('api/returns_api.php?action=get_warehouses');
+                    if(response.success && Array.isArray(response.data)) {
+                        allWarehouses = response.data;
+                        // Initially load locations for the current warehouse
+                        loadLocations(currentWarehouseId);
+                    }
+                } catch(e) {
+                     console.error("Failed to load warehouses", e);
+                }
+
+                // --- Event Listeners ---
                 quantityInput.addEventListener('input', validateLocationCapacity);
+                
+                $warehouseSelect.on('change', function() {
+                    const selectedWarehouseId = $(this).val();
+                    if(selectedWarehouseId) {
+                        loadLocations(selectedWarehouseId);
+                    } else {
+                        $locationSelect.empty().select2({ placeholder: 'Select a warehouse first', theme: 'bootstrap-5', dropdownParent: $('.swal2-container') });
+                    }
+                });
+
                 conditionSelect.addEventListener('change', (e) => {
-                    locationGroup.style.display = e.target.value === 'Good' ? 'block' : 'none';
+                    putawayGroup.style.display = e.target.value === 'Good' ? 'block' : 'none';
+                });
+
+                // MODIFICATION: Event listener for the new destination type selector
+                $putawayTypeSelect.on('change', function() {
+                    const type = $(this).val();
+                    if (type === 'other') {
+                        $warehouseSelectContainer.show();
+                        populateWarehouseSelect(true); // Populate with other warehouses
+                    } else { // 'same'
+                        $warehouseSelectContainer.hide();
+                        loadLocations(currentWarehouseId); // Load locations for current warehouse
+                    }
                 });
             },
             preConfirm: () => {
                 const quantity = document.getElementById('swal-quantity').value;
                 const condition = document.getElementById('swal-condition').value;
+                const putawayType = document.getElementById('swal-putaway-type').value;
                 const locationCode = document.getElementById('swal-location-select').value;
+                
+                // MODIFICATION: Determine warehouse ID based on selection type
+                let warehouseId;
+                if (putawayType === 'same') {
+                    warehouseId = currentWarehouseId;
+                } else { // 'other'
+                    warehouseId = document.getElementById('swal-warehouse-select').value;
+                }
 
                 if (!quantity || parseInt(quantity) <= 0 || parseInt(quantity) > remainingQty) {
                     Swal.showValidationMessage(`Please enter a quantity between 1 and ${remainingQty}.`);
@@ -304,11 +405,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     Swal.showValidationMessage('A putaway location is required for items in good condition.');
                     return false;
                 }
+                if (condition === 'Good' && !warehouseId) {
+                    Swal.showValidationMessage('A putaway warehouse must be selected.');
+                    return false;
+                }
                 return {
                     return_item_id: returnItemId,
                     quantity: parseInt(quantity),
                     condition: condition,
-                    location_barcode: locationCode
+                    location_barcode: locationCode,
+                    putaway_warehouse_id: parseInt(warehouseId)
                 };
             }
         });
