@@ -2,6 +2,7 @@
 // api/reports_api.php
 
 require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../helpers/auth_helper.php';
 
 // Get DB connection and start output buffering
 $conn = getDbConnection();
@@ -48,6 +49,8 @@ switch ($action) {
     case 'deadStock': getDeadStockReport($conn, $current_warehouse_id); break;
     case 'expiringStock': getExpiringStock($conn, $current_warehouse_id); break; 
     case 'productMovement': getProductMovement($conn, $current_warehouse_id); break;
+    // MODIFICATION: Added scrapHistory case
+    case 'scrapHistory': getScrapHistory($conn, $current_warehouse_id); break;
 
     // Performance & User Activity
     case 'pickerPerformance': getPickerPerformance($conn, $current_warehouse_id); break;
@@ -689,6 +692,40 @@ function getStockAdjustmentHistory($conn, $warehouse_id) {
     $stmt->execute();
     $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
+    sendJsonResponse(['success' => true, 'data' => $data]);
+}
+
+// MODIFICATION: New function for Scrap History Report
+function getScrapHistory($conn, $warehouse_id) {
+    $sql = "
+        SELECT 
+            oo.order_number AS `Order Number`,
+            oo.reference_number AS `Reference/Reason`,
+            DATE(oo.updated_at) AS `Scrapped Date`,
+            u.full_name AS `Scrapped By`,
+            p.sku AS `SKU`,
+            p.product_name AS `Product Name`,
+            p.article_no AS `Article No`,
+            oi.ordered_quantity AS `Quantity Scrapped`
+        FROM outbound_orders oo
+        JOIN outbound_items oi ON oo.order_id = oi.order_id
+        JOIN products p ON oi.product_id = p.product_id
+        LEFT JOIN users u ON oo.picked_by = u.user_id
+        WHERE oo.warehouse_id = ? 
+          AND oo.order_type = 'Scrap' 
+          AND oo.status = 'Scrapped'
+    ";
+    $params = [$warehouse_id];
+    $types = "i";
+    $sql = addDateFilter($sql, $params, $types, 'oo.updated_at');
+    $sql .= " ORDER BY oo.updated_at DESC";
+    
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    
     sendJsonResponse(['success' => true, 'data' => $data]);
 }
 ?>

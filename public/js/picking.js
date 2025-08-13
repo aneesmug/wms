@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const printStickersBtn = document.getElementById('printStickersBtn');
     const printPickReportBtn = document.getElementById('printPickReportBtn');
     const stageOrderBtn = document.getElementById('stageOrderBtn');
+    const scrapOrderBtn = document.getElementById('scrapOrderBtn');
     const assignDriverBtn = document.getElementById('assignDriverBtn');
     const shippingAreaDisplay = document.getElementById('shippingAreaDisplay');
     const driverInfoDisplay = document.getElementById('driverInfoDisplay');
@@ -110,6 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (printStickersBtn) printStickersBtn.addEventListener('click', handlePrintStickers);
         if (printPickReportBtn) printPickReportBtn.addEventListener('click', handlePrintPickReport);
         if (stageOrderBtn) stageOrderBtn.addEventListener('click', handleStageOrder);
+        if (scrapOrderBtn) scrapOrderBtn.addEventListener('click', handleScrapOrder);
         if (assignDriverBtn) assignDriverBtn.addEventListener('click', openAssignDriverSweetAlert);
         
         if (pickingStatusFilter) pickingStatusFilter.addEventListener('change', () => { currentPage = 1; displayOrders(); });
@@ -135,15 +137,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const searchTerm = orderSearchInput.value.toLowerCase();
         let filteredOrders;
 
-        // *** FIX: Search is now independent of the status filter ***
         if (searchTerm) {
-            // If there's a search term, filter ALL orders by it, ignoring the status dropdown
             filteredOrders = allOrders.filter(order =>
                 order.order_number.toLowerCase().includes(searchTerm) ||
                 order.customer_name.toLowerCase().includes(searchTerm)
             );
         } else {
-            // If there's no search term, filter by the selected status
             if (status !== 'all') {
                 filteredOrders = allOrders.filter(order => {
                     if (status === 'Pending Pick') {
@@ -152,7 +151,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     return order.status === status;
                 });
             } else {
-                // If status is 'all' and no search term, show all orders
                 filteredOrders = allOrders;
             }
         }
@@ -161,17 +159,15 @@ document.addEventListener('DOMContentLoaded', () => {
         noOrdersMessage.classList.toggle('d-none', filteredOrders.length > 0);
 
         if (filteredOrders.length === 0) {
-            renderPagination(0, 0); // Clear pagination
+            renderPagination(0, 0); 
             return;
         }
 
-        // Paginate
         const totalPages = Math.ceil(filteredOrders.length / ordersPerPage);
         const startIndex = (currentPage - 1) * ordersPerPage;
         const endIndex = startIndex + ordersPerPage;
         const paginatedOrders = filteredOrders.slice(startIndex, endIndex);
 
-        // Render
         paginatedOrders.forEach(order => {
             const card = document.createElement('div');
             card.className = 'col';
@@ -192,7 +188,6 @@ document.addEventListener('DOMContentLoaded', () => {
             ordersGrid.appendChild(card);
         });
 
-        // Add click listeners to the new cards
         ordersGrid.querySelectorAll('.order-card').forEach(card => {
             card.addEventListener('click', () => {
                 ordersGrid.querySelectorAll('.order-card.selected').forEach(c => c.classList.remove('selected'));
@@ -278,6 +273,7 @@ document.addEventListener('DOMContentLoaded', () => {
             printPickReportBtn.disabled = true;
         }
         if (stageOrderBtn) stageOrderBtn.classList.add('d-none');
+        if (scrapOrderBtn) scrapOrderBtn.classList.add('d-none');
         if (assignDriverBtn) {
             assignDriverBtn.classList.add('d-none');
             assignDriverBtn.disabled = true; 
@@ -306,7 +302,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 const canUnpick = ['Pending Pick', 'Partially Picked', 'Picked'].includes(order.status);
-                const canStage = order.status === 'Picked';
+                const canStageOrScrap = order.status === 'Picked';
                 const canAssign = ['Staged', 'Delivery Failed'].includes(order.status);
 
                 if (isPickable && canManage) {
@@ -316,7 +312,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 if (canManage) stagingActionsArea.classList.remove('d-none');
-                if (canManage && canStage) stageOrderBtn.classList.remove('d-none');
+                
+                if (canManage && canStageOrScrap) {
+                    if (order.order_type === 'Scrap') {
+                        scrapOrderBtn.classList.remove('d-none');
+                    } else {
+                        stageOrderBtn.classList.remove('d-none');
+                    }
+                }
                 
                 if (canManage && canAssign) {
                     assignDriverBtn.classList.remove('d-none');
@@ -441,7 +444,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (remainingToPick <= 0) {
             Toast.fire({ icon: 'warning', title: 'This item is fully picked.' });
-            pickItemNumberInput.value = ''; // FIX: Clear the input to allow selecting another item
+            pickItemNumberInput.value = ''; 
             $(pickDotCodeSelect).empty().append(new Option('Select DOT', '')).prop('disabled', true).trigger('change');
             return;
         }
@@ -597,8 +600,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (result?.success) {
             Toast.fire({ icon: 'success', title: result.message });
             
-            await fetchAndRenderOrders(); // Refetch all orders to get the latest statuses
-            await loadOrderItems(selectedOrderId); // Reload the details of the current order
+            await fetchAndRenderOrders(); 
+            await loadOrderItems(selectedOrderId); 
 
             const updatedOrderItem = currentOrderItems.find(item => item.product_id == product.product_id);
             const remainingToPick = updatedOrderItem ? (updatedOrderItem.ordered_quantity - updatedOrderItem.picked_quantity) : 0;
@@ -658,6 +661,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 await Promise.all([fetchAndRenderOrders(), loadOrderItems(selectedOrderId)]);
             }
         }
+    }
+
+    async function handleScrapOrder() {
+        if (!selectedOrderId) { Swal.fire('Error', 'No order selected.', 'error'); return; }
+
+        Swal.fire({
+            title: 'Confirm Scrap',
+            text: 'Are you sure you want to scrap all picked items for this order? This action finalizes the removal from stock and cannot be undone.',
+            icon: 'warning',
+            showCancelButton: true,
+            allowOutsideClick: false,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, scrap it!'
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                const apiResult = await fetchData('api/picking_api.php?action=scrapOrder', 'POST', { order_id: selectedOrderId });
+                if (apiResult?.success) {
+                    Toast.fire({ icon: 'success', title: apiResult.message });
+                    
+                    pickingProcessArea.classList.add('d-none');
+                    selectedOrderId = null;
+                    currentOrderIdInput.value = '';
+                    selectedOrderNumberDisplay.textContent = '';
+                    
+                    await fetchAndRenderOrders();
+                }
+            }
+        });
     }
 
     async function openAssignDriverSweetAlert() {
@@ -921,6 +953,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // MODIFICATION: Updated to use new data fields for sticker counts
     async function handlePrintStickers() {
         if (!selectedOrderId) { Swal.fire('Error', 'No order is selected.', 'error'); return; }
         printStickersBtn.disabled = true;
@@ -975,9 +1008,9 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <div class="address-to"><strong>To: ${sticker.customer_name}</strong><br>${to_address}</div>
                             </div>
                             <div class="product-block">
-                                <p>Order: ${sticker.order_number} <br /> Shelf Life: ${shelfLife}</p>
+                                <p>Order: ${sticker.order_number} &nbsp;&nbsp;<br /> Item: ${sticker.overall_sequence} / ${sticker.overall_total_quantity}</p>
                                 <p class="product-name">${sticker.product_name}</p>
-                                <p class="product-sku">${sticker.article_no} &nbsp;&nbsp;&nbsp; ${sticker.item_sequence} / ${sticker.item_total}</p>
+                                <p class="product-sku">${sticker.article_no} &nbsp;&nbsp;&nbsp; ${sticker.item_sequence} / ${sticker.item_total_quantity}</p>
                             </div>
                             <div class="article_no-block">
                                 ${mainarticle_noHtml}

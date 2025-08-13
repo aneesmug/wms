@@ -87,6 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function loadCustomersForDropdown() {
+        // Assuming customers_api.php returns customer_code along with other details
         const response = await fetchData('api/customers_api.php');
         if (response?.success && Array.isArray(response.data)) allCustomers = response.data;
     }
@@ -103,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const tableData = response.data.map(order => {
             let actionButtons = `<button data-order-id="${order.order_id}" data-order-number="${order.order_number}" class="btn btn-sm btn-outline-secondary view-details-btn" title="Details"><i class="bi bi-eye"></i></button>`;
             
-            const isProcessable = !['Shipped', 'Delivered', 'Cancelled', 'Returned', 'Partially Returned'].includes(order.status) || order.status === 'Delivery Failed';
+            const isProcessable = !['Shipped', 'Delivered', 'Cancelled', 'Returned', 'Partially Returned', 'Scrapped'].includes(order.status) || order.status === 'Delivery Failed';
             if (isProcessable && canManageOutbound) {
                 actionButtons += ` <button data-order-id="${order.order_id}" data-order-number="${order.order_number}" class="btn btn-sm btn-primary select-order-btn ms-1" title="Process"><i class="bi bi-gear"></i></button>`;
             }
@@ -111,7 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return [ 
                 order.order_number || 'N/A', 
                 order.reference_number || 'N/A',
-                order.customer_name || 'N/A', 
+                order.customer_name || 'N/A', // API now returns 'Scrap Order' for null customers
                 order.shipping_area_code || 'N/A',
                 order.assigned_to || 'N/A',
                 order.tracking_number || 'N/A', 
@@ -126,7 +127,8 @@ document.addEventListener('DOMContentLoaded', () => {
         ordersTable.rows().every(function() {
             const row = this.node();
             const status = this.data()[7];
-            const statusMap = { 'Delivered': 'bg-success', 'Out for Delivery': 'bg-primary', 'Shipped': 'bg-info', 'Assigned': 'bg-orange', 'Ready for Pickup': 'bg-purple', 'Picked': 'bg-primary', 'Partially Picked': 'bg-warning text-dark', 'New': 'bg-secondary', 'Pending Pick': 'bg-secondary', 'Cancelled': 'bg-danger', 'Returned': 'bg-dark', 'Partially Returned': 'bg-secondary', 'Delivery Failed': 'bg-danger' };
+            // MODIFICATION: Added 'Scrapped' status and its class
+            const statusMap = { 'Delivered': 'bg-success', 'Out for Delivery': 'bg-primary', 'Shipped': 'bg-info', 'Assigned': 'bg-orange', 'Ready for Pickup': 'bg-purple', 'Picked': 'bg-primary', 'Partially Picked': 'bg-warning text-dark', 'New': 'bg-secondary', 'Pending Pick': 'bg-secondary', 'Cancelled': 'bg-danger', 'Scrapped': 'bg-dark', 'Returned': 'bg-dark', 'Partially Returned': 'bg-secondary', 'Delivery Failed': 'bg-danger' };
             const statusClass = statusMap[status] || 'bg-secondary';
             $(row).find('td').eq(7).html(`<span class="badge ${statusClass}">${status}</span>`); 
         });
@@ -137,30 +139,101 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleShowCreateOrderModal() {
-        const customerOptions = allCustomers.map(customer => `<option value="${customer.customer_id}">${customer.customer_name}</option>`).join('');
+        // MODIFICATION: Updated modal for Customer/Scrap selection
         Swal.fire({
             title: 'Create New Outbound Order',
             html: `<div class="p-2 text-start">
-                    <div class="mb-3"><label for="swal-customer" class="form-label">Customer</label><select id="swal-customer" class="form-select"><option value="">Select a Customer</option>${customerOptions}</select></div>
-                    <div class="mb-3"><label for="swal-reference-number" class="form-label">Reference Number</label><input type="text" id="swal-reference-number" class="form-control numeric-only" placeholder="Optional customer PO or reference..."></div>
-                    <div class="mb-3"><label for="swal-ship-date" class="form-label">Required Ship Date</label><input type="text" id="swal-ship-date" class="form-control datepicker-input"></div>
-                    <div class="mb-3"><label for="swal-delivery-note" class="form-label">Delivery Note</label><textarea id="swal-delivery-note" class="form-control" rows="3" placeholder="Enter any special instructions for the delivery..."></textarea></div>
+                    <div class="mb-3">
+                        <label class="form-label">Order Type</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="swal-order-type" id="swal-order-type-customer" value="Customer" checked>
+                            <label class="form-check-label" for="swal-order-type-customer">Customer Order</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="swal-order-type" id="swal-order-type-scrap" value="Scrap">
+                            <label class="form-check-label" for="swal-order-type-scrap">Scrap Order</label>
+                        </div>
+                    </div>
+                    <div id="swal-customer-fields">
+                        <div id="swal-customer-container" class="mb-3">
+                            <label for="swal-customer" class="form-label">Customer</label>
+                            <select id="swal-customer" class="form-select" style="width: 100%;"></select>
+                        </div>
+                        <div class="mb-3" id="swal-ship-date-container">
+                            <label for="swal-ship-date" class="form-label">Required Ship Date</label>
+                            <input type="text" id="swal-ship-date" class="form-control datepicker-input">
+                        </div>
+                    </div>
+                    <div class="mb-3"><label for="swal-reference-number" class="form-label">Reference / Reason</label><input type="text" id="swal-reference-number" class="form-control" placeholder="Optional reference or reason for scrap..."></div>
+                    <div class="mb-3"><label for="swal-delivery-note" class="form-label">Notes</label><textarea id="swal-delivery-note" class="form-control" rows="3" placeholder="Enter any special instructions or scrap details..."></textarea></div>
                 </div>`,
             showCancelButton: true,
             confirmButtonText: 'Create Order',
             allowOutsideClick: false,
             didOpen: () => {
                 const dateElement = document.getElementById('swal-ship-date');
-                // Pass the SweetAlert popup as the container for the datepicker
                 initializeDatepicker(dateElement, Swal.getPopup());
+                
+                // Logic to toggle fields based on order type
+                const customerFields = document.getElementById('swal-customer-fields');
+                document.querySelectorAll('input[name="swal-order-type"]').forEach(radio => {
+                    radio.addEventListener('change', (e) => {
+                        customerFields.style.display = e.target.value === 'Customer' ? 'block' : 'none';
+                    });
+                });
+
+                const $select = $('#swal-customer');
+                $select.select2({
+                    placeholder: 'Search by Customer Name or Code...',
+                    theme: 'bootstrap-5',
+                    dropdownParent: Swal.getPopup(),
+                    data: allCustomers.map(c => ({ id: c.customer_id, text: c.customer_name, code: c.customer_code })),
+                    templateResult: (data) => {
+                        if (!data.id) { return data.text; }
+                        return $(`<div>${data.text}<br><small class="text-muted">Code: ${data.code || 'N/A'}</small></div>`);
+                    },
+                    templateSelection: (data) => {
+                        return data.text;
+                    },
+                    // MODIFICATION: Updated matcher to search by customer_code
+                    matcher: (params, data) => {
+                        if ($.trim(params.term) === '') { return data; }
+                        if (typeof data.text === 'undefined' || data.id === '') { return null; }
+                        const term = params.term.toUpperCase();
+                        const text = data.text.toUpperCase();
+                        const code = (data.code || '').toUpperCase();
+                        if (text.indexOf(term) > -1 || code.indexOf(term) > -1) {
+                            return data;
+                        }
+                        return null;
+                    }
+                });
+                $select.val(null).trigger('change');
+
             },
             preConfirm: () => {
+                const orderType = document.querySelector('input[name="swal-order-type"]:checked').value;
                 const customerId = document.getElementById('swal-customer').value;
                 const requiredShipDate = document.getElementById('swal-ship-date').value;
-                if (!customerId) Swal.showValidationMessage('Please select a customer.');
-                else if (!requiredShipDate) Swal.showValidationMessage('Please select a required ship date.');
-                else return { customer_id: customerId, required_ship_date: requiredShipDate, delivery_note: document.getElementById('swal-delivery-note').value, reference_number: document.getElementById('swal-reference-number').value };
-                return false;
+                
+                if (orderType === 'Customer') {
+                    if (!customerId) {
+                        Swal.showValidationMessage('Please select a customer.');
+                        return false;
+                    }
+                    if (!requiredShipDate) {
+                        Swal.showValidationMessage('Please select a required ship date.');
+                        return false;
+                    }
+                }
+                
+                return { 
+                    order_type: orderType,
+                    customer_id: orderType === 'Customer' ? customerId : null, 
+                    required_ship_date: orderType === 'Customer' ? requiredShipDate : null, 
+                    delivery_note: document.getElementById('swal-delivery-note').value, 
+                    reference_number: document.getElementById('swal-reference-number').value 
+                };
             }
         }).then(async (result) => {
             if (result.isConfirmed && result.value) {
@@ -196,15 +269,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 const canManage = ['operator', 'manager'].includes(currentWarehouseRole);
                 
                 const isEditable = ['New', 'Pending Pick', 'Partially Picked'].includes(order.status);
-                const isCancellable = ['New', 'Pending Pick', 'Partially Picked', 'Picked', 'Staged', 'Assigned', 'Out for Delivery', 'Delivery Failed'].includes(order.status);
+                const isCancellable = !['Delivered', 'Cancelled', 'Returned', 'Partially Returned', 'Scrapped'].includes(order.status);
 
                 managementActionsArea.style.display = (canManage) ? 'block' : 'none';
                 cancelOrderBtn.style.display = (canManage && isCancellable) ? 'inline-block' : 'none';
+                
+                // MODIFICATION: Do not allow editing of Scrap orders
                 if (editOrderBtn) {
-                    editOrderBtn.style.display = (canManage && isEditable) ? 'inline-block' : 'none';
+                    editOrderBtn.style.display = (canManage && isEditable && order.order_type !== 'Scrap') ? 'inline-block' : 'none';
                 }
 
-                if (['Delivered', 'Partially Returned', 'Returned', 'Cancelled'].includes(order.status) && printDeliveryReportBtn) {
+                if (['Delivered', 'Partially Returned', 'Returned', 'Cancelled', 'Scrapped'].includes(order.status) && printDeliveryReportBtn) {
                     printDeliveryReportBtn.classList.remove('d-none');
                 }
 
@@ -261,14 +336,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     shipOrderBtn.classList.remove('d-none');
                 }
                 
-                const canPrintPickReport = !['Returned', 'Partially Returned', 'Cancelled', 'Delivered', 'Shipped'].includes(order.status);
+                const canPrintPickReport = !['Returned', 'Partially Returned', 'Cancelled', 'Delivered', 'Shipped', 'Scrapped'].includes(order.status);
                 if (order.items.length > 0 && canPrintPickReport) {
                     printPickReportBtn.classList.remove('d-none');
                 } else {
                     printPickReportBtn.classList.add('d-none');
                 }
 
-                const canShowStaging = !['Delivered', 'Cancelled', 'Returned', 'Partially Returned'].includes(order.status);
+                const canShowStaging = !['Delivered', 'Cancelled', 'Returned', 'Partially Returned', 'Scrapped'].includes(order.status);
                 if (canShowStaging && order.shipping_area_code && shippingAreaDisplay) {
                     shippingAreaDisplay.innerHTML = `<strong>Staged At:</strong> <span class="badge bg-purple">${order.shipping_area_code}</span>`;
                 }
@@ -657,7 +732,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     handleDownloadTemplate();
                 });
 
-                // --- NEW: File type validation on change ---
                 const fileInput = document.getElementById('bulk-upload-file');
                 const errorDiv = document.getElementById('bulk-upload-error');
                 const confirmButton = Swal.getConfirmButton();
@@ -666,10 +740,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     const file = fileInput.files[0];
                     if (file) {
                         const fileName = file.name;
-                        const allowedExtensions = /(\.xlsx|\.xls)$/i; // Case-insensitive check for .xlsx or .xls
+                        const allowedExtensions = /(\.xlsx|\.xls)$/i;
                         if (!allowedExtensions.exec(fileName)) {
                             errorDiv.textContent = 'Invalid file type. Please select an Excel file (.xlsx, .xls).';
-                            fileInput.value = ''; // Clear the invalid file selection
+                            fileInput.value = '';
                             confirmButton.disabled = true;
                         } else {
                             errorDiv.textContent = '';
@@ -1091,7 +1165,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const { order_details, delivery_details, delivered_items, returned_items } = response.data;
             const isCancelled = order_details.status === 'Cancelled';
-            const reportTitle = isCancelled ? 'Cancelled Order Report' : 'Proof of Delivery';
+            const isScrapped = order_details.status === 'Scrapped';
+            const reportTitle = isCancelled ? 'Cancelled Order Report' : (isScrapped ? 'Scrapped Items Report' : 'Proof of Delivery');
 
             let deliveredBy = 'N/A';
             if (delivery_details) {
@@ -1149,22 +1224,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 `;
             }
 
-            // MODIFICATION: Conditional HTML for delivery details and footer based on status
             let deliveryDetailsHtml = '';
             let footerHtml = '';
             let deliveredItemsTitle = 'Delivered Items';
 
-            if (isCancelled) {
+            if (isCancelled || isScrapped) {
                 deliveryDetailsHtml = `
                     <div class="info-box">
                         <strong>Order Details:</strong><br>
                         Order Number: ${order_details.order_number}<br>
                         Reference: ${order_details.reference_number || 'N/A'}<br>
-                        <strong>Status: <span style="color: red;">Cancelled</span></strong>
+                        <strong>Status: <span style="color: red;">${order_details.status}</span></strong>
                     </div>
                 `;
-                deliveredItemsTitle = 'Items in Cancelled Order';
-                footerHtml = `<div class="text-center mt-2 small text-muted">This order was cancelled.</div>`;
+                deliveredItemsTitle = isCancelled ? 'Items in Cancelled Order' : 'Scrapped Items';
+                footerHtml = `<div class="text-center mt-2 small text-muted">This order was ${order_details.status.toLowerCase()}.</div>`;
             } else {
                 deliveryDetailsHtml = `
                     <div class="info-box">

@@ -77,6 +77,8 @@
                                             <option value="deadStock">Dead Stock Report</option>
                                             <option value="expiringStock">Expiring Stock Report</option>
                                             <option value="productMovement" data-filter-required="true" data-filter-label="SKU / Article No" data-filter-placeholder="Enter Product SKU/Article No...">Product Movement</option>
+                                            <!-- MODIFICATION: Added Scrap History report option -->
+                                            <option value="scrapHistory">Scrap History</option>
                                         </optgroup>
                                         
                                         <optgroup label="Performance & User Activity">

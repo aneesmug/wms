@@ -1,7 +1,7 @@
 <?php
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-100">
@@ -24,6 +24,10 @@ if (session_status() === PHP_SESSION_NONE) {
             <header class="bg-white shadow-sm border-bottom">
                 <div class="container-fluid px-4">
                     <div class="d-flex justify-content-between align-items-center py-3">
+                        <!-- This button toggles the offcanvas menu on mobile -->
+                        <button class="btn btn-outline-secondary d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
+                            <i class="bi bi-list"></i>
+                        </button>
                         <h1 class="h4 mb-0 text-dark">User Management</h1>
                     </div>
                 </div>

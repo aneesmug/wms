@@ -40,6 +40,10 @@
         <header class="bg-white shadow-sm border-bottom">
             <div class="container-fluid px-4">
                 <div class="d-flex align-items-center justify-content-between py-3">
+                    <!-- This button toggles the offcanvas menu on mobile -->
+                    <button class="btn btn-outline-secondary d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
+                        <i class="bi bi-list"></i>
+                    </button>
                     <h1 class="h4 mb-0 text-dark">Order Picking & Processing</h1>
                     <div id="managementActionsArea" class="d-none">
                         <button id="printPickReportBtn" class="btn btn-sm btn-outline-secondary" disabled><i class="bi bi-file-earmark-text me-1"></i> Print Pick Report</button>
@@ -63,13 +67,13 @@
                                         <input type="search" id="orderSearchInput" class="form-control border-start-0" placeholder="Search by Order # or Customer...">
                                     </div>
                                     <select id="pickingStatusFilter" class="form-select form-select-sm w-auto">
+                                        <option value="all">Show All</option>
                                         <option value="Pending Pick">Pending Pick</option>
                                         <option value="Partially Picked">Partially Picked</option>
                                         <option value="Picked">Picked</option>
                                         <option value="Staged">Staged</option>
                                         <option value="Delivery Failed">Delivery Failed</option>
                                         <option value="Assigned">Assigned</option>
-                                        <option value="all">Show All</option>
                                     </select>
                                 </div>
                             </div>
@@ -162,6 +166,8 @@
                                             <p class="mb-0"><strong>Driver:</strong> <span id="driverInfoDisplay" class="">Not Assigned</span></p>
                                         </div>
                                         <div class="d-flex gap-2 flex-wrap">
+                                            <!-- MODIFICATION: Added scrapOrderBtn -->
+                                            <button id="scrapOrderBtn" class="btn btn-danger d-none"><i class="bi bi-trash-fill me-1"></i> Scrap Items</button>
                                             <button id="stageOrderBtn" class="btn btn-warning d-none">Stage for Pickup</button>
                                             <button id="assignDriverBtn" class="btn btn-primary d-none"><i class="bi bi-person-plus-fill me-1"></i> Assign Driver</button>
                                         </div>

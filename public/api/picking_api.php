@@ -32,7 +32,7 @@ switch ($action) {
     case 'getOrdersForPicking':
         handleGetOrdersForPicking($conn, $current_warehouse_id);
         break;
-    case 'getOrderCountsByStatus': // NEW ACTION
+    case 'getOrderCountsByStatus': 
         handleGetOrderCountsByStatus($conn, $current_warehouse_id);
         break;
     case 'getOrderDetails':
@@ -74,6 +74,9 @@ switch ($action) {
     case 'stageOrder':
         handleStageOrder($conn, $current_warehouse_id, $current_user_id);
         break;
+    case 'scrapOrder':
+        handleScrapOrder($conn, $current_warehouse_id, $current_user_id);
+        break;
     case 'assignDriver':
         handleAssignDriver($conn, $current_warehouse_id, $current_user_id);
         break;
@@ -87,9 +90,9 @@ function handleGetOrdersForPicking($conn, $warehouse_id) {
     $status_filter = $_GET['status'] ?? 'Pending Pick';
     $allowed_statuses = ['New', 'Pending Pick', 'Partially Picked', 'Picked', 'Staged', 'Assigned', 'Delivery Failed'];
     
-    $sql = "SELECT o.order_id, o.order_number, c.customer_name, o.order_date, o.status, o.reference_number, o.required_ship_date 
+    $sql = "SELECT o.order_id, o.order_number, COALESCE(c.customer_name, 'Scrap Order') as customer_name, o.order_date, o.status, o.reference_number, o.required_ship_date 
             FROM outbound_orders o
-            JOIN customers c ON o.customer_id = c.customer_id
+            LEFT JOIN customers c ON o.customer_id = c.customer_id
             WHERE o.warehouse_id = ?";
 
     if ($status_filter !== 'all') {
@@ -119,7 +122,6 @@ function handleGetOrdersForPicking($conn, $warehouse_id) {
     sendJsonResponse(['success' => true, 'data' => $orders]);
 }
 
-// NEW FUNCTION to get counts for all statuses
 function handleGetOrderCountsByStatus($conn, $warehouse_id) {
     $stmt = $conn->prepare("
         SELECT
@@ -149,9 +151,9 @@ function handleGetOrderDetails($conn, $warehouse_id) {
     if(!$order_id) { sendJsonResponse(['success' => false, 'message' => 'Invalid Order ID.'], 400); return; }
     
     $stmt = $conn->prepare("
-        SELECT oo.*, c.customer_name, sl.location_code as shipping_area_code
+        SELECT oo.*, COALESCE(c.customer_name, 'Scrap Order') as customer_name, sl.location_code as shipping_area_code
         FROM outbound_orders oo 
-        JOIN customers c ON oo.customer_id = c.customer_id 
+        LEFT JOIN customers c ON oo.customer_id = c.customer_id 
         LEFT JOIN warehouse_locations sl ON oo.shipping_area_location_id = sl.location_id
         WHERE oo.order_id = ? AND oo.warehouse_id = ?
     ");
@@ -487,6 +489,68 @@ function handleStageOrder($conn, $warehouse_id, $user_id) {
     }
 }
 
+function handleScrapOrder($conn, $warehouse_id, $user_id) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $order_id = filter_var($input['order_id'] ?? 0, FILTER_VALIDATE_INT);
+
+    if (!$order_id) {
+        sendJsonResponse(['success' => false, 'message' => 'Order ID is required.'], 400);
+        return;
+    }
+
+    $conn->begin_transaction();
+    try {
+        $stmt_check = $conn->prepare("SELECT status, order_type FROM outbound_orders WHERE order_id = ? AND warehouse_id = ?");
+        $stmt_check->bind_param("ii", $order_id, $warehouse_id);
+        $stmt_check->execute();
+        $order = $stmt_check->get_result()->fetch_assoc();
+        $stmt_check->close();
+
+        if (!$order) {
+            throw new Exception("Order not found or does not belong to this warehouse.");
+        }
+        if ($order['order_type'] !== 'Scrap') {
+            throw new Exception("This action is only for Scrap orders.");
+        }
+        if ($order['status'] !== 'Picked') {
+            throw new Exception("Order must be in 'Picked' status to be scrapped.");
+        }
+        
+        $stmt_picks = $conn->prepare("
+            SELECT oi.product_id, oip.picked_quantity 
+            FROM outbound_item_picks oip
+            JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id
+            WHERE oi.order_id = ?
+        ");
+        $stmt_picks->bind_param("i", $order_id);
+        $stmt_picks->execute();
+        $picked_items = $stmt_picks->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt_picks->close();
+
+        $stmt_adj = $conn->prepare("INSERT INTO stock_adjustments (product_id, warehouse_id, location_id, user_id, quantity_adjusted, reason_code, notes) VALUES (?, ?, ?, ?, ?, 'Scrap', ?)");
+        $scrap_location_id = 0; 
+        $notes = "Scrapped via Outbound Order #$order_id";
+        foreach ($picked_items as $item) {
+            $qty_adjusted = -$item['picked_quantity'];
+            $stmt_adj->bind_param("iiiiis", $item['product_id'], $warehouse_id, $scrap_location_id, $user_id, $qty_adjusted, $notes);
+        }
+        $stmt_adj->close();
+
+        $stmt_update = $conn->prepare("UPDATE outbound_orders SET status = 'Scrapped' WHERE order_id = ?");
+        $stmt_update->bind_param("i", $order_id);
+        $stmt_update->execute();
+        $stmt_update->close();
+
+        logOrderHistory($conn, $order_id, 'Scrapped', $user_id, 'All picked items for this order have been scrapped and removed from stock.');
+        $conn->commit();
+        sendJsonResponse(['success' => true, 'message' => 'Order scrapped successfully.']);
+    } catch (Exception $e) {
+        $conn->rollback();
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 400);
+    }
+}
+
+
 function handleFileUpload($file, $orderId, $driverIdentifier, $docType) {
     if (!isset($file) || $file['error'] !== UPLOAD_ERR_OK) {
         return null;
@@ -521,11 +585,9 @@ function handleFileUpload($file, $orderId, $driverIdentifier, $docType) {
 function handleAssignDriver($conn, $warehouse_id, $user_id) {
     $input_data = [];
     
-    // If it's a multipart form (with file uploads), $_POST will be populated.
     if (!empty($_POST)) {
         $input_data = $_POST;
     } 
-    // Otherwise, it's a JSON request.
     else {
         $json_input = json_decode(file_get_contents('php://input'), true);
         if ($json_input) {
@@ -583,7 +645,6 @@ function handleAssignDriver($conn, $warehouse_id, $user_id) {
             $stmt_assign->close();
 
         } elseif ($assignment_type === 'third_party') {
-            // For third party, data comes from $_POST and $_FILES due to FormData
             $third_party_company_id = $_POST['third_party_company_id'] ?? 0;
             $drivers_json = $_POST['drivers'] ?? '[]';
             $third_party_drivers = json_decode($drivers_json, true);
@@ -628,7 +689,6 @@ function handleAssignDriver($conn, $warehouse_id, $user_id) {
 
         logOrderHistory($conn, $order_id, 'Assigned', $user_id, $log_notes);
 
-        // Do not automatically set to 'Out for Delivery' if the order was previously failed.
         if ($original_status !== 'Delivery Failed') {
             $stmt_scanned = $conn->prepare("SELECT COUNT(scan_id) as total_scanned FROM outbound_driver_scans WHERE order_id = ?");
             $stmt_scanned->bind_param("i", $order_id);
@@ -636,7 +696,7 @@ function handleAssignDriver($conn, $warehouse_id, $user_id) {
             $total_scanned = (int)($stmt_scanned->get_result()->fetch_assoc()['total_scanned'] ?? 0);
             $stmt_scanned->close();
 
-            if ($total_scanned > 0) { // Check if there are any scans at all
+            if ($total_scanned > 0) { 
                 $stmt_stickers = $conn->prepare("SELECT COUNT(ops.sticker_id) as total_stickers FROM outbound_pick_stickers ops JOIN outbound_item_picks oip ON ops.pick_id = oip.pick_id JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id WHERE oi.order_id = ?");
                 $stmt_stickers->bind_param("i", $order_id);
                 $stmt_stickers->execute();
@@ -718,34 +778,34 @@ function handleGetDeliveryCompanies($conn) {
     sendJsonResponse(['success' => true, 'data' => $companies]);
 }
 
+// MODIFICATION: Updated to provide detailed counts for stickers
 function handleGetPickStickers($conn, $warehouse_id) {
     $order_id = filter_input(INPUT_GET, 'order_id', FILTER_VALIDATE_INT);
     if (!$order_id) {
         sendJsonResponse(['success' => false, 'message' => 'Order ID is required.'], 400);
         return;
     }
+    
     $sql = "
         SELECT 
             ops.sticker_code,
             oo.order_number, oo.tracking_number,
-            c.customer_name, c.address_line1, c.address_line2, c.city, c.state, c.zip_code, c.country,
+            COALESCE(c.customer_name, 'Scrap Order') as customer_name, 
+            c.address_line1, c.address_line2, c.city, c.state, c.zip_code, c.country,
             p.product_name, p.article_no, p.expiry_years,
+            oi.ordered_quantity,
             oip.dot_code,
             w.warehouse_name, w.address as warehouse_address, w.city as warehouse_city,
-            (SELECT SUM(oi_inner.ordered_quantity) FROM outbound_items oi_inner WHERE oi_inner.order_id = oo.order_id) as item_total,
-            (
-                SELECT SUM(oi_prev.ordered_quantity) 
-                FROM outbound_items oi_prev 
-                WHERE oi_prev.order_id = oo.order_id AND oi_prev.outbound_item_id < oi_prev.outbound_item_id
-            ) as preceding_items_qty
+            (SELECT SUM(oi_inner.ordered_quantity) FROM outbound_items oi_inner WHERE oi_inner.order_id = oo.order_id) as total_order_quantity
         FROM outbound_pick_stickers ops
         JOIN outbound_item_picks oip ON ops.pick_id = oip.pick_id
         JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id
         JOIN outbound_orders oo ON oi.order_id = oo.order_id
-        JOIN customers c ON oo.customer_id = c.customer_id
+        LEFT JOIN customers c ON oo.customer_id = c.customer_id
         JOIN products p ON oi.product_id = p.product_id
         JOIN warehouses w ON oo.warehouse_id = w.warehouse_id
         WHERE oo.order_id = ? AND oo.warehouse_id = ?
+        ORDER BY oi.outbound_item_id, ops.sticker_id
     ";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("ii", $order_id, $warehouse_id);
@@ -754,19 +814,26 @@ function handleGetPickStickers($conn, $warehouse_id) {
     $stmt->close();
 
     $final_stickers = [];
-    $item_sequences = [];
+    $per_article_counter = [];
+    $overall_counter = 0;
+
     foreach ($stickers_data as $sticker) {
         $article_no = $sticker['article_no'];
-        if (!isset($item_sequences[$article_no])) {
-            $item_sequences[$article_no] = $sticker['preceding_items_qty'];
+
+        if (!isset($per_article_counter[$article_no])) {
+            $per_article_counter[$article_no] = 0;
         }
-        
-        $item_sequences[$article_no]++;
-        $sticker['item_sequence'] = $item_sequences[$article_no];
-        
+
+        $per_article_counter[$article_no]++;
+        $overall_counter++;
+
+        $sticker['item_sequence'] = $per_article_counter[$article_no];
+        $sticker['item_total_quantity'] = $sticker['ordered_quantity'];
+        $sticker['overall_sequence'] = $overall_counter;
+        $sticker['overall_total_quantity'] = $sticker['total_order_quantity'];
+
         $final_stickers[] = $sticker;
     }
-
 
     sendJsonResponse(['success' => true, 'data' => $final_stickers]);
 }
@@ -781,10 +848,11 @@ function handleGetPickReport($conn, $warehouse_id) {
     $stmt_order = $conn->prepare("
         SELECT 
             oo.order_number, oo.reference_number, oo.required_ship_date,
-            c.customer_name, c.address_line1, c.address_line2, c.city,
+            COALESCE(c.customer_name, 'Scrap Order') as customer_name, 
+            c.address_line1, c.address_line2, c.city,
             w.warehouse_name
         FROM outbound_orders oo
-        JOIN customers c ON oo.customer_id = c.customer_id
+        LEFT JOIN customers c ON oo.customer_id = c.customer_id
         JOIN warehouses w ON oo.warehouse_id = w.warehouse_id
         WHERE oo.order_id = ? AND oo.warehouse_id = ?
     ");
@@ -862,13 +930,16 @@ function updateOutboundItemAndOrderStatus($conn, $order_id, $user_id) {
     $sums = $stmt_sums->get_result()->fetch_assoc();
     $stmt_sums->close();
 
-    $stmt_current_status = $conn->prepare("SELECT status FROM outbound_orders WHERE order_id = ?");
-    $stmt_current_status->bind_param("i", $order_id);
-    $stmt_current_status->execute();
-    $current_status = $stmt_current_status->get_result()->fetch_assoc()['status'];
-    $stmt_current_status->close();
+    $stmt_current_order = $conn->prepare("SELECT status, order_type FROM outbound_orders WHERE order_id = ?");
+    $stmt_current_order->bind_param("i", $order_id);
+    $stmt_current_order->execute();
+    $current_order = $stmt_current_order->get_result()->fetch_assoc();
+    $stmt_current_order->close();
+    
+    $current_status = $current_order['status'];
+    $order_type = $current_order['order_type'];
 
-    if (in_array($current_status, ['Staged', 'Assigned', 'Out for Delivery', 'Delivered', 'Cancelled', 'Delivery Failed'])) {
+    if (in_array($current_status, ['Staged', 'Assigned', 'Out for Delivery', 'Delivered', 'Cancelled', 'Delivery Failed', 'Scrapped'])) {
         return;
     }
 
@@ -882,7 +953,7 @@ function updateOutboundItemAndOrderStatus($conn, $order_id, $user_id) {
     }
 
     if ($new_status !== $current_status) {
-        if ($new_status === 'Picked') {
+        if ($new_status === 'Picked' && $order_type === 'Customer') {
             $tracking_number = 'TRK-' . $order_id . '-' . substr(str_shuffle('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 6);
             $delivery_code = rand(100000, 999999);
 

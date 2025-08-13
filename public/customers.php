@@ -24,6 +24,10 @@
         <header class="bg-white shadow-sm border-bottom">
             <div class="container-fluid px-4">
                 <div class="d-flex justify-content-between align-items-center py-3">
+                    <!-- This button toggles the offcanvas menu on mobile -->
+                    <button class="btn btn-outline-secondary d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
+                        <i class="bi bi-list"></i>
+                    </button>
                     <h1 class="h4 mb-0 text-dark mx-auto mx-md-0">Customer Management</h1>
                     <span id="currentWarehouseNameDisplay" class="text-muted"></span>
                 </div>

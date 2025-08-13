@@ -1,5 +1,5 @@
 <?php
-// 005-outbound.php
+// 002-outbound.php
 ?>
 <!DOCTYPE html>
 <html lang="en" class="h-100">
@@ -26,6 +26,10 @@
         <header class="bg-white shadow-sm border-bottom">
             <div class="container-fluid px-4">
                 <div class="d-flex justify-content-between align-items-center py-3">
+                    <!-- This button toggles the offcanvas menu on mobile -->
+                    <button class="btn btn-outline-secondary d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
+                        <i class="bi bi-list"></i>
+                    </button>
                     <h1 class="h4 mb-0 text-dark">Outbound Orders</h1>
                 </div>
             </div>
@@ -54,6 +58,8 @@
                                         <option value="Partially Returned">Partially Returned</option>
                                         <option value="Returned">Returned</option>
                                         <option value="Cancelled">Cancelled</option>
+                                        <!-- MODIFICATION: Added Scrapped status to filter -->
+                                        <option value="Scrapped">Scrapped</option>
                                     </select>
                                     <button id="showCreateOrderModalBtn" class="btn btn-primary btn-sm"><i class="bi bi-plus-circle me-1"></i> New Order</button>
                                 </div>
@@ -65,7 +71,7 @@
                                             <tr>
                                                 <th>Order #</th>
                                                 <th>Reference #</th>
-                                                <th>Customer</th>
+                                                <th>Customer / Type</th>
                                                 <th>Staged At</th>
                                                 <th>Assigned To</th>
                                                 <th>Tracking #</th>

@@ -77,14 +77,14 @@ function handleGetDeliveryReport($conn, $warehouse_id) {
 
     $response = [];
 
-    // MODIFICATION: Added `oo.status` to the query to determine report type.
     $stmt_order = $conn->prepare("
         SELECT 
             oo.order_number, oo.reference_number, oo.actual_delivery_date, oo.delivered_to_name, oo.status,
-            c.customer_name, c.address_line1, c.address_line2, c.city, c.phone,
+            COALESCE(c.customer_name, 'Scrap Order') as customer_name, 
+            c.address_line1, c.address_line2, c.city, c.phone,
             w.warehouse_name
         FROM outbound_orders oo
-        JOIN customers c ON oo.customer_id = c.customer_id
+        LEFT JOIN customers c ON oo.customer_id = c.customer_id
         JOIN warehouses w ON oo.warehouse_id = w.warehouse_id
         WHERE oo.order_id = ? AND oo.warehouse_id = ?
     ");
@@ -100,9 +100,7 @@ function handleGetDeliveryReport($conn, $warehouse_id) {
 
     $order_status = $response['order_details']['status'];
 
-    // MODIFICATION: Conditional logic to fetch items based on order status.
-    if ($order_status === 'Cancelled') {
-        // For cancelled orders, fetch the items that were ordered.
+    if ($order_status === 'Cancelled' || $order_status === 'Scrapped') {
         $stmt_items = $conn->prepare("
             SELECT 
                 p.sku, p.product_name, p.article_no, oi.ordered_quantity as picked_quantity, '' as batch_number, '' as dot_code
@@ -116,7 +114,6 @@ function handleGetDeliveryReport($conn, $warehouse_id) {
         $stmt_items->close();
         $response['returned_items'] = [];
     } else {
-        // For other statuses, fetch delivered and returned items as before.
         $stmt_items = $conn->prepare("
             SELECT 
                 p.sku, p.product_name, p.article_no, oip.picked_quantity, oip.batch_number, oip.dot_code
@@ -166,27 +163,65 @@ function handleGetDeliveryReport($conn, $warehouse_id) {
 
 function handleCreateOutboundOrder($conn, $warehouse_id, $user_id) {
     $input = json_decode(file_get_contents('php://input'), true);
+    
+    $order_type = sanitize_input($input['order_type'] ?? 'Customer');
     $customer_id = filter_var($input['customer_id'] ?? null, FILTER_VALIDATE_INT);
-    $required_ship_date = sanitize_input($input['required_ship_date'] ?? '');
+    $required_ship_date = sanitize_input($input['required_ship_date'] ?? null);
     $delivery_note = sanitize_input($input['delivery_note'] ?? null);
     $reference_number = sanitize_input($input['reference_number'] ?? null);
 
-    if (empty($customer_id) || empty($required_ship_date)) { sendJsonResponse(['success' => false, 'message' => 'Customer and Required Ship Date are required.'], 400); return; }
+    if ($order_type === 'Customer' && (empty($customer_id) || empty($required_ship_date))) {
+        sendJsonResponse(['success' => false, 'message' => 'Customer and Required Ship Date are required for Customer Orders.'], 400);
+        return;
+    }
+
+    if ($order_type === 'Scrap') {
+        $customer_id = null;
+        $required_ship_date = null;
+    }
     
     $conn->begin_transaction();
     try {
-        $order_number = generateOrderNumber($conn);
-        $delivery_code = rand(100000, 999999);
+        // --- MODIFICATION START: Warehouse-specific and race-condition-safe order number generation ---
+        $date_prefix = 'ORD-' . date('Ymd');
+        // Lock the table for reading to prevent race conditions
+        $sql = "SELECT order_number FROM outbound_orders WHERE order_number LIKE ? AND warehouse_id = ? ORDER BY order_number DESC LIMIT 1 FOR UPDATE";
+        $stmt_num = $conn->prepare($sql);
+        if (!$stmt_num) {
+            throw new Exception("Failed to prepare statement for order number generation: " . $conn->error);
+        }
+        $search_prefix = $date_prefix . '%';
+        $stmt_num->bind_param("si", $search_prefix, $warehouse_id);
+        $stmt_num->execute();
+        $last_order = $stmt_num->get_result()->fetch_assoc();
+        $stmt_num->close();
+
+        if ($last_order) {
+            $last_seq = (int)substr($last_order['order_number'], -4);
+            $new_seq = $last_seq + 1;
+        } else {
+            $new_seq = 1;
+        }
+        $order_number = $date_prefix . '-' . str_pad($new_seq, 4, '0', STR_PAD_LEFT);
+        // --- MODIFICATION END ---
+
+        $delivery_code = $order_type === 'Customer' ? rand(100000, 999999) : null;
         $initial_status = 'Pending Pick';
 
-        $stmt = $conn->prepare("INSERT INTO outbound_orders (warehouse_id, order_number, customer_id, required_ship_date, status, delivery_note, reference_number, delivery_confirmation_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->bind_param("isssssss", $warehouse_id, $order_number, $customer_id, $required_ship_date, $initial_status, $delivery_note, $reference_number, $delivery_code);
+        $stmt = $conn->prepare("INSERT INTO outbound_orders (warehouse_id, order_number, customer_id, required_ship_date, status, delivery_note, reference_number, delivery_confirmation_code, order_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->bind_param("issssssss", $warehouse_id, $order_number, $customer_id, $required_ship_date, $initial_status, $delivery_note, $reference_number, $delivery_code, $order_type);
 
-        if (!$stmt->execute()) { throw new Exception('Failed to create initial outbound order record: ' . $stmt->error, 500); }
+        if (!$stmt->execute()) {
+             // Check for duplicate entry error specifically
+            if ($conn->errno == 1062) { // 1062 is the MySQL error code for duplicate entry
+                 throw new Exception('Duplicate entry detected for order number. Please try again.', 409);
+            }
+            throw new Exception('Failed to create initial outbound order record: ' . $stmt->error, 500);
+        }
         $order_id = $stmt->insert_id;
         $stmt->close();
         
-        logOrderHistory($conn, $order_id, $initial_status, $user_id, "Order created with number: $order_number");
+        logOrderHistory($conn, $order_id, $initial_status, $user_id, "$order_type Order created with number: $order_number");
         $conn->commit();
         sendJsonResponse(['success' => true, 'message' => "Outbound order $order_number created successfully.", 'order_id' => $order_id], 201);
     } catch (Exception $e) {
@@ -327,7 +362,7 @@ function handleUpdateOrder($conn, $warehouse_id, $user_id) {
 
     $conn->begin_transaction();
     try {
-        $stmt_check = $conn->prepare("SELECT status FROM outbound_orders WHERE order_id = ? AND warehouse_id = ?");
+        $stmt_check = $conn->prepare("SELECT status, order_type FROM outbound_orders WHERE order_id = ? AND warehouse_id = ?");
         $stmt_check->bind_param("ii", $order_id, $warehouse_id);
         $stmt_check->execute();
         $order = $stmt_check->get_result()->fetch_assoc();
@@ -335,6 +370,9 @@ function handleUpdateOrder($conn, $warehouse_id, $user_id) {
 
         if (!$order) {
             throw new Exception("Order not found or does not belong to this warehouse.");
+        }
+        if ($order['order_type'] === 'Scrap') {
+            throw new Exception("Cannot edit a Scrap order.");
         }
         if (!in_array($order['status'], ['New', 'Pending Pick', 'Partially Picked'])) {
             throw new Exception("Cannot edit an order with status '{$order['status']}'.");
@@ -368,10 +406,11 @@ function handleGetPickReport($conn, $warehouse_id) {
     $stmt_order = $conn->prepare("
         SELECT 
             oo.order_number, oo.reference_number, oo.required_ship_date,
-            c.customer_name, c.address_line1, c.address_line2, c.city,
+            COALESCE(c.customer_name, 'Scrap Order') as customer_name, 
+            c.address_line1, c.address_line2, c.city,
             w.warehouse_name
         FROM outbound_orders oo
-        JOIN customers c ON oo.customer_id = c.customer_id
+        LEFT JOIN customers c ON oo.customer_id = c.customer_id
         JOIN warehouses w ON oo.warehouse_id = w.warehouse_id
         WHERE oo.order_id = ? AND oo.warehouse_id = ?
     ");
@@ -412,11 +451,13 @@ function handleGetOutbound($conn, $warehouse_id) {
         
         $sql = "
             SELECT 
-                oo.*, c.customer_name, sl.location_code as shipping_area_code,
+                oo.*, 
+                COALESCE(c.customer_name, 'Scrap Order') as customer_name, 
+                sl.location_code as shipping_area_code,
                 picker.full_name as picker_name,
                 shipper.full_name as shipper_name
             FROM outbound_orders oo 
-            JOIN customers c ON oo.customer_id = c.customer_id 
+            LEFT JOIN customers c ON oo.customer_id = c.customer_id 
             LEFT JOIN warehouse_locations sl ON oo.shipping_area_location_id = sl.location_id
             LEFT JOIN users picker ON oo.picked_by = picker.user_id
             LEFT JOIN users shipper ON oo.shipped_by = shipper.user_id
@@ -482,7 +523,7 @@ function handleGetOutbound($conn, $warehouse_id) {
         $sql = "
             SELECT 
                 oo.order_id, oo.order_number, oo.reference_number, oo.status, oo.required_ship_date, oo.tracking_number, 
-                c.customer_name, 
+                COALESCE(c.customer_name, 'Scrap Order') as customer_name, 
                 sl.location_code as shipping_area_code,
                 GROUP_CONCAT(DISTINCT 
                     CASE
@@ -493,7 +534,7 @@ function handleGetOutbound($conn, $warehouse_id) {
                     SEPARATOR '<br>'
                 ) as assigned_to
             FROM outbound_orders oo 
-            JOIN customers c ON oo.customer_id = c.customer_id
+            LEFT JOIN customers c ON oo.customer_id = c.customer_id
             LEFT JOIN warehouse_locations sl ON oo.shipping_area_location_id = sl.location_id
             LEFT JOIN outbound_order_assignments ooa ON oo.order_id = ooa.order_id
             LEFT JOIN users u ON ooa.driver_user_id = u.user_id
@@ -588,7 +629,7 @@ function handleCancelOrder($conn, $warehouse_id, $user_id) {
         if (!$order) { 
             throw new Exception("Order not found or does not belong to this warehouse."); 
         }
-        if (in_array($order['status'], ['Delivered', 'Cancelled', 'Returned', 'Partially Returned'])) { 
+        if (in_array($order['status'], ['Delivered', 'Cancelled', 'Returned', 'Partially Returned', 'Scrapped'])) { 
             throw new Exception("Cannot cancel an order that is already {$order['status']}."); 
         }
         
@@ -839,8 +880,24 @@ function updateOutboundItemAndOrderStatus($conn, $order_id, $user_id) {
     } else {
         $new_status = 'New';
     }
-    $stmt_update_order = $conn->prepare("UPDATE outbound_orders SET status = ? WHERE order_id = ?");
-    $stmt_update_order->bind_param("si", $new_status, $order_id);
-    $stmt_update_order->execute();
-    $stmt_update_order->close();
+    
+    $stmt_current_order = $conn->prepare("SELECT status, order_type FROM outbound_orders WHERE order_id = ?");
+    $stmt_current_order->bind_param("i", $order_id);
+    $stmt_current_order->execute();
+    $current_order = $stmt_current_order->get_result()->fetch_assoc();
+    $stmt_current_order->close();
+    
+    if ($new_status !== $current_order['status']) {
+        if ($new_status === 'Picked' && $current_order['order_type'] === 'Customer') {
+             $tracking_number = 'TRK-' . $order_id . '-' . substr(str_shuffle('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 6);
+             $delivery_code = rand(100000, 999999);
+             $stmt_update_order = $conn->prepare("UPDATE outbound_orders SET status = ?, tracking_number = ?, delivery_confirmation_code = ? WHERE order_id = ?");
+             $stmt_update_order->bind_param("sssi", $new_status, $tracking_number, $delivery_code, $order_id);
+        } else {
+             $stmt_update_order = $conn->prepare("UPDATE outbound_orders SET status = ? WHERE order_id = ?");
+             $stmt_update_order->bind_param("si", $new_status, $order_id);
+        }
+        $stmt_update_order->execute();
+        $stmt_update_order->close();
+    }
 }

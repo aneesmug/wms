@@ -1,3 +1,10 @@
+/*
+* MODIFICATION SUMMARY:
+* 1. Reverted the password change functionality back to using SweetAlert2.
+* 2. Removed all selectors and event listeners related to the Bootstrap password modal.
+* 3. The `openChangePasswordForm` function now closes the main user edit modal before opening the SweetAlert2 pop-up for a cleaner user experience.
+* 4. The user's full name is now passed to the `openChangePasswordForm` function and displayed in the title of the SweetAlert2 pop-up.
+*/
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM & Modal Selectors ---
     const addUserBtn = document.getElementById('addUserBtn');
@@ -234,7 +241,10 @@ document.addEventListener('DOMContentLoaded', () => {
         renderAssignedRoles();
     });
     
-    document.getElementById('changePasswordBtn').addEventListener('click', () => openChangePasswordForm(currentUserId));
+    document.getElementById('changePasswordBtn').addEventListener('click', () => {
+        const fullName = document.getElementById('fullName').value;
+        openChangePasswordForm(currentUserId, fullName);
+    });
 
     saveUserBtn.addEventListener('click', async () => {
         if (!userForm.checkValidity()) {
@@ -294,26 +304,31 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    const openChangePasswordForm = (userId) => {
-        Swal.fire({
-            title: 'Change Password',
-            html: `<input type="password" id="swal-password" class="swal2-input" placeholder="New Password"><input type="password" id="swal-confirm-password" class="swal2-input" placeholder="Confirm New Password">`,
-            confirmButtonText: 'Change Password',
-            focusConfirm: false,
-            preConfirm: async () => {
-                const password = document.getElementById('swal-password').value;
-                const confirmPassword = document.getElementById('swal-confirm-password').value;
-                if (!password || !confirmPassword) return Swal.showValidationMessage('Both fields are required');
-                if (password !== confirmPassword) return Swal.showValidationMessage('Passwords do not match');
-                const result = await fetchData('api/users_api.php?action=change_password', 'POST', {
-                    user_id: userId, password: password, confirm_password: confirmPassword
-                });
-                if (!result?.success) return Swal.showValidationMessage(`Request failed: ${result?.message || 'Unknown error'}`);
-                return result;
-            }
-        }).then((result) => {
-            if (result.isConfirmed) Swal.fire('Success!', 'Password has been changed successfully.', 'success');
-        });
+    const openChangePasswordForm = (userId, fullName) => {
+        userModal.hide(); // Close the main edit modal first
+
+        // Use a timeout to allow the modal backdrop to fade out before showing the alert
+        setTimeout(() => {
+            Swal.fire({
+                title: `Change Password for ${fullName}`,
+                html: `<input type="password" id="swal-password" class="swal2-input" placeholder="New Password"><input type="password" id="swal-confirm-password" class="swal2-input" placeholder="Confirm New Password">`,
+                confirmButtonText: 'Change Password',
+                focusConfirm: false,
+                preConfirm: async () => {
+                    const password = document.getElementById('swal-password').value;
+                    const confirmPassword = document.getElementById('swal-confirm-password').value;
+                    if (!password || !confirmPassword) return Swal.showValidationMessage('Both fields are required');
+                    if (password !== confirmPassword) return Swal.showValidationMessage('Passwords do not match');
+                    const result = await fetchData('api/users_api.php?action=change_password', 'POST', {
+                        user_id: userId, password: password, confirm_password: confirmPassword
+                    });
+                    if (!result?.success) return Swal.showValidationMessage(`Request failed: ${result?.message || 'Unknown error'}`);
+                    return result;
+                }
+            }).then((result) => {
+                if (result.isConfirmed) Swal.fire('Success!', 'Password has been changed successfully.', 'success');
+            });
+        }, 500); // 500ms delay
     };
 
     // --- Initializations ---
