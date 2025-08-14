@@ -1,3 +1,13 @@
+<?php
+/*
+* MODIFICATION SUMMARY
+* --------------------
+* 2025-08-14:
+* - Added an informational alert box above the transfer orders table.
+* - This alert explains to the user how the new receiving process works: a 'Receive' button will dynamically appear for pending orders at their warehouse.
+* - This provides a clear, in-page guide for users at the destination warehouse on how to receive items.
+*/
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -40,6 +50,12 @@
                                 <h5 class="card-title mb-0">All Transfer Orders</h5>
                             </div>
                             <div class="card-body">
+                                <div class="alert alert-info d-flex align-items-center" role="alert">
+                                    <i class="bi bi-info-circle-fill me-2"></i>
+                                    <div>
+                                        <strong>How to receive items:</strong> For orders with a 'Pending' status destined for your warehouse, a 'Receive' button <button class="btn btn-sm btn-outline-success disabled" style="pointer-events: none;"><i class="bi bi-box-arrow-in-down"></i></button> will appear in the Actions column. Click it to confirm the received quantities.
+                                    </div>
+                                </div>
                                 <div class="table-responsive">
                                     <table id="transferOrdersTable" class="table table-striped table-hover" style="width:100%">
                                         <thead>

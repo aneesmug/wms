@@ -1,4 +1,12 @@
 <?php
+/*
+* MODIFICATION SUMMARY
+* --------------------
+* 2025-08-14:
+* - Modified `getTransferHistory` to return both `total_quantity` (sent) and `total_received_quantity` to display in the UI.
+* - Reverted `receiveTransfer` to process an array of items with quantities from the frontend.
+* - The frontend now validates that sent and received quantities match, so the backend can proceed with processing the received quantities as provided.
+*/
 // Enable full error reporting for debugging purposes.
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
@@ -33,7 +41,6 @@ function checkLocationLockById($conn, $location_id) {
 // --- ROUTING ---
 switch ($method) {
     case 'GET':
-        // Allow viewers to see history and details, but not create transfers.
         authorize_user_role(['viewer', 'operator', 'manager']);
         switch ($action) {
             case 'get_transfer_history':
@@ -48,20 +55,36 @@ switch ($method) {
             case 'get_transfer_details_for_print':
                 getTransferDetailsForPrint($conn);
                 break;
+            case 'get_transfer_details_for_receiving':
+                getTransferDetailsForReceiving($conn);
+                break;
             default:
                 sendJsonResponse(['success' => false, 'message' => 'Invalid GET action specified.']);
         }
         break;
 
     case 'POST':
-        // Only operators and managers can create transfers.
         authorize_user_role(['operator', 'manager']);
         switch ($action) {
             case 'create_transfer':
                 createTransfer($conn, $current_warehouse_id, $current_user_id);
                 break;
+            case 'receive_transfer':
+                receiveTransfer($conn, $current_user_id);
+                break;
             default:
                 sendJsonResponse(['success' => false, 'message' => 'Invalid POST action specified.']);
+        }
+        break;
+    
+    case 'PUT':
+        authorize_user_role(['operator', 'manager']);
+        switch ($action) {
+            case 'update_transfer':
+                updateTransfer($conn, $current_user_id);
+                break;
+            default:
+                sendJsonResponse(['success' => false, 'message' => 'Invalid PUT action specified.']);
         }
         break;
 
@@ -76,10 +99,13 @@ function getTransferHistory($conn, $warehouse_id) {
                 t.transfer_id,
                 t.transfer_order_number,
                 sw.warehouse_name AS source_warehouse,
+                t.source_warehouse_id,
                 dw.warehouse_name AS destination_warehouse,
+                t.destination_warehouse_id,
                 t.created_at,
                 t.status,
-                COALESCE(SUM(ti.quantity), 0) as total_quantity
+                COALESCE(SUM(ti.quantity), 0) as total_quantity,
+                COALESCE(SUM(ti.received_quantity), 0) as total_received_quantity
             FROM transfer_orders t
             JOIN warehouses sw ON t.source_warehouse_id = sw.warehouse_id
             JOIN warehouses dw ON t.destination_warehouse_id = dw.warehouse_id
@@ -171,7 +197,7 @@ function createTransfer($conn, $current_warehouse_id, $current_user_id) {
         }
 
         $order_number = 'TRN-' . date('Ymd-His');
-        $sql_header = "INSERT INTO transfer_orders (transfer_order_number, source_warehouse_id, destination_warehouse_id, notes, created_by_user_id, status) VALUES (?, ?, ?, ?, ?, 'Completed')";
+        $sql_header = "INSERT INTO transfer_orders (transfer_order_number, source_warehouse_id, destination_warehouse_id, notes, created_by_user_id, status) VALUES (?, ?, ?, ?, ?, 'Pending')";
         $stmt_header = $conn->prepare($sql_header);
         $stmt_header->bind_param("siisi", $order_number, $source_warehouse_id, $destination_warehouse_id, $data['notes'], $current_user_id);
         $stmt_header->execute();
@@ -187,26 +213,10 @@ function createTransfer($conn, $current_warehouse_id, $current_user_id) {
             $stmt_decrease = $conn->prepare($sql_decrease);
             $stmt_decrease->bind_param("iiss", $item['quantity'], $item['productId'], $item['sourceLocationId'], $item['batch']);
             $stmt_decrease->execute();
-
-            $sql_check_dest = "SELECT inventory_id FROM inventory WHERE product_id = ? AND location_id = ? AND batch_number <=> ? AND dot_code <=> ?";
-            $stmt_check_dest = $conn->prepare($sql_check_dest);
-            $stmt_check_dest->bind_param("iiss", $item['productId'], $item['destLocationId'], $item['batch'], $item['dot']);
-            $stmt_check_dest->execute();
-            if ($stmt_check_dest->get_result()->num_rows > 0) {
-                $sql_increase = "UPDATE inventory SET quantity = quantity + ? WHERE product_id = ? AND location_id = ? AND batch_number <=> ? AND dot_code <=> ?";
-                $stmt_increase = $conn->prepare($sql_increase);
-                $stmt_increase->bind_param("iisss", $item['quantity'], $item['productId'], $item['destLocationId'], $item['batch'], $item['dot']);
-                $stmt_increase->execute();
-            } else {
-                $sql_insert = "INSERT INTO inventory (product_id, warehouse_id, location_id, quantity, batch_number, dot_code) VALUES (?, ?, ?, ?, ?, ?)";
-                $stmt_insert = $conn->prepare($sql_insert);
-                $stmt_insert->bind_param("iiiiss", $item['productId'], $destination_warehouse_id, $item['destLocationId'], $item['quantity'], $item['batch'], $item['dot']);
-                $stmt_insert->execute();
-            }
         }
 
         $conn->commit();
-        sendJsonResponse(['success' => true, 'message' => 'Transfer order created successfully!', 'transfer_id' => $transfer_id]);
+        sendJsonResponse(['success' => true, 'message' => 'Transfer order created successfully and is pending receipt.', 'transfer_id' => $transfer_id]);
 
     } catch (Exception $e) {
         $conn->rollback();
@@ -214,6 +224,123 @@ function createTransfer($conn, $current_warehouse_id, $current_user_id) {
         sendJsonResponse(['success' => false, 'message' => 'Failed to create transfer order: ' . $e->getMessage()]);
     }
 }
+
+function receiveTransfer($conn, $current_user_id) {
+    $data = json_decode(file_get_contents('php://input'), true);
+    $transfer_id = $data['transfer_id'] ?? 0;
+    $items = $data['items'] ?? [];
+
+    if (empty($transfer_id) || empty($items)) {
+        sendJsonResponse(['success' => false, 'message' => 'Transfer ID and items are required.'], 400);
+        return;
+    }
+
+    $conn->begin_transaction();
+    try {
+        $all_items_fully_received = true;
+
+        foreach ($items as $item) {
+            $item_id = $item['item_id'];
+            $received_quantity = $item['received_quantity'];
+
+            // Update the received quantity for the item
+            $stmt_update_item = $conn->prepare("UPDATE transfer_order_items SET received_quantity = ? WHERE item_id = ?");
+            $stmt_update_item->bind_param("ii", $received_quantity, $item_id);
+            $stmt_update_item->execute();
+            $stmt_update_item->close();
+
+            // Increase inventory at the destination
+            $sql_check_dest = "SELECT inventory_id FROM inventory WHERE product_id = ? AND location_id = ? AND batch_number <=> ? AND dot_code <=> ?";
+            $stmt_check_dest = $conn->prepare($sql_check_dest);
+            $stmt_check_dest->bind_param("iiss", $item['product_id'], $item['destination_location_id'], $item['batch_number'], $item['dot_code']);
+            $stmt_check_dest->execute();
+            $dest_inventory_result = $stmt_check_dest->get_result();
+
+            if ($dest_inventory_result->num_rows > 0) {
+                $sql_increase = "UPDATE inventory SET quantity = quantity + ? WHERE product_id = ? AND location_id = ? AND batch_number <=> ? AND dot_code <=> ?";
+                $stmt_increase = $conn->prepare($sql_increase);
+                $stmt_increase->bind_param("iisss", $received_quantity, $item['product_id'], $item['destination_location_id'], $item['batch_number'], $item['dot_code']);
+                $stmt_increase->execute();
+            } else {
+                $sql_insert = "INSERT INTO inventory (product_id, warehouse_id, location_id, quantity, batch_number, dot_code) VALUES (?, ?, ?, ?, ?, ?)";
+                $stmt_insert = $conn->prepare($sql_insert);
+                $stmt_insert->bind_param("iiiiss", $item['product_id'], $data['destination_warehouse_id'], $item['destination_location_id'], $received_quantity, $item['batch_number'], $item['dot_code']);
+                $stmt_insert->execute();
+            }
+             $stmt_check_dest->close();
+
+            // Check if this item is fully received
+            if ($received_quantity < $item['quantity']) {
+                $all_items_fully_received = false;
+            }
+        }
+
+        // Update the order status if all items are fully received
+        if ($all_items_fully_received) {
+            $stmt_update_order = $conn->prepare("UPDATE transfer_orders SET status = 'Completed', received_at = NOW(), received_by_user_id = ? WHERE transfer_id = ?");
+            $stmt_update_order->bind_param("ii", $current_user_id, $transfer_id);
+            $stmt_update_order->execute();
+            $stmt_update_order->close();
+        }
+
+        $conn->commit();
+        sendJsonResponse(['success' => true, 'message' => 'Transfer received successfully.']);
+
+    } catch (Exception $e) {
+        $conn->rollback();
+        error_log("Receive Transfer Error: " . $e->getMessage());
+        sendJsonResponse(['success' => false, 'message' => 'Failed to receive transfer: ' . $e->getMessage()]);
+    }
+}
+
+function updateTransfer($conn, $current_user_id) {
+    $data = json_decode(file_get_contents('php://input'), true);
+    $transfer_id = $data['transfer_id'] ?? 0;
+    $items = $data['items'] ?? [];
+
+    if (empty($transfer_id) || empty($items)) {
+        sendJsonResponse(['success' => false, 'message' => 'Transfer ID and items are required.'], 400);
+        return;
+    }
+
+    $conn->begin_transaction();
+    try {
+        foreach ($items as $item) {
+            $item_id = $item['item_id'];
+            $new_quantity = $item['quantity'];
+            
+            // Get original quantity and details
+            $stmt_get_item = $conn->prepare("SELECT quantity, product_id, source_location_id, batch_number FROM transfer_order_items WHERE item_id = ?");
+            $stmt_get_item->bind_param("i", $item_id);
+            $stmt_get_item->execute();
+            $original_item = $stmt_get_item->get_result()->fetch_assoc();
+            $stmt_get_item->close();
+
+            $quantity_diff = $new_quantity - $original_item['quantity'];
+
+            // Adjust inventory in source location
+            $stmt_adjust_inv = $conn->prepare("UPDATE inventory SET quantity = quantity - ? WHERE product_id = ? AND location_id = ? AND batch_number <=> ?");
+            $stmt_adjust_inv->bind_param("iiss", $quantity_diff, $original_item['product_id'], $original_item['source_location_id'], $original_item['batch_number']);
+            $stmt_adjust_inv->execute();
+            $stmt_adjust_inv->close();
+
+            // Update item quantity
+            $stmt_update_item = $conn->prepare("UPDATE transfer_order_items SET quantity = ? WHERE item_id = ?");
+            $stmt_update_item->bind_param("ii", $new_quantity, $item_id);
+            $stmt_update_item->execute();
+            $stmt_update_item->close();
+        }
+
+        $conn->commit();
+        sendJsonResponse(['success' => true, 'message' => 'Transfer order updated successfully.']);
+
+    } catch (Exception $e) {
+        $conn->rollback();
+        error_log("Update Transfer Error: " . $e->getMessage());
+        sendJsonResponse(['success' => false, 'message' => 'Failed to update transfer: ' . $e->getMessage()]);
+    }
+}
+
 
 function getTransferDetailsForPrint($conn) {
     $transfer_id = $_GET['id'] ?? 0;
@@ -253,5 +380,38 @@ function getTransferDetailsForPrint($conn) {
         sendJsonResponse(['success' => false, 'message' => 'Transfer order not found.']);
     }
 }
+
+function getTransferDetailsForReceiving($conn) {
+    $transfer_id = $_GET['id'] ?? 0;
+    if (!$transfer_id) {
+        sendJsonResponse(['success' => false, 'message' => 'Invalid Transfer ID.']);
+    }
+
+    $sql_header = "SELECT t.*, sw.warehouse_name as source_warehouse, dw.warehouse_name as dest_warehouse
+                   FROM transfer_orders t
+                   JOIN warehouses sw ON t.source_warehouse_id = sw.warehouse_id
+                   JOIN warehouses dw ON t.destination_warehouse_id = dw.warehouse_id
+                   WHERE t.transfer_id = ?";
+    $stmt_header = $conn->prepare($sql_header);
+    $stmt_header->bind_param("i", $transfer_id);
+    $stmt_header->execute();
+    $header = $stmt_header->get_result()->fetch_assoc();
+
+    if ($header) {
+        $sql_items = "SELECT ti.*, p.product_name, p.sku, p.article_no
+                      FROM transfer_order_items ti
+                      JOIN products p ON ti.product_id = p.product_id
+                      WHERE ti.transfer_id = ?";
+        $stmt_items = $conn->prepare($sql_items);
+        $stmt_items->bind_param("i", $transfer_id);
+        $stmt_items->execute();
+        $items = $stmt_items->get_result()->fetch_all(MYSQLI_ASSOC);
+        
+        sendJsonResponse(['success' => true, 'header' => $header, 'items' => $items]);
+    } else {
+        sendJsonResponse(['success' => false, 'message' => 'Transfer order not found.']);
+    }
+}
+
 
 $conn->close();

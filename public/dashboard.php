@@ -1,3 +1,11 @@
+<?php
+// MODIFICATION SUMMARY
+// - Added three new statistic cards to the dashboard for:
+//   1. Total Stock Value: Displays the total financial value of the current inventory.
+//   2. Orders Pending Pick: Shows the count of orders that are ready to be picked.
+//   3. Returns Processed Today: Tracks the number of customer returns handled today.
+// - Each new card has a unique ID for JavaScript to populate the data.
+?>
 <!DOCTYPE html>
 <html lang="en" class="h-100">
 <head>
@@ -39,6 +47,20 @@
                 <div class="container-fluid">
                     <!-- Dashboard Cards -->
                     <div class="row row-cols-1 row-cols-sm-2 row-cols-xl-3 g-4 mb-4">
+                        <!-- Total Stock Value Card -->
+                        <div class="col">
+                            <div class="card h-100 shadow-sm">
+                                <div class="card-body d-flex align-items-center">
+                                    <div class="bg-success text-white p-3 rounded-3 me-3">
+                                        <i class="bi bi-cash-coin fs-2"></i>
+                                    </div>
+                                    <div>
+                                        <h5 class="card-title text-muted">Total Stock Value</h5>
+                                        <p class="card-text fs-4 fw-bold" id="stockValue">---</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                         <!-- Total Inventory Card -->
                         <div class="col">
                             <div class="card h-100 shadow-sm">
@@ -67,6 +89,20 @@
                                 </div>
                             </div>
                         </div>
+                        <!-- Pending Pick Card -->
+                        <div class="col">
+                            <div class="card h-100 shadow-sm">
+                                <div class="card-body d-flex align-items-center">
+                                    <div class="bg-warning text-dark p-3 rounded-3 me-3">
+                                        <i class="bi bi-hourglass-split fs-2"></i>
+                                    </div>
+                                    <div>
+                                        <h5 class="card-title text-muted">Orders Pending Pick</h5>
+                                        <p class="card-text fs-2 fw-bold" id="pendingPick">---</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                         <!-- Pending Outbounds Card -->
                         <div class="col">
                             <div class="card h-100 shadow-sm">
@@ -75,7 +111,7 @@
                                         <i class="bi bi-box-arrow-up-right fs-2"></i>
                                     </div>
                                     <div>
-                                        <h5 class="card-title text-muted">Pending Outbound Orders</h5>
+                                        <h5 class="card-title text-muted">Total Pending Orders</h5>
                                         <p class="card-text fs-2 fw-bold" id="pendingOutbounds">---</p>
                                     </div>
                                 </div>
@@ -119,6 +155,20 @@
                                     <div>
                                         <h5 class="card-title text-muted">Active Locations</h5>
                                         <p class="card-text fs-2 fw-bold" id="activeLocations">---</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Returns Today Card -->
+                        <div class="col">
+                            <div class="card h-100 shadow-sm">
+                                <div class="card-body d-flex align-items-center">
+                                    <div class="bg-dark text-white p-3 rounded-3 me-3">
+                                        <i class="bi bi-arrow-return-left fs-2"></i>
+                                    </div>
+                                    <div>
+                                        <h5 class="card-title text-muted">Returns Today</h5>
+                                        <p class="card-text fs-2 fw-bold" id="returnsToday">---</p>
                                     </div>
                                 </div>
                             </div>

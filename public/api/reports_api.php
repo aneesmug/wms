@@ -1,4 +1,11 @@
 <?php
+// MODIFICATION SUMMARY
+// - Added a new report function `getProductMasterList` to provide a complete list of all products
+//   with their detailed attributes from the database.
+// - This function joins the `products` table with `tire_types` to include the tire type name.
+// - Registered the new report in the main switch statement under the `productMasterList` action.
+// - The function supports the advanced filtering UI, allowing users to search the product list.
+
 // api/reports_api.php
 
 require_once __DIR__ . '/../config/config.php';
@@ -16,7 +23,7 @@ $current_warehouse_id = get_current_warehouse_id();
 $action = $_GET['action'] ?? '';
 
 switch ($action) {
-    // Dashboard Reports (Unaffected)
+    // Dashboard Reports
     case 'dashboardSummary': getDashboardSummary($conn, $current_warehouse_id); break;
     case 'getWeeklyActivity': getWeeklyActivity($conn, $current_warehouse_id); break;
     case 'getFastMovingItems': getFastMovingItems($conn, $current_warehouse_id); break;
@@ -34,6 +41,7 @@ switch ($action) {
     case 'supplierPerformance': getSupplierPerformance($conn, $current_warehouse_id); break;
 
     // Outbound Operations
+    case 'customerOrderDetails': getCustomerOrderDetails($conn, $current_warehouse_id); break;
     case 'outboundHistory': getOutboundHistory($conn, $current_warehouse_id); break;
     case 'returnHistory': getReturnHistory($conn, $current_warehouse_id); break;
     case 'onTimeShipment': getOnTimeShipment($conn, $current_warehouse_id); break;
@@ -42,18 +50,20 @@ switch ($action) {
     case 'orderMovementHistory': getOrderMovementHistory($conn, $current_warehouse_id); break;
 
     // Inventory Management
+    case 'productMasterList': getProductMasterList($conn); break;
     case 'inventorySummary': getInventorySummary($conn, $current_warehouse_id); break;
     case 'stockByLocation': getStockByLocation($conn, $current_warehouse_id); break;
     case 'inventoryAging': getInventoryAging($conn, $current_warehouse_id); break;
+    case 'dotCodeAging': getDotCodeAging($conn, $current_warehouse_id); break; 
     case 'transferHistory': getTransferHistory($conn, $current_warehouse_id); break;
     case 'deadStock': getDeadStockReport($conn, $current_warehouse_id); break;
     case 'expiringStock': getExpiringStock($conn, $current_warehouse_id); break; 
     case 'productMovement': getProductMovement($conn, $current_warehouse_id); break;
-    // MODIFICATION: Added scrapHistory case
     case 'scrapHistory': getScrapHistory($conn, $current_warehouse_id); break;
 
     // Performance & User Activity
     case 'pickerPerformance': getPickerPerformance($conn, $current_warehouse_id); break;
+    case 'driverPerformance': getDriverPerformance($conn, $current_warehouse_id); break; 
     case 'userProductivity': getUserProductivity($conn, $current_warehouse_id); break;
     case 'orderFulfillmentLeadTime': getOrderFulfillmentLeadTime($conn, $current_warehouse_id); break;
     
@@ -68,7 +78,158 @@ switch ($action) {
         break;
 }
 
-// --- NEW GR REPORT FUNCTION ---
+// --- Helper for date filtering ---
+function addDateFilter(&$sql, &$params, &$types, $date_column) {
+    $dateRange = sanitize_input($_GET['dateRange'] ?? null);
+    if ($dateRange) {
+        $dates = explode(' - ', $dateRange);
+        if (count($dates) === 2) {
+            $start_date = $dates[0];
+            $end_date = $dates[1];
+            $sql .= " AND DATE($date_column) BETWEEN ? AND ?";
+            array_push($params, $start_date, $end_date);
+            $types .= "ss";
+        }
+    }
+}
+
+// --- New Helper for Advanced Filters ---
+function addAdvancedFilters(&$sql, &$params, &$types) {
+    if (isset($_GET['adv_filters'])) {
+        $adv_filters = json_decode($_GET['adv_filters'], true);
+        if (is_array($adv_filters)) {
+            foreach ($adv_filters as $filter) {
+                if (isset($filter['field'], $filter['condition'], $filter['value']) && !empty($filter['value'])) {
+                    $field = $filter['field'];
+                    $condition = $filter['condition'];
+                    $value = $filter['value'];
+                    
+                    $sql .= " AND ";
+                    
+                    switch ($condition) {
+                        case 'equals':
+                            $sql .= "$field = ?";
+                            $params[] = $value;
+                            $types .= 's';
+                            break;
+                        case 'not_equals':
+                            $sql .= "$field != ?";
+                            $params[] = $value;
+                            $types .= 's';
+                            break;
+                        case 'contains':
+                            $sql .= "$field LIKE ?";
+                            $params[] = "%$value%";
+                            $types .= 's';
+                            break;
+                        case 'starts_with':
+                            $sql .= "$field LIKE ?";
+                            $params[] = "$value%";
+                            $types .= 's';
+                            break;
+                        case 'ends_with':
+                            $sql .= "$field LIKE ?";
+                            $params[] = "%$value";
+                            $types .= 's';
+                            break;
+                        case 'greater_than':
+                            $sql .= "$field > ?";
+                            $params[] = $value;
+                            $types .= 'd'; // double/decimal
+                            break;
+                        case 'less_than':
+                            $sql .= "$field < ?";
+                            $params[] = $value;
+                            $types .= 'd';
+                            break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+// --- REPORT FUNCTIONS (MODIFIED & NEW) ---
+
+function getProductMasterList($conn) {
+    $sql = "
+        SELECT
+            p.sku AS 'SKU',
+            p.product_name AS 'Product Name',
+            p.description AS 'Description',
+            p.article_no AS 'Article No',
+            tt.tire_type_name AS 'Tire Type',
+            p.unit_of_measure AS 'UoM',
+            p.weight AS 'Weight',
+            p.volume AS 'Volume',
+            p.expiry_years AS 'Shelf Life (Yrs)',
+            IF(p.is_active, 'Yes', 'No') AS 'Is Active'
+        FROM products p
+        LEFT JOIN tire_types tt ON p.tire_type_id = tt.tire_type_id
+        WHERE 1=1
+    ";
+    $params = [];
+    $types = "";
+    addAdvancedFilters($sql, $params, $types);
+    $sql .= " ORDER BY p.product_name ASC";
+
+    $stmt = $conn->prepare($sql);
+    if (!empty($params)) {
+        $stmt->bind_param($types, ...$params);
+    }
+    $stmt->execute();
+    $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    sendJsonResponse(['success' => true, 'data' => $data]);
+}
+
+function getCustomerOrderDetails($conn, $warehouse_id) {
+    $sql = "
+        SELECT
+            oo.order_number,
+            c.customer_name,
+            oo.order_date,
+            oo.status,
+            p.sku,
+            p.article_no,
+            p.product_name,
+            oi.ordered_quantity,
+            oi.picked_quantity,
+            oi.shipped_quantity,
+            COALESCE(picker.full_name, 'N/A') as picker_name,
+            oo.actual_ship_date,
+            COALESCE(driver.full_name, ooa.third_party_driver_name, 'N/A') as driver_name,
+            COALESCE(dc.company_name, IF(ooa.driver_user_id IS NOT NULL, 'In-House', 'N/A')) as delivery_company,
+            oo.tracking_number,
+            oo.actual_delivery_date
+        FROM outbound_orders oo
+        JOIN customers c ON oo.customer_id = c.customer_id
+        JOIN outbound_items oi ON oo.order_id = oi.order_id
+        JOIN products p ON oi.product_id = p.product_id
+        LEFT JOIN users picker ON oo.picked_by = picker.user_id
+        LEFT JOIN outbound_order_assignments ooa ON oo.order_id = ooa.order_id
+        LEFT JOIN users driver ON ooa.driver_user_id = driver.user_id
+        LEFT JOIN delivery_companies dc ON ooa.third_party_company_id = dc.company_id
+        WHERE oo.warehouse_id = ?
+    ";
+    $params = [$warehouse_id];
+    $types = "i";
+
+    addDateFilter($sql, $params, $types, 'oo.order_date');
+    addAdvancedFilters($sql, $params, $types);
+
+    $sql .= " ORDER BY oo.order_date DESC, oo.order_number ASC, p.sku ASC";
+
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+
+    sendJsonResponse(['success' => true, 'data' => $data]);
+}
+
 
 function getGrReport($conn, $warehouse_id) {
     $receipt_number = sanitize_input($_GET['filter'] ?? null);
@@ -95,11 +256,18 @@ function getGrReport($conn, $warehouse_id) {
         JOIN inbound_receipt_containers irc ON ii.container_id = irc.container_id
         JOIN warehouses w ON ir.warehouse_id = w.warehouse_id
         WHERE ir.receipt_number = ? AND ir.warehouse_id = ?
-        ORDER BY irc.reference_number ASC
     ";
     
+    $params = [$receipt_number, $warehouse_id];
+    $types = "si";
+
+    addDateFilter($sql, $params, $types, 'irc.actual_arrival_date');
+    addAdvancedFilters($sql, $params, $types);
+
+    $sql .= " ORDER BY irc.reference_number ASC";
+    
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("si", $receipt_number, $warehouse_id);
+    $stmt->bind_param($types, ...$params);
     $stmt->execute();
     $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
@@ -110,63 +278,64 @@ function getGrReport($conn, $warehouse_id) {
             $total_quantity += (int)$row['Quantity'];
         }
 
-        // Add a total row
         $data[] = [
-            'Item Number' => '',
-            'Product Name' => 'Total',
-            'Quantity' => $total_quantity,
-            'Batch Number' => '',
-            'Customer Reference' => '',
-            'Customer Requisition' => '',
-            'Reference No' => '',
-            'Requested receipt date' => '',
-            'Warehouse' => '',
-            'Serial No' => ''
+            'Item Number' => '', 'Product Name' => 'Total', 'Quantity' => $total_quantity,
+            'Batch Number' => '', 'Customer Reference' => '', 'Customer Requisition' => '',
+            'Reference No' => '', 'Requested receipt date' => '', 'Warehouse' => '', 'Serial No' => ''
         ];
     }
     
     sendJsonResponse(['success' => true, 'data' => $data]);
 }
 
-
-// --- Dashboard Functions (Existing - Unchanged) ---
-
 function getDashboardSummary($conn, $warehouse_id) {
     if (!$warehouse_id) {
         sendJsonResponse(['success' => false, 'message' => 'No warehouse selected.'], 400);
         return;
     }
-    $summary = ['totalProducts' => 0, 'openInbounds' => 0, 'pendingOutbounds' => 0, 'shippedToday' => 0, 'receivedToday' => 0, 'activeLocations' => 0];
+    $summary = [
+        'totalProducts' => 0, 'openInbounds' => 0, 'pendingOutbounds' => 0, 
+        'shippedToday' => 0, 'receivedToday' => 0, 'activeLocations' => 0,
+        'stockValue' => 0, 'returnsToday' => 0, 'pendingPick' => 0
+    ];
+
     $execute_query = function($sql, $params, $types) use ($conn) {
         $stmt = $conn->prepare($sql);
+        if (!$stmt) return 0;
         $stmt->bind_param($types, ...$params);
         $stmt->execute();
         $result = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         return $result ? reset($result) ?? 0 : 0;
     };
+
     $summary['totalProducts'] = $execute_query("SELECT SUM(quantity) FROM inventory WHERE warehouse_id = ?", [$warehouse_id], "i");
     $summary['openInbounds'] = $execute_query("SELECT COUNT(*) FROM inbound_receipts WHERE warehouse_id = ? AND status NOT IN ('Completed', 'Cancelled')", [$warehouse_id], "i");
-    $summary['pendingOutbounds'] = $execute_query("SELECT COUNT(*) FROM outbound_orders WHERE warehouse_id = ? AND status NOT IN ('Shipped', 'Cancelled')", [$warehouse_id], "i");
-    $summary['shippedToday'] = $execute_query("SELECT COUNT(*) FROM outbound_orders WHERE warehouse_id = ? AND status = 'Shipped' AND DATE(actual_ship_date) = CURDATE()", [$warehouse_id], "i");
-    $summary['receivedToday'] = $execute_query("SELECT COUNT(*) FROM inbound_receipts WHERE warehouse_id = ? AND status = 'Completed' AND DATE(updated_at) = CURDATE()", [$warehouse_id], "i");
+    $summary['pendingOutbounds'] = $execute_query("SELECT COUNT(*) FROM outbound_orders WHERE warehouse_id = ? AND status NOT IN ('Shipped', 'Delivered', 'Cancelled', 'Scrapped', 'Completed', 'Partially Returned')", [$warehouse_id], "i");
+    $summary['shippedToday'] = $execute_query("SELECT COUNT(*) FROM outbound_orders WHERE warehouse_id = ? AND status IN ('Shipped', 'Delivered') AND DATE(actual_ship_date) = CURDATE()", [$warehouse_id], "i");
+    $summary['receivedToday'] = $execute_query("SELECT COUNT(*) FROM inbound_receipts WHERE warehouse_id = ? AND status = 'Completed' AND DATE(actual_arrival_date) = CURDATE()", [$warehouse_id], "i");
     $summary['activeLocations'] = $execute_query("SELECT COUNT(DISTINCT location_id) FROM inventory WHERE warehouse_id = ? AND quantity > 0", [$warehouse_id], "i");
+    $summary['stockValue'] = $execute_query("SELECT SUM(i.quantity * i.unit_cost) FROM inventory i WHERE i.warehouse_id = ? AND i.unit_cost IS NOT NULL", [$warehouse_id], "i");
+    $summary['returnsToday'] = $execute_query("SELECT COUNT(*) FROM returns r JOIN outbound_orders oo ON r.order_id = oo.order_id WHERE oo.warehouse_id = ? AND DATE(r.created_at) = CURDATE()", [$warehouse_id], "i");
+    $summary['pendingPick'] = $execute_query("SELECT COUNT(*) FROM outbound_orders WHERE warehouse_id = ? AND status = 'Pending Pick'", [$warehouse_id], "i");
+
     sendJsonResponse(['success' => true, 'data' => $summary]);
 }
+
 
 function getWeeklyActivity($conn, $warehouse_id) {
     if (!$warehouse_id) { sendJsonResponse(['success' => false, 'message' => 'No warehouse selected.'], 400); return; }
     $dates = [];
     for ($i = 29; $i >= 0; $i--) { $dates[date('Y-m-d', strtotime("-$i days"))] = ['inbound' => 0, 'outbound' => 0]; }
     $start_date = date('Y-m-d', strtotime('-29 days'));
-    $sql_inbound = "SELECT DATE(updated_at) as date, COUNT(*) as count FROM inbound_receipts WHERE warehouse_id = ? AND status = 'Completed' AND DATE(updated_at) >= ? GROUP BY DATE(updated_at)";
+    $sql_inbound = "SELECT DATE(actual_arrival_date) as date, COUNT(*) as count FROM inbound_receipts WHERE warehouse_id = ? AND status = 'Completed' AND DATE(actual_arrival_date) >= ? GROUP BY DATE(actual_arrival_date)";
     $stmt_inbound = $conn->prepare($sql_inbound);
     $stmt_inbound->bind_param("is", $warehouse_id, $start_date);
     $stmt_inbound->execute();
     $result_inbound = $stmt_inbound->get_result();
     while ($row = $result_inbound->fetch_assoc()) { if (isset($dates[$row['date']])) { $dates[$row['date']]['inbound'] = (int)$row['count']; } }
     $stmt_inbound->close();
-    $sql_outbound = "SELECT DATE(actual_ship_date) as date, COUNT(*) as count FROM outbound_orders WHERE warehouse_id = ? AND status = 'Shipped' AND DATE(actual_ship_date) >= ? GROUP BY DATE(actual_ship_date)";
+    $sql_outbound = "SELECT DATE(actual_ship_date) as date, COUNT(*) as count FROM outbound_orders WHERE warehouse_id = ? AND status IN ('Shipped', 'Delivered') AND DATE(actual_ship_date) >= ? GROUP BY DATE(actual_ship_date)";
     $stmt_outbound = $conn->prepare($sql_outbound);
     $stmt_outbound->bind_param("is", $warehouse_id, $start_date);
     $stmt_outbound->execute();
@@ -188,24 +357,69 @@ function getFastMovingItems($conn, $warehouse_id) {
     sendJsonResponse(['success' => true, 'data' => $items]);
 }
 
-// --- Helper for date filtering ---
-function addDateFilter($sql, &$params, &$types, $date_column) {
-    $start_date = sanitize_input($_GET['start_date'] ?? null);
-    $end_date = sanitize_input($_GET['end_date'] ?? null);
-    if ($start_date) {
-        $sql .= " AND DATE($date_column) >= ?";
-        $params[] = $start_date;
-        $types .= "s";
-    }
-    if ($end_date) {
-        $sql .= " AND DATE($date_column) <= ?";
-        $params[] = $end_date;
-        $types .= "s";
-    }
-    return $sql;
+function getDriverPerformance($conn, $warehouse_id) {
+    $sql = "
+        SELECT 
+            COALESCE(u.full_name, ooa.third_party_driver_name, 'Unassigned') AS driver_name,
+            COALESCE(dc.company_name, 'In-House') AS company,
+            ooa.assignment_type,
+            COUNT(DISTINCT oo.order_id) AS total_orders,
+            SUM(CASE WHEN oo.actual_delivery_date IS NOT NULL THEN 1 ELSE 0 END) AS delivered_orders,
+            SUM(CASE WHEN oo.actual_ship_date > oo.required_ship_date THEN 1 ELSE 0 END) AS late_shipments,
+            ROUND(AVG(TIMESTAMPDIFF(HOUR, oo.out_for_delivery_date, oo.actual_delivery_date)), 2) AS avg_delivery_hours
+        FROM outbound_order_assignments ooa
+        JOIN outbound_orders oo ON ooa.order_id = oo.order_id
+        LEFT JOIN users u ON ooa.driver_user_id = u.user_id
+        LEFT JOIN delivery_companies dc ON ooa.third_party_company_id = dc.company_id
+        WHERE oo.warehouse_id = ? AND oo.status IN ('Delivered', 'Partially Returned', 'Completed')
+    ";
+    $params = [$warehouse_id];
+    $types = "i";
+    addDateFilter($sql, $params, $types, 'oo.order_date');
+    addAdvancedFilters($sql, $params, $types);
+    $sql .= " GROUP BY driver_name, company, ooa.assignment_type ORDER BY company, driver_name";
+    
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    sendJsonResponse(['success' => true, 'data' => $data]);
 }
 
-// --- NEW AND MODIFIED REPORT FUNCTIONS ---
+function getDotCodeAging($conn, $warehouse_id) {
+    $sql = "
+        SELECT
+            p.sku,
+            p.product_name,
+            p.article_no,
+            i.quantity,
+            wl.location_code,
+            i.batch_number,
+            i.dot_code,
+            CONCAT('W', SUBSTRING(i.dot_code, 1, 2), '-20', SUBSTRING(i.dot_code, 3, 2)) AS manufacture_date_est,
+            ROUND(DATEDIFF(NOW(), STR_TO_DATE(CONCAT('20', SUBSTRING(i.dot_code, 3, 2), '-', SUBSTRING(i.dot_code, 1, 2), '-1'), '%Y-%u-%w')) / 365.25, 2) AS age_years
+        FROM inventory i
+        JOIN products p ON i.product_id = p.product_id
+        JOIN warehouse_locations wl ON i.location_id = wl.location_id
+        WHERE i.warehouse_id = ? 
+          AND i.dot_code IS NOT NULL
+          AND LENGTH(i.dot_code) = 4
+          AND i.quantity > 0
+    ";
+    $params = [$warehouse_id];
+    $types = "i";
+    addAdvancedFilters($sql, $params, $types);
+    $sql .= " ORDER BY age_years DESC";
+
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    sendJsonResponse(['success' => true, 'data' => $data]);
+}
+
 
 function getBlockedAndLockedStock($conn) {
     $sql = "
@@ -229,9 +443,15 @@ function getBlockedAndLockedStock($conn) {
         JOIN warehouse_locations wl ON i.location_id = wl.location_id
         LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
         WHERE i.quantity > 0 AND (wl.is_locked = 1 OR lt.type_name = 'block_area')
-        ORDER BY w.warehouse_name, reason, p.product_name
     ";
+    $params = [];
+    $types = "";
+    addAdvancedFilters($sql, $params, $types);
+    $sql .= " ORDER BY w.warehouse_name, reason, p.product_name";
     $stmt = $conn->prepare($sql);
+    if (!empty($params)) {
+        $stmt->bind_param($types, ...$params);
+    }
     $stmt->execute();
     $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
@@ -252,9 +472,15 @@ function getAllWarehouseStockSummary($conn) {
         JOIN warehouses w ON i.warehouse_id = w.warehouse_id
         JOIN warehouse_locations wl ON i.location_id = wl.location_id
         WHERE i.quantity > 0
-        ORDER BY w.warehouse_name, p.product_name, wl.location_code
     ";
+    $params = [];
+    $types = "";
+    addAdvancedFilters($sql, $params, $types);
+    $sql .= " ORDER BY w.warehouse_name, p.product_name, wl.location_code";
     $stmt = $conn->prepare($sql);
+    if (!empty($params)) {
+        $stmt->bind_param($types, ...$params);
+    }
     $stmt->execute();
     $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
@@ -280,11 +506,12 @@ function getTransferHistory($conn, $warehouse_id) {
         JOIN warehouses dw ON to.destination_warehouse_id = dw.warehouse_id
         JOIN products p ON toi.product_id = p.product_id
         LEFT JOIN users u ON to.created_by_user_id = u.user_id
-        WHERE to.source_warehouse_id = ? OR to.destination_warehouse_id = ?
+        WHERE (to.source_warehouse_id = ? OR to.destination_warehouse_id = ?)
     ";
     $params = [$warehouse_id, $warehouse_id];
     $types = "ii";
-    $sql = addDateFilter($sql, $params, $types, 'to.created_at');
+    addDateFilter($sql, $params, $types, 'to.created_at');
+    addAdvancedFilters($sql, $params, $types);
     $sql .= " ORDER BY to.created_at DESC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param($types, ...$params);
@@ -319,7 +546,8 @@ function getReturnHistory($conn, $warehouse_id) {
     ";
     $params = [$warehouse_id];
     $types = "i";
-    $sql = addDateFilter($sql, $params, $types, 'r.created_at');
+    addDateFilter($sql, $params, $types, 'r.created_at');
+    addAdvancedFilters($sql, $params, $types);
     $sql .= " ORDER BY r.created_at DESC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param($types, ...$params);
@@ -350,7 +578,8 @@ function getReceivingDiscrepancy($conn, $warehouse_id) {
     ";
     $params = [$warehouse_id];
     $types = "i";
-    $sql = addDateFilter($sql, $params, $types, 'ir.actual_arrival_date');
+    addDateFilter($sql, $params, $types, 'ir.actual_arrival_date');
+    addAdvancedFilters($sql, $params, $types);
     $sql .= " ORDER BY ir.actual_arrival_date DESC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param($types, ...$params);
@@ -380,7 +609,8 @@ function getOnTimeShipment($conn, $warehouse_id) {
     ";
     $params = [$warehouse_id];
     $types = "i";
-    $sql = addDateFilter($sql, $params, $types, 'oo.order_date');
+    addDateFilter($sql, $params, $types, 'oo.order_date');
+    addAdvancedFilters($sql, $params, $types);
     $sql .= " ORDER BY oo.order_date DESC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param($types, ...$params);
@@ -391,7 +621,6 @@ function getOnTimeShipment($conn, $warehouse_id) {
 }
 
 function getExpiringStock($conn, $warehouse_id) {
-    // Default to showing items expiring in the next 90 days
     $days_filter = filter_input(INPUT_GET, 'days', FILTER_VALIDATE_INT) ?: 90;
 
     $sql = "
@@ -410,10 +639,14 @@ function getExpiringStock($conn, $warehouse_id) {
         WHERE i.warehouse_id = ? 
           AND i.expiry_date IS NOT NULL
           AND i.expiry_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)
-        ORDER BY days_to_expiry ASC
     ";
+    $params = [$warehouse_id, $days_filter];
+    $types = "ii";
+    addAdvancedFilters($sql, $params, $types);
+    $sql .= " ORDER BY days_to_expiry ASC";
+
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("ii", $warehouse_id, $days_filter);
+    $stmt->bind_param($types, ...$params);
     $stmt->execute();
     $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
@@ -422,41 +655,58 @@ function getExpiringStock($conn, $warehouse_id) {
 
 function getUserProductivity($conn, $warehouse_id) {
     $sql = "
-        SELECT u.full_name, 'Picking' as activity_type, COUNT(DISTINCT oi.order_id) as items, SUM(oip.picked_quantity) as quantity, DATE(oip.picked_at) as activity_date
+        (SELECT u.full_name, 'Picking' as activity_type, COUNT(DISTINCT oi.order_id) as items, SUM(oip.picked_quantity) as quantity, DATE(oip.picked_at) as activity_date
         FROM outbound_item_picks oip
         JOIN users u ON oip.picked_by_user_id = u.user_id
         JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id
         JOIN outbound_orders oo ON oi.order_id = oo.order_id
         WHERE oo.warehouse_id = ?
-        GROUP BY u.full_name, activity_date
+        GROUP BY u.full_name, activity_date)
 
         UNION ALL
 
-        SELECT u.full_name, 'Receiving' as activity_type, COUNT(DISTINCT ir.receipt_id) as items, SUM(ii.received_quantity) as quantity, DATE(ir.actual_arrival_date) as activity_date
+        (SELECT u.full_name, 'Receiving' as activity_type, COUNT(DISTINCT ir.receipt_id) as items, SUM(ii.received_quantity) as quantity, DATE(ir.actual_arrival_date) as activity_date
         FROM inbound_items ii
         JOIN inbound_receipts ir ON ii.receipt_id = ir.receipt_id
         JOIN users u ON ir.received_by = u.user_id
         WHERE ir.warehouse_id = ? AND ir.status = 'Completed'
-        GROUP BY u.full_name, activity_date
+        GROUP BY u.full_name, activity_date)
 
         UNION ALL
 
-        SELECT u.full_name, 'Adjustments' as activity_type, COUNT(sa.adjustment_id) as items, SUM(ABS(sa.quantity_adjusted)) as quantity, DATE(sa.adjustment_timestamp) as activity_date
+        (SELECT u.full_name, 'Adjustments' as activity_type, COUNT(sa.adjustment_id) as items, SUM(ABS(sa.quantity_adjusted)) as quantity, DATE(sa.adjustment_timestamp) as activity_date
         FROM stock_adjustments sa
         JOIN users u ON sa.user_id = u.user_id
         WHERE sa.warehouse_id = ?
-        GROUP BY u.full_name, activity_date
+        GROUP BY u.full_name, activity_date)
     ";
 
-    $params = [$warehouse_id, $warehouse_id, $warehouse_id];
-    $types = "iii";
+    $base_params = [$warehouse_id, $warehouse_id, $warehouse_id];
+    $base_types = "iii";
 
-    // This is a complex query to filter by date, so we wrap it
     $outer_sql = "SELECT * FROM ($sql) AS productivity WHERE 1=1";
-    $outer_sql = addDateFilter($outer_sql, $params, $types, 'activity_date');
+    addDateFilter($outer_sql, $base_params, $base_types, 'activity_date');
+    addAdvancedFilters($outer_sql, $base_params, $base_types);
     $outer_sql .= " ORDER BY activity_date DESC, full_name ASC";
     
     $stmt = $conn->prepare($outer_sql);
+    $stmt->bind_param($base_types, ...$base_params);
+    $stmt->execute();
+    $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    sendJsonResponse(['success' => true, 'data' => $data]);
+}
+
+
+// --- EXISTING REPORT FUNCTIONS ---
+
+function getInventorySummary($conn, $warehouse_id) {
+    $sql = "SELECT p.sku, p.product_name, p.article_no, SUM(i.quantity) AS total_quantity, GROUP_CONCAT(DISTINCT wl.location_code SEPARATOR ', ') AS locations_list FROM inventory i JOIN products p ON i.product_id = p.product_id JOIN warehouse_locations wl ON i.location_id = wl.location_id WHERE i.warehouse_id = ? AND i.quantity > 0";
+    $params = [$warehouse_id];
+    $types = "i";
+    addAdvancedFilters($sql, $params, $types);
+    $sql .= " GROUP BY p.product_id, p.article_no ORDER BY p.product_name ASC";
+    $stmt = $conn->prepare($sql);
     $stmt->bind_param($types, ...$params);
     $stmt->execute();
     $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -464,23 +714,14 @@ function getUserProductivity($conn, $warehouse_id) {
     sendJsonResponse(['success' => true, 'data' => $data]);
 }
 
-
-// --- EXISTING REPORT FUNCTIONS (Unchanged) ---
-
-function getInventorySummary($conn, $warehouse_id) {
-    $sql = "SELECT p.sku, p.product_name, p.article_no, SUM(i.quantity) AS total_quantity, GROUP_CONCAT(DISTINCT wl.location_code SEPARATOR ', ') AS locations_list FROM inventory i JOIN products p ON i.product_id = p.product_id JOIN warehouse_locations wl ON i.location_id = wl.location_id WHERE i.warehouse_id = ? AND i.quantity > 0 GROUP BY p.product_id, p.article_no ORDER BY p.product_name ASC";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $warehouse_id);
-    $stmt->execute();
-    $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    $stmt->close();
-    sendJsonResponse(['success' => true, 'data' => $data]);
-}
-
 function getStockByLocation($conn, $warehouse_id) {
-    $sql = "SELECT wl.location_code, lt.type_name as location_type, p.sku, p.product_name, p.article_no, i.quantity, i.batch_number, i.expiry_date FROM inventory i JOIN warehouse_locations wl ON i.location_id = wl.location_id JOIN products p ON i.product_id = p.product_id LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id WHERE i.warehouse_id = ? AND i.quantity > 0 ORDER BY wl.location_code ASC, p.product_name ASC";
+    $sql = "SELECT wl.location_code, lt.type_name as location_type, p.sku, p.product_name, p.article_no, i.quantity, i.batch_number, i.expiry_date FROM inventory i JOIN warehouse_locations wl ON i.location_id = wl.location_id JOIN products p ON i.product_id = p.product_id LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id WHERE i.warehouse_id = ? AND i.quantity > 0";
+    $params = [$warehouse_id];
+    $types = "i";
+    addAdvancedFilters($sql, $params, $types);
+    $sql .= " ORDER BY wl.location_code ASC, p.product_name ASC";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $warehouse_id);
+    $stmt->bind_param($types, ...$params);
     $stmt->execute();
     $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
@@ -491,7 +732,8 @@ function getInboundHistory($conn, $warehouse_id) {
     $sql = "SELECT ir.receipt_number, s.supplier_name, ir.actual_arrival_date, ir.status AS receipt_status, p.sku, p.product_name, p.article_no, ii.expected_quantity, ii.received_quantity, ii.putaway_quantity, wl.location_code AS final_location, u.full_name AS received_by_user FROM inbound_receipts ir JOIN inbound_items ii ON ir.receipt_id = ii.receipt_id JOIN products p ON ii.product_id = p.product_id JOIN suppliers s ON ir.supplier_id = s.supplier_id LEFT JOIN warehouse_locations wl ON ii.final_location_id = wl.location_id LEFT JOIN users u ON ir.received_by = u.user_id WHERE ir.warehouse_id = ?";
     $params = [$warehouse_id];
     $types = "i";
-    $sql = addDateFilter($sql, $params, $types, 'ir.actual_arrival_date');
+    addDateFilter($sql, $params, $types, 'ir.actual_arrival_date');
+    addAdvancedFilters($sql, $params, $types);
     $sql .= " ORDER BY ir.actual_arrival_date DESC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param($types, ...$params);
@@ -505,7 +747,8 @@ function getOutboundHistory($conn, $warehouse_id) {
     $sql = "SELECT oo.order_number, c.customer_name, oo.order_date, oo.actual_ship_date, oo.status AS order_status, p.sku, p.product_name, p.article_no, oi.ordered_quantity, oi.picked_quantity, oi.shipped_quantity, (SELECT wl.location_code FROM warehouse_locations wl JOIN outbound_item_picks oip ON wl.location_id = oip.location_id WHERE oip.outbound_item_id = oi.outbound_item_id LIMIT 1) as picked_from_location, u.full_name AS picked_by_user FROM outbound_orders oo JOIN outbound_items oi ON oo.order_id = oi.order_id JOIN products p ON oi.product_id = p.product_id JOIN customers c ON oo.customer_id = c.customer_id LEFT JOIN users u ON oo.picked_by = u.user_id WHERE oo.warehouse_id = ?";
     $params = [$warehouse_id];
     $types = "i";
-    $sql = addDateFilter($sql, $params, $types, 'oo.order_date');
+    addDateFilter($sql, $params, $types, 'oo.order_date');
+    addAdvancedFilters($sql, $params, $types);
     $sql .= " ORDER BY oo.order_date DESC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param($types, ...$params);
@@ -525,19 +768,24 @@ function getProductMovement($conn, $warehouse_id) {
     $product_id_stmt->close();
     if (!$product_result) { sendJsonResponse(['success' => false, 'message' => 'Product not found.'], 404); return; }
     $product_id = $product_result['product_id'];
+    
     $params = []; $types = "";
+    
     $inbound_sql = "SELECT 'INBOUND' as movement_type, ir.receipt_number as reference, ir.updated_at as transaction_date, p.product_name, p.article_no, ii.received_quantity as quantity_change, '' as from_location, wl.location_code as to_location, ir.status, u.full_name as performed_by FROM inbound_items ii JOIN inbound_receipts ir ON ii.receipt_id = ir.receipt_id JOIN products p ON ii.product_id = p.product_id LEFT JOIN warehouse_locations wl ON ii.final_location_id = wl.location_id LEFT JOIN users u ON ir.received_by = u.user_id WHERE ii.product_id = ? AND ir.warehouse_id = ?";
-    $params = array_merge($params, [$product_id, $warehouse_id]); $types .= "ii";
-    $inbound_sql = addDateFilter($inbound_sql, $params, $types, 'ir.updated_at');
     $outbound_sql = "SELECT 'OUTBOUND' as movement_type, oo.order_number as reference, oip.picked_at as transaction_date, p.product_name, p.article_no, oip.picked_quantity * -1 as quantity_change, wl.location_code as from_location, '' as to_location, oo.status, u.full_name as performed_by FROM outbound_item_picks oip JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id JOIN outbound_orders oo ON oi.order_id = oo.order_id JOIN products p ON oi.product_id = p.product_id JOIN warehouse_locations wl ON oip.location_id = wl.location_id LEFT JOIN users u ON oip.picked_by_user_id = u.user_id WHERE oi.product_id = ? AND oo.warehouse_id = ?";
-    $params = array_merge($params, [$product_id, $warehouse_id]); $types .= "ii";
-    $outbound_sql = addDateFilter($outbound_sql, $params, $types, 'oip.picked_at');
     $adjustment_sql = "SELECT 'ADJUSTMENT' as movement_type, sa.reason_code as reference, sa.adjustment_timestamp as transaction_date, p.product_name, p.article_no, sa.quantity_adjusted as quantity_change, CASE WHEN sa.quantity_adjusted < 0 THEN wl.location_code ELSE '' END as from_location, CASE WHEN sa.quantity_adjusted >= 0 THEN wl.location_code ELSE '' END as to_location, sa.reason_code as status, u.full_name as performed_by FROM stock_adjustments sa JOIN products p ON sa.product_id = p.product_id JOIN users u ON sa.user_id = u.user_id JOIN warehouse_locations wl ON sa.location_id = wl.location_id WHERE sa.product_id = ? AND sa.warehouse_id = ?";
-    $params = array_merge($params, [$product_id, $warehouse_id]); $types .= "ii";
-    $adjustment_sql = addDateFilter($adjustment_sql, $params, $types, 'sa.adjustment_timestamp');
-    $full_sql = "($inbound_sql) UNION ALL ($outbound_sql) UNION ALL ($adjustment_sql) ORDER BY transaction_date DESC";
-    $stmt = $conn->prepare($full_sql);
-    $stmt->bind_param($types, ...$params);
+
+    $full_sql = "($inbound_sql) UNION ALL ($outbound_sql) UNION ALL ($adjustment_sql)";
+    
+    $final_params = [$product_id, $warehouse_id, $product_id, $warehouse_id, $product_id, $warehouse_id];
+    $final_types = "iiiiii";
+
+    $outer_sql = "SELECT * FROM ($full_sql) AS movement WHERE 1=1";
+    addDateFilter($outer_sql, $final_params, $final_types, 'transaction_date');
+    $outer_sql .= " ORDER BY transaction_date DESC";
+    
+    $stmt = $conn->prepare($outer_sql);
+    $stmt->bind_param($final_types, ...$final_params);
     $stmt->execute();
     $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
@@ -547,9 +795,14 @@ function getProductMovement($conn, $warehouse_id) {
 function getCustomerTransactionHistory($conn) {
     $customer_id = filter_input(INPUT_GET, 'filter', FILTER_VALIDATE_INT);
     if (!$customer_id) { sendJsonResponse(['success' => false, 'message' => 'A valid numeric Customer ID is required.'], 400); return; }
-    $sql = "SELECT c.customer_name, ct.transaction_date, ct.transaction_type, ct.amount, oo.order_number, ct.notes, u.full_name as created_by_user FROM customer_transactions ct JOIN customers c ON ct.customer_id = c.customer_id LEFT JOIN outbound_orders oo ON ct.order_id = oo.order_id LEFT JOIN users u ON ct.created_by = u.user_id WHERE ct.customer_id = ? ORDER BY ct.transaction_date DESC";
+    $sql = "SELECT c.customer_name, ct.transaction_date, ct.transaction_type, ct.amount, oo.order_number, ct.notes, u.full_name as created_by_user FROM customer_transactions ct JOIN customers c ON ct.customer_id = c.customer_id LEFT JOIN outbound_orders oo ON ct.order_id = oo.order_id LEFT JOIN users u ON ct.created_by = u.user_id WHERE ct.customer_id = ?";
+    $params = [$customer_id];
+    $types = "i";
+    addDateFilter($sql, $params, $types, 'ct.transaction_date');
+    addAdvancedFilters($sql, $params, $types);
+    $sql .= " ORDER BY ct.transaction_date DESC";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $customer_id);
+    $stmt->bind_param($types, ...$params);
     $stmt->execute();
     $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
@@ -571,7 +824,8 @@ function getOrderMovementHistory($conn, $warehouse_id) {
 function getPickerPerformance($conn, $warehouse_id) {
     $sql = "SELECT u.full_name AS picker_name, COUNT(DISTINCT oip.outbound_item_id) AS total_lines, COUNT(DISTINCT oo.order_id) AS total_orders, SUM(oip.picked_quantity) AS total_quantity, GREATEST(1, TIMESTAMPDIFF(HOUR, MIN(oip.picked_at), MAX(oip.picked_at))) AS hours_worked, ROUND(SUM(oip.picked_quantity) / GREATEST(1, TIMESTAMPDIFF(MINUTE, MIN(oip.picked_at), MAX(oip.picked_at)) / 60), 2) AS picks_per_hour FROM outbound_item_picks oip JOIN users u ON oip.picked_by_user_id = u.user_id JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id JOIN outbound_orders oo ON oi.order_id = oo.order_id WHERE oo.warehouse_id = ? ";
     $params = [$warehouse_id]; $types = "i";
-    $sql = addDateFilter($sql, $params, $types, 'oip.picked_at');
+    addDateFilter($sql, $params, $types, 'oip.picked_at');
+    addAdvancedFilters($sql, $params, $types);
     $sql .= " GROUP BY u.user_id, u.full_name ORDER BY total_quantity DESC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param($types, ...$params);
@@ -584,7 +838,8 @@ function getPickerPerformance($conn, $warehouse_id) {
 function getOrderFulfillmentLeadTime($conn, $warehouse_id) {
     $sql = "SELECT oo.order_number, c.customer_name, oo.order_date, (SELECT MIN(picked_at) FROM outbound_item_picks oip JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id WHERE oi.order_id = oo.order_id) AS first_pick_time, oo.actual_ship_date, oo.out_for_delivery_date, oo.actual_delivery_date, ROUND(TIMESTAMPDIFF(MINUTE, oo.order_date, (SELECT MIN(picked_at) FROM outbound_item_picks oip JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id WHERE oi.order_id = oo.order_id)) / 60, 2) AS time_to_pick_hours, ROUND(TIMESTAMPDIFF(HOUR, (SELECT MAX(picked_at) FROM outbound_item_picks oip JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id WHERE oi.order_id = oo.order_id), oo.actual_ship_date), 2) AS time_to_ship_hours, DATEDIFF(oo.actual_delivery_date, oo.actual_ship_date) AS transit_days FROM outbound_orders oo JOIN customers c ON oo.customer_id = c.customer_id WHERE oo.warehouse_id = ?";
     $params = [$warehouse_id]; $types = "i";
-    $sql = addDateFilter($sql, $params, $types, 'oo.order_date');
+    addDateFilter($sql, $params, $types, 'oo.order_date');
+    addAdvancedFilters($sql, $params, $types);
     $sql .= " ORDER BY oo.order_date DESC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param($types, ...$params);
@@ -595,10 +850,30 @@ function getOrderFulfillmentLeadTime($conn, $warehouse_id) {
 }
 
 function getSupplierPerformance($conn, $warehouse_id) {
-    $sql = "SELECT s.supplier_name, ir.receipt_number, ir.expected_arrival_date, ir.actual_arrival_date, DATEDIFF(ir.actual_arrival_date, ir.expected_arrival_date) as days_early_late, SUM(ii.expected_quantity) as total_expected_quantity, SUM(ii.received_quantity) as total_received_quantity, ROUND((SUM(ii.received_quantity) / SUM(ii.expected_quantity)) * 100, 2) as fill_rate_percent FROM inbound_receipts ir JOIN suppliers s ON ir.supplier_id = s.supplier_id JOIN inbound_items ii ON ir.receipt_id = ii.receipt_id WHERE ir.warehouse_id = ? AND ir.status = 'Completed' ";
+    $sql = "
+        SELECT 
+            s.supplier_name, 
+            ir.receipt_number, 
+            irc.container_number,
+            irc.expected_arrival_date, 
+            irc.actual_arrival_date, 
+            DATEDIFF(irc.actual_arrival_date, irc.expected_arrival_date) as days_early_late, 
+            SUM(ii.expected_quantity) as total_expected_quantity, 
+            SUM(ii.received_quantity) as total_received_quantity, 
+            CASE 
+                WHEN SUM(ii.expected_quantity) > 0 THEN ROUND((SUM(ii.received_quantity) / SUM(ii.expected_quantity)) * 100, 2)
+                ELSE 0 
+            END as fill_rate_percent 
+        FROM inbound_receipts ir 
+        JOIN suppliers s ON ir.supplier_id = s.supplier_id 
+        JOIN inbound_items ii ON ir.receipt_id = ii.receipt_id 
+        JOIN inbound_receipt_containers irc ON ii.container_id = irc.container_id
+        WHERE ir.warehouse_id = ? AND ir.status = 'Completed'
+    ";
     $params = [$warehouse_id]; $types = "i";
-    $sql = addDateFilter($sql, $params, $types, 'ir.actual_arrival_date');
-    $sql .= " GROUP BY ir.receipt_id ORDER BY s.supplier_name, ir.actual_arrival_date DESC";
+    addDateFilter($sql, $params, $types, 'irc.actual_arrival_date');
+    addAdvancedFilters($sql, $params, $types);
+    $sql .= " GROUP BY ir.receipt_id, irc.container_id ORDER BY s.supplier_name, ir.receipt_number, irc.container_number";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param($types, ...$params);
     $stmt->execute();
@@ -610,7 +885,8 @@ function getSupplierPerformance($conn, $warehouse_id) {
 function getOrderLifecycleAnalysis($conn, $warehouse_id) {
     $sql = "SELECT oo.order_number, c.customer_name, oo.order_date, (SELECT MIN(picked_at) FROM outbound_item_picks oip JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id WHERE oi.order_id = oo.order_id) AS first_pick_time, oo.actual_ship_date, oo.out_for_delivery_date, oo.actual_delivery_date, ROUND(TIMESTAMPDIFF(MINUTE, oo.order_date, (SELECT MIN(picked_at) FROM outbound_item_picks oip JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id WHERE oi.order_id = oo.order_id)) / 60, 2) AS time_to_pick_hours, ROUND(TIMESTAMPDIFF(HOUR, (SELECT MAX(picked_at) FROM outbound_item_picks oip JOIN outbound_items oi ON oip.outbound_item_id = oi.outbound_item_id WHERE oi.order_id = oo.order_id), oo.actual_ship_date), 2) AS time_to_ship_hours, DATEDIFF(oo.actual_delivery_date, oo.actual_ship_date) AS transit_days FROM outbound_orders oo JOIN customers c ON oo.customer_id = c.customer_id WHERE oo.warehouse_id = ?";
     $params = [$warehouse_id]; $types = "i";
-    $sql = addDateFilter($sql, $params, $types, 'oo.order_date');
+    addDateFilter($sql, $params, $types, 'oo.order_date');
+    addAdvancedFilters($sql, $params, $types);
     $sql .= " ORDER BY oo.order_date DESC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param($types, ...$params);
@@ -623,7 +899,8 @@ function getOrderLifecycleAnalysis($conn, $warehouse_id) {
 function getFillRateReport($conn, $warehouse_id) {
     $sql = "SELECT oo.order_number, c.customer_name, p.sku, p.product_name, p.article_no, oi.ordered_quantity, oi.shipped_quantity, ROUND((oi.shipped_quantity / oi.ordered_quantity) * 100, 2) AS line_item_fill_rate_percent FROM outbound_items oi JOIN outbound_orders oo ON oi.order_id = oo.order_id JOIN products p ON oi.product_id = p.product_id JOIN customers c ON oo.customer_id = c.customer_id WHERE oo.warehouse_id = ? AND oo.status IN ('Shipped', 'Delivered', 'Completed', 'Partially Returned')";
     $params = [$warehouse_id]; $types = "i";
-    $sql = addDateFilter($sql, $params, $types, 'oo.order_date');
+    addDateFilter($sql, $params, $types, 'oo.order_date');
+    addAdvancedFilters($sql, $params, $types);
     $sql .= " ORDER BY oo.order_date DESC, line_item_fill_rate_percent ASC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param($types, ...$params);
@@ -634,9 +911,13 @@ function getFillRateReport($conn, $warehouse_id) {
 }
 
 function getInventoryAging($conn, $warehouse_id) {
-    $sql = "SELECT p.sku, p.product_name, p.article_no, i.batch_number, i.quantity, DATE(i.created_at) AS receipt_date, DATEDIFF(NOW(), i.created_at) AS age_days, CASE WHEN DATEDIFF(NOW(), i.created_at) <= 30 THEN '0-30 Days' WHEN DATEDIFF(NOW(), i.created_at) <= 60 THEN '31-60 Days' WHEN DATEDIFF(NOW(), i.created_at) <= 90 THEN '61-90 Days' ELSE '90+ Days' END AS aging_bracket FROM inventory i JOIN products p ON i.product_id = p.product_id WHERE i.warehouse_id = ? AND i.quantity > 0 ORDER BY age_days DESC";
+    $sql = "SELECT p.sku, p.product_name, p.article_no, i.batch_number, i.quantity, DATE(i.created_at) AS receipt_date, DATEDIFF(NOW(), i.created_at) AS age_days, CASE WHEN DATEDIFF(NOW(), i.created_at) <= 30 THEN '0-30 Days' WHEN DATEDIFF(NOW(), i.created_at) <= 60 THEN '31-60 Days' WHEN DATEDIFF(NOW(), i.created_at) <= 90 THEN '61-90 Days' ELSE '90+ Days' END AS aging_bracket FROM inventory i JOIN products p ON i.product_id = p.product_id WHERE i.warehouse_id = ? AND i.quantity > 0";
+    $params = [$warehouse_id];
+    $types = "i";
+    addAdvancedFilters($sql, $params, $types);
+    $sql .= " ORDER BY age_days DESC";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $warehouse_id);
+    $stmt->bind_param($types, ...$params);
     $stmt->execute();
     $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
@@ -644,9 +925,13 @@ function getInventoryAging($conn, $warehouse_id) {
 }
 
 function getInventoryValuation($conn, $warehouse_id) {
-    $sql = "SELECT w.warehouse_name, p.sku, p.product_name, p.article_no, SUM(i.quantity) AS total_on_hand_quantity, i.unit_cost, SUM(i.quantity * i.unit_cost) AS total_value FROM inventory i JOIN products p ON i.product_id = p.product_id JOIN warehouses w ON i.warehouse_id = w.warehouse_id WHERE i.warehouse_id = ? AND i.quantity > 0 AND i.unit_cost IS NOT NULL GROUP BY i.product_id, i.unit_cost, p.article_no ORDER BY total_value DESC";
+    $sql = "SELECT w.warehouse_name, p.sku, p.product_name, p.article_no, SUM(i.quantity) AS total_on_hand_quantity, i.unit_cost, SUM(i.quantity * i.unit_cost) AS total_value FROM inventory i JOIN products p ON i.product_id = p.product_id JOIN warehouses w ON i.warehouse_id = w.warehouse_id WHERE i.warehouse_id = ? AND i.quantity > 0 AND i.unit_cost IS NOT NULL";
+    $params = [$warehouse_id];
+    $types = "i";
+    addAdvancedFilters($sql, $params, $types);
+    $sql .= " GROUP BY i.product_id, i.unit_cost, p.article_no ORDER BY total_value DESC";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $warehouse_id);
+    $stmt->bind_param($types, ...$params);
     $stmt->execute();
     $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
@@ -659,6 +944,7 @@ function getDeadStockReport($conn, $warehouse_id) {
     $days_filter = filter_input(INPUT_GET, 'days', FILTER_VALIDATE_INT) ?: 90;
     $sql .= " AND i.last_moved_at < DATE_SUB(NOW(), INTERVAL ? DAY)";
     $params[] = $days_filter; $types .= "i";
+    addAdvancedFilters($sql, $params, $types);
     $sql .= " ORDER BY days_since_last_movement DESC";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param($types, ...$params);
@@ -669,9 +955,13 @@ function getDeadStockReport($conn, $warehouse_id) {
 }
 
 function getLocationCapacity($conn, $warehouse_id) {
-    $sql = "SELECT wl.location_code, lt.type_name AS location_type, wl.max_capacity_units, COALESCE(SUM(i.quantity), 0) AS current_units, CASE WHEN wl.max_capacity_units > 0 THEN ROUND((COALESCE(SUM(i.quantity), 0) / wl.max_capacity_units) * 100, 2) ELSE 0 END AS utilization_percent FROM warehouse_locations wl LEFT JOIN inventory i ON wl.location_id = i.location_id AND i.quantity > 0 LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id WHERE wl.warehouse_id = ? AND wl.is_active = 1 GROUP BY wl.location_id ORDER BY utilization_percent DESC, wl.location_code ASC";
+    $sql = "SELECT wl.location_code, lt.type_name AS location_type, wl.max_capacity_units, COALESCE(SUM(i.quantity), 0) AS current_units, CASE WHEN wl.max_capacity_units > 0 THEN ROUND((COALESCE(SUM(i.quantity), 0) / wl.max_capacity_units) * 100, 2) ELSE 0 END AS utilization_percent FROM warehouse_locations wl LEFT JOIN inventory i ON wl.location_id = i.location_id AND i.quantity > 0 LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id WHERE wl.warehouse_id = ? AND wl.is_active = 1";
+    $params = [$warehouse_id];
+    $types = "i";
+    addAdvancedFilters($sql, $params, $types);
+    $sql .= " GROUP BY wl.location_id ORDER BY utilization_percent DESC, wl.location_code ASC";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $warehouse_id);
+    $stmt->bind_param($types, ...$params);
     $stmt->execute();
     $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
@@ -681,7 +971,8 @@ function getLocationCapacity($conn, $warehouse_id) {
 function getStockAdjustmentHistory($conn, $warehouse_id) {
     $sql = "SELECT sa.adjustment_timestamp, p.sku, p.product_name, p.article_no, wl.location_code, u.full_name, sa.quantity_adjusted, sa.reason_code, sa.notes FROM stock_adjustments sa JOIN products p ON sa.product_id = p.product_id JOIN users u ON sa.user_id = u.user_id JOIN warehouse_locations wl ON sa.location_id = wl.location_id WHERE sa.warehouse_id = ? ";
     $params = [$warehouse_id]; $types = "i";
-    $sql = addDateFilter($sql, $params, $types, 'sa.adjustment_timestamp');
+    addDateFilter($sql, $params, $types, 'sa.adjustment_timestamp');
+    addAdvancedFilters($sql, $params, $types);
     $sql .= " ORDER BY sa.adjustment_timestamp DESC";
     $stmt = $conn->prepare($sql);
     if (!$stmt) {
@@ -695,7 +986,6 @@ function getStockAdjustmentHistory($conn, $warehouse_id) {
     sendJsonResponse(['success' => true, 'data' => $data]);
 }
 
-// MODIFICATION: New function for Scrap History Report
 function getScrapHistory($conn, $warehouse_id) {
     $sql = "
         SELECT 
@@ -717,7 +1007,8 @@ function getScrapHistory($conn, $warehouse_id) {
     ";
     $params = [$warehouse_id];
     $types = "i";
-    $sql = addDateFilter($sql, $params, $types, 'oo.updated_at');
+    addDateFilter($sql, $params, $types, 'oo.updated_at');
+    addAdvancedFilters($sql, $params, $types);
     $sql .= " ORDER BY oo.updated_at DESC";
     
     $stmt = $conn->prepare($sql);

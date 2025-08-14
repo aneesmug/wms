@@ -1,5 +1,3 @@
-// public/js/dashboard.js
-
 document.addEventListener('DOMContentLoaded', async () => {
     // --- DOM Element Selectors ---
     const warehouseSelector = document.getElementById('warehouseSelector');
@@ -11,6 +9,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const shippedTodayElement = document.getElementById('shippedToday');
     const receivedTodayElement = document.getElementById('receivedToday');
     const activeLocationsElement = document.getElementById('activeLocations');
+    const stockValueElement = document.getElementById('stockValue');
+    const returnsTodayElement = document.getElementById('returnsToday');
+    const pendingPickElement = document.getElementById('pendingPick');
+
     
     // Chart and Table Elements
     const activityChartCanvas = document.getElementById('activityChart');
@@ -94,6 +96,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             shippedTodayElement.textContent = data.shippedToday || '0';
             receivedTodayElement.textContent = data.receivedToday || '0';
             activeLocationsElement.textContent = data.activeLocations || '0';
+
+            // New Stats
+            stockValueElement.textContent = data.stockValue ? `SAR ${parseFloat(data.stockValue).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'SAR 0.00';
+            returnsTodayElement.textContent = data.returnsToday || '0';
+            pendingPickElement.textContent = data.pendingPick || '0';
+
         } else {
             resetAllStats();
             console.error('Failed to load dashboard summary:', result?.message);
@@ -173,10 +181,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     const resetAllStats = () => {
         const allStatElements = [
             totalProductsElement, openInboundsElement, pendingOutboundsElement,
-            shippedTodayElement, receivedTodayElement, activeLocationsElement
+            shippedTodayElement, receivedTodayElement, activeLocationsElement,
+            stockValueElement, returnsTodayElement, pendingPickElement
         ];
         allStatElements.forEach(el => {
-            if (el) el.textContent = '---';
+            if (el) {
+                if (el.id === 'stockValue') {
+                    el.textContent = '---';
+                } else {
+                    el.textContent = '---';
+                }
+            }
         });
     };
 

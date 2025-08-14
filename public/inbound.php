@@ -121,11 +121,11 @@
                                             </div>
                                             <div class="col-md-6">
                                                 <label for="itemQuantity" class="form-label">Quantity</label>
-                                                <input type="number" id="itemQuantity" name="itemQuantity" value="1" min="1" class="form-control numeric-only" required>
+                                                <input type="text" id="itemQuantity" name="itemQuantity" value="1" min="1" class="form-control numeric-only" required>
                                             </div>
                                             <div class="col-md-6">
                                                 <label for="unitCost" class="form-label">Unit Cost</label>
-                                                <input type="number" id="unitCost" name="unitCost" placeholder="0.00" step="0.01" min="0" class="form-control numeric-only">
+                                                <input type="text" id="unitCost" name="unitCost" placeholder="0.00" step="0.01" min="0" class="form-control amount-validation">
                                             </div>
                                             <div class="col-12">
                                                 <label for="inboundDotCode" class="form-label">DOT Manufacture Code (WW/YY)</label>

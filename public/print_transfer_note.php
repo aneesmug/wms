@@ -1,4 +1,13 @@
 <?php
+/*
+* MODIFICATION SUMMARY
+* --------------------
+* 2025-08-14:
+* - Fixed a bug in the JavaScript fetch call.
+* - The code was checking `data.status === 'success'`, but the API returns a boolean property named `success`.
+* - Changed the condition to `if (data.success)` to correctly parse the API response.
+* - This resolves the "Error: undefined" message and allows the print report to be rendered correctly.
+*/
 // This page is designed to be opened in a new tab for printing.
 ?>
 <!DOCTYPE html>
@@ -66,10 +75,10 @@
             fetch(`api/transfer_orders_api.php?action=get_transfer_details_for_print&id=${transferId}`)
                 .then(response => response.json())
                 .then(data => {
-                    if (data.status === 'success') {
+                    if (data.success) {
                         renderPrintView(data);
                     } else {
-                        printContent.innerHTML = `<div class="alert alert-danger">Error: ${data.message}</div>`;
+                        printContent.innerHTML = `<div class="alert alert-danger">Error: ${data.message || 'An unknown error occurred.'}</div>`;
                     }
                 })
                 .catch(err => {
@@ -85,7 +94,7 @@
 
             const html = `
                 <header class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-4">
-                    <img src="img/logo.png" alt="Continental Logo" class="header-logo">
+                    <img src="img/logo.png" alt="Continental Logo" class="header-logo" onerror="this.style.display='none'">
                     <h2 class="mb-0">Transfer Order</h2>
                 </header>
 

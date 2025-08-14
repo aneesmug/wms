@@ -1,0 +1,12 @@
+RewriteEngine On
+RewriteBase /
+
+# Route wms subdomain to wms folder
+RewriteCond %{HTTP_HOST} ^wms\.almutlak\.com$ [NC]
+RewriteCond %{REQUEST_URI} !^/wms/
+RewriteRule ^(.*)$ /wms/$1 [L]
+
+# Route hr subdomain to hr system folder
+RewriteCond %{HTTP_HOST} ^sys\.almutlak\.com$ [NC]
+RewriteCond %{REQUEST_URI} !^/sys/
+RewriteRule ^(.*)$ /sys/$1 [L]

@@ -314,88 +314,71 @@ function initializeDatepicker(element, container = document.body) {
     }
 }
 
-
 /**
- * Attaches an event listener to the document body to handle numeric-only inputs.
- * This method is more robust as it handles pasted values and works reliably with dynamic elements.
+ * Attaches event listeners to handle validation for amount/decimal inputs.
+ * Any input with the class 'amount-validation' will be validated.
  */
-function setupNumericOnlyInputs() {
-    document.body.addEventListener('input', function(event) {
-        if (event.target.classList.contains('numeric-only')) {
-            // Replace any character that is not a digit with an empty string
-            event.target.value = event.target.value.replace(/\D/g, '');
-        }
+function setupInputValidations() {
+    // Force numeric keyboards on mobile
+    document.querySelectorAll('.amount-validation, .numeric-only, .saudi-mobile-number').forEach(input => {
+        input.setAttribute('inputmode', 'numeric'); // Mobile numeric keyboard
+        input.setAttribute('pattern', '[0-9]*');   // Extra hint for Android
     });
-}
-
-/**
- * Attaches event listeners to handle validation for Saudi Arabian mobile numbers.
- * Any input with the class 'saudi-mobile-number' will be validated.
- */
-function setupSaudiMobileValidation() {
-    // This listener handles real-time input formatting
+    // Real-time input formatting
     document.body.addEventListener('input', function(event) {
-        if (event.target.classList.contains('saudi-mobile-number')) {
-            const input = event.target;
-            let value = input.value.replace(/\D/g, ''); // Remove non-digits
+        const input = event.target;
 
-            // Enforce "05" prefix if starting to type
-            if (value.length > 0 && value.substring(0, 2) !== '05') {
-                 if(value.length === 1 && value !== '0') {
-                    value = '0' + value;
-                 }
-                 if(value.length === 2 && value !== '05') {
-                    value = '05';
-                 }
+        if (input.classList.contains('amount-validation')) {
+            let value = input.value.replace(/[^0-9.]/g, '');
+            const parts = value.split('.');
+            if (parts.length > 2) {
+                value = parts[0] + '.' + parts.slice(1).join('');
             }
-
-            // Limit to 10 digits
-            if (value.length > 10) {
-                value = value.substring(0, 10);
+            if (parts[1] && parts[1].length > 2) {
+                parts[1] = parts[1].substring(0, 2);
+                value = parts.join('.');
             }
-            
             input.value = value;
+        } 
+        else if (input.classList.contains('numeric-only')) {
+            input.value = input.value.replace(/\D/g, '');
+        } 
+        else if (input.classList.contains('saudi-mobile-number')) {
+            let value = input.value.replace(/\D/g, '');
+            if (value.length >= 1 && value[0] !== '0') {
+                value = '0' + value;
+            }
+            if (value.length >= 2 && value.substring(0, 2) !== '05') {
+                value = '05' + value.substring(2);
+            }
+            input.value = value.substring(0, 10);
         }
     });
 
-    // This listener validates the final format when the user leaves the input field
-    document.body.addEventListener('blur', function(event) {
-        if (event.target.classList.contains('saudi-mobile-number')) {
-            const input = event.target;
+    // Validation on field exit
+    document.body.addEventListener('focusout', function(event) {
+        const input = event.target;
+
+        if (input.classList.contains('amount-validation')) {
+            let value = parseFloat(input.value);
+            if (!isNaN(value)) {
+                input.value = value.toFixed(2);
+            }
+        } 
+        else if (input.classList.contains('saudi-mobile-number')) {
             const value = input.value;
-            // Regex for a valid Saudi number: starts with 05 and is followed by 8 digits.
             const isValid = /^05\d{8}$/.test(value);
-
-            if (value && !isValid) {
-                // Using Bootstrap's validation class to show an error state
-                input.classList.add('is-invalid');
-            } else {
-                input.classList.remove('is-invalid');
-            }
-        }
-    }, true); // Use capture phase to ensure it runs reliably
-}
-
-/**
- * Attaches event listeners to handle validation for email inputs.
- * Any input with the class 'email-validation' will be validated.
- */
-function setupEmailValidation() {
-    document.body.addEventListener('blur', function(event) {
-        if (event.target.classList.contains('email-validation')) {
-            const input = event.target;
+            input.classList.toggle('is-invalid', value && !isValid);
+        } 
+        else if (input.classList.contains('email-validation')) {
             const value = input.value;
-            // A common regex for email validation
             const isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-
-            if (value && !isValid) {
-                input.classList.add('is-invalid');
-            } else {
-                input.classList.remove('is-invalid');
-            }
+            input.classList.toggle('is-invalid', value && !isValid);
         }
-    }, true);
+    });
 }
+
+
 
 
 // --- Common Page Setup ---
@@ -444,9 +427,11 @@ function setupCommonEventListeners() {
     });
 
     // Initialize general input handlers
-    setupNumericOnlyInputs();
-    setupSaudiMobileValidation(); // Activate the new mobile validation handler
-    setupEmailValidation(); // Activate the new email validation handler
+    // setupNumericOnlyInputs();
+    // setupSaudiMobileValidation();
+    // setupEmailValidation();
+    // setupAmountValidation(); // Activate the new amount validation handler
+    setupInputValidations();
 }
 
 // This runs on every page load.
