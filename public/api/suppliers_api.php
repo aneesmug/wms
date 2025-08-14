@@ -14,6 +14,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 switch ($method) {
     case 'GET':
+        authorize_user_role(['viewer', 'operator', 'manager'], $target_warehouse_id);
         handleGetSuppliers($conn);
         break;
     case 'POST':

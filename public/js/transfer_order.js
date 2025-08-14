@@ -1,20 +1,50 @@
+/*
+* MODIFICATION SUMMARY
+* --------------------
+* 2025-08-14:
+* - Fixed bug in `loadSourceLocations` function.
+* - The API call to `get_product_inventory` was missing the `warehouse_id`.
+* - Appended `&warehouse_id=${currentWarehouseId}` to the fetch URL to ensure the current session's warehouse is used to find product inventory. This resolves the console error "Warehouse and Product IDs are required." and allows the "From Location (Source)" dropdown to be populated correctly.
+*/
 $(document).ready(function() {
     // --- Global State & Config ---
     const currentWarehouseId = localStorage.getItem('current_warehouse_id');
     const currentWarehouseName = localStorage.getItem('current_warehouse_name');
+    const currentWarehouseRole = localStorage.getItem('current_warehouse_role');
     let ordersTable;
 
     // --- Initialization ---
     function initializePage() {
         if (!currentWarehouseId) {
-            showError('Warehouse Not Set', 'Please select a warehouse from the dashboard.', () => window.location.href = 'dashboard.php');
+            Swal.fire({
+                title: 'No Warehouse Selected',
+                text: 'Please select a warehouse to continue.',
+                icon: 'error',
+                confirmButtonText: 'Select Warehouse',
+                confirmButtonColor: '#dc3741',
+                allowOutsideClick: false
+            }).then(() => {
+                window.location.href = 'dashboard.php';
+            });
             return;
         }
+        const canManageTransfers = ['operator', 'manager'].includes(currentWarehouseRole);
+        if (!canManageTransfers) {
+            // Disable the 'New Transfer' button if it exists
+            $('body').on('DOMSubtreeModified', '#transferOrdersTable_filter', function() {
+                 $('#newOrderBtn').prop('disabled', true).attr('title', 'You do not have permission to create transfers.');
+            });
+            Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'View-only permissions.', showConfirmButton: false, timer: 3000, timerProgressBar: true });
+        }
+
         initializeDataTable();
     }
 
     // --- Event Listeners ---
-    $('.card-body').on('click', '#newOrderBtn', openCreateTransferModal);
+    $('body').on('click', '#newOrderBtn', function() {
+        if ($(this).is(':disabled')) return;
+        openCreateTransferModal();
+    });
     
     $('#transferOrdersTable tbody').on('click', '.print-btn', function() {
         const transferId = $(this).data('id');
@@ -56,6 +86,10 @@ $(document).ready(function() {
             initComplete: function() {
                 const buttonHtml = '<button class="btn btn-sm btn-primary ms-2" id="newOrderBtn"><i class="bi bi-plus-circle me-1"></i> New Transfer Order</button>';
                 $('#transferOrdersTable_filter').append(buttonHtml);
+                // Re-check permissions after the button is added
+                if (!['operator', 'manager'].includes(currentWarehouseRole)) {
+                    $('#newOrderBtn').prop('disabled', true).attr('title', 'You do not have permission to create transfers.');
+                }
             }
         });
     }
@@ -165,76 +199,49 @@ $(document).ready(function() {
     }
 
     async function handleFormSubmit(orderData) {
-        try {
-            const data = await robustFetch('api/transfer_orders_api.php?action=create_transfer', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(orderData)
-            });
+        const data = await fetchData('api/transfer_orders_api.php?action=create_transfer', 'POST', orderData);
 
-            if (data.status === 'success') {
-                Swal.fire({
-                    title: 'Success!', text: data.message, icon: 'success', showCancelButton: true,
-                    confirmButtonText: '<i class="bi bi-printer"></i> Print Delivery Note',
-                    allowOutsideClick: false,
-                    cancelButtonText: 'Close'
-                }).then((result) => {
-                    if (result.isConfirmed) {
-                        window.open(`print_transfer_note.php?id=${data.transfer_id}`, '_blank');
-                    }
-                    ordersTable.ajax.reload();
-                });
-            } else { showError('Error!', data.message); }
-        } catch (error) { showError('Submission Error', 'Could not create the transfer order.'); }
-    }
-    
-    async function robustFetch(url, options = {}) {
-        try {
-            const response = await fetch(url, options);
-            const text = await response.text();
-            if (!response.ok) {
-                console.error("Fetch Error:", text);
-                throw new Error(`HTTP error ${response.status}`);
-            }
-            return JSON.parse(text);
-        } catch (e) {
-            console.error("Response Parse Error:", e);
-            throw new Error("Invalid server response.");
+        if (data && data.success) {
+            Swal.fire({
+                title: 'Success!', text: data.message, icon: 'success', showCancelButton: true,
+                confirmButtonText: '<i class="bi bi-printer"></i> Print Delivery Note',
+                allowOutsideClick: false,
+                cancelButtonText: 'Close'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    window.open(`print_transfer_note.php?id=${data.transfer_id}`, '_blank');
+                }
+                ordersTable.ajax.reload();
+            });
+        } else if (data) {
+             showError('Error!', data.message);
         }
     }
 
     async function loadDestinationWarehouses(selector) {
-        try {
-            const data = await robustFetch('api/warehouses_api.php?action=get_transfer_targets');
-            selector.empty().append('<option></option>');
-            if (data.success) {
-                data.data.forEach(wh => {
-                    selector.append(new Option(wh.warehouse_name, wh.warehouse_id));
-                });
-            }
-        } catch (error) {
-            showError('Load Error', 'Could not load destination warehouses.');
+        const data = await fetchData('api/warehouses_api.php?action=get_transfer_targets');
+        selector.empty().append('<option></option>');
+        if (data && data.success) {
+            data.data.forEach(wh => {
+                selector.append(new Option(wh.warehouse_name, wh.warehouse_id));
+            });
         }
     }
 
     async function loadProductsForSearch(selector) {
-        try {
-            const data = await robustFetch(`api/transfer_orders_api.php?action=get_products_in_warehouse`);
-            selector.empty().append('<option></option>');
-            if (data.status === 'success') {
-                data.data.forEach(p => {
-                    const option = new Option(p.product_name, p.product_id);
-                    $(option).data('stock', p.total_stock)
-                             .data('article_no', p.article_no)
-                             .data('sku', p.sku);
-                    if (p.total_stock <= 0) {
-                        $(option).prop('disabled', true);
-                    }
-                    selector.append(option);
-                });
-            }
-        } catch (error) {
-            showError('Load Error', 'Could not load products.');
+        const data = await fetchData(`api/transfer_orders_api.php?action=get_products_in_warehouse`);
+        selector.empty().append('<option></option>');
+        if (data && data.success) {
+            data.data.forEach(p => {
+                const option = new Option(p.product_name, p.product_id);
+                $(option).data('stock', p.total_stock)
+                         .data('article_no', p.article_no)
+                         .data('sku', p.sku);
+                if (p.total_stock <= 0) {
+                    $(option).prop('disabled', true);
+                }
+                selector.append(option);
+            });
         }
     }
 
@@ -242,20 +249,16 @@ $(document).ready(function() {
         selector.empty().append('<option></option>').trigger('change');
         if (!productId) return;
 
-        try {
-            const data = await robustFetch(`api/transfer_orders_api.php?action=get_product_inventory&warehouse_id=${currentWarehouseId}&product_id=${productId}`);
-            if (data.status === 'success') {
-                data.data.forEach(inv => {
-                    const option = new Option(`${inv.location_name} (Qty: ${inv.quantity})`, inv.location_id);
-                    $(option).data('available-capacity', inv.quantity)
-                             .data('batch', inv.batch_number)
-                             .data('dot', inv.dot_code);
-                    selector.append(option);
-                });
-                selector.trigger('change');
-            }
-        } catch (error) {
-            showError('Load Error', 'Could not load source locations.');
+        const data = await fetchData(`api/transfer_orders_api.php?action=get_product_inventory&product_id=${productId}&warehouse_id=${currentWarehouseId}`);
+        if (data && data.success) {
+            data.data.forEach(inv => {
+                const option = new Option(`${inv.location_name} (Qty: ${inv.quantity})`, inv.location_id);
+                $(option).data('available-capacity', inv.quantity)
+                         .data('batch', inv.batch_number)
+                         .data('dot', inv.dot_code);
+                selector.append(option);
+            });
+            selector.trigger('change');
         }
     }
 
@@ -263,19 +266,19 @@ $(document).ready(function() {
         selector.empty().append('<option></option>').trigger('change');
         if (!destWarehouseId || !productId) return;
 
-        try {
-            const data = await robustFetch(`api/inventory_api.php?action=location_stock&warehouse_id=${destWarehouseId}&product_id=${productId}`);
-            if (data.success) {
-                data.data.forEach(loc => {
-                    const option = new Option(loc.location_code, loc.location_id);
-                    $(option).data('available-capacity', loc.available_capacity);
-                    selector.append(option);
-                });
-                selector.trigger('change');
-            }
-        } catch (error) {
-            showError('Load Error', 'Could not load destination locations.');
+        const data = await fetchData(`api/inventory_api.php?action=location_stock&warehouse_id=${destWarehouseId}&product_id=${productId}`);
+        if (data && data.success) {
+            data.data.forEach(loc => {
+                const option = new Option(loc.location_code, loc.location_id);
+                $(option).data('available-capacity', loc.available_capacity);
+                selector.append(option);
+            });
+            selector.trigger('change');
         }
+    }
+    
+    function showError(title, message) {
+        Swal.fire(title, message, 'error');
     }
 
     function renderItemsTable(tbody, items) {

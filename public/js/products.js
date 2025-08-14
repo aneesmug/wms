@@ -23,9 +23,13 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#productsDataTable tbody').on('click', '.delete-btn', handleDeleteClick);
 
     async function initializePage() {
-        if (addProductBtn) {
-            addProductBtn.style.display = canManageProducts ? 'block' : 'none';
+        
+        const canManageInbound = ['operator', 'manager'].includes(currentWarehouseRole);
+        if (!canManageInbound) {
+            $('button').prop('disabled', true);
+            Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'View-only permissions.', showConfirmButton: false, timer: 3000, timerProgressBar: true });
         }
+
         await loadTireTypes();
         populateTireTypeFilter();
 

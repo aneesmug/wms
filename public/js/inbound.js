@@ -84,13 +84,22 @@ $(document).ready(function() {
 
     async function initializePage() {
         if (!currentWarehouseId) {
-            Swal.fire('Error!', 'Please select a warehouse on the Dashboard.', 'error');
+            Swal.fire({
+                title: 'No Warehouse Selected',
+                text: 'Please select a warehouse to continue.',
+                icon: 'error',
+                confirmButtonText: 'Select Warehouse',
+                confirmButtonColor: '#dc3741',
+                allowOutsideClick: false
+            }).then(() => {
+                window.location.href = 'dashboard.php';
+            });
             return;
         }
         const canManageInbound = ['operator', 'manager'].includes(currentWarehouseRole);
         if (!canManageInbound) {
             $('button').prop('disabled', true);
-            Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'View-only permissions.', showConfirmButton: false, timer: 3000 });
+            Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'View-only permissions.', showConfirmButton: false, timer: 3000, timerProgressBar: true });
         }
         
         await Promise.all([

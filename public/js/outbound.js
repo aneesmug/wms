@@ -56,11 +56,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function initializePage() {
         if (!currentWarehouseId) {
-            Swal.fire({ icon: 'warning', title: 'No Warehouse Selected', text: 'Please select a warehouse on the Dashboard to enable outbound operations.'});
-            if(document.getElementById('outboundOrdersTableBody')) document.getElementById('outboundOrdersTableBody').innerHTML = `<tr><td colspan="9" class="text-center p-4">Please select a warehouse first.</td></tr>`;
-            if(orderProcessingArea) orderProcessingArea.classList.add('d-none');
+            Swal.fire({
+                title: 'No Warehouse Selected',
+                text: 'Please select a warehouse to continue.',
+                icon: 'error',
+                confirmButtonText: 'Select Warehouse',
+                confirmButtonColor: '#dc3741',
+                allowOutsideClick: false
+            }).then(() => {
+                window.location.href = 'dashboard.php';
+            });
             return;
         }
+        const canManageInbound = ['operator', 'manager'].includes(currentWarehouseRole);
+        if (!canManageInbound) {
+            $('button').prop('disabled', true);
+            Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'View-only permissions.', showConfirmButton: false, timer: 3000, timerProgressBar: true });
+        }
+
         initializeOrdersDataTable();
         
         try {

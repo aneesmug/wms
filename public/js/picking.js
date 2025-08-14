@@ -68,6 +68,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     initializePage();
 
+    /**
+     * MODIFICATION:
+     * - Updated the catch block to handle the "Access Denied" error specifically.
+     * - If an "Access Denied" error occurs, the user will be redirected to dashboard.php after clicking "OK".
+     */
     async function fetchData(endpoint, method = 'GET', body = null) {
         const options = { 
             method, 
@@ -87,7 +92,19 @@ document.addEventListener('DOMContentLoaded', () => {
             return data;
         } catch (error) {
             console.error('API Error:', error);
-            Swal.fire('Error', error.message, 'error');
+            const isAccessDeniedError = error.message.includes('Access Denied');
+            Swal.fire({
+                title: 'Error',
+                text: error.message,
+                icon: 'error',
+                confirmButtonText: 'OK',
+                allowOutsideClick: false 
+            }).then((result) => {
+                // If the user confirms and it's the specific access denied error
+                if (result.isConfirmed && isAccessDeniedError) {
+                    window.location.href = 'dashboard.php';
+                }
+            });
             return null;
         }
     }

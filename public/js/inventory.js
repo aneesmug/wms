@@ -63,17 +63,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     async function initializePage() {
-        initializeDataTable();
-        if (currentWarehouseId) {
+
+        if (!currentWarehouseId) {
+            Swal.fire({
+                title: 'No Warehouse Selected',
+                text: 'Please select a warehouse to continue.',
+                icon: 'error',
+                confirmButtonText: 'Select Warehouse',
+                confirmButtonColor: '#dc3741',
+                allowOutsideClick: false
+            }).then(() => {
+                window.location.href = 'dashboard.php';
+            });
+            return;
+        }
+        const canManageInbound = ['operator', 'manager'].includes(currentWarehouseRole);
+        if (!canManageInbound) {
+            // $('button').prop('disabled', true);
+            Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'View-only permissions.', showConfirmButton: false, timer: 3000, timerProgressBar: true });
+        }
+
+        initializeDataTable();    
             generateDotCodeOptions();
             await loadProductsForDropdown();
             await loadLocationsForFilterDropdown(currentWarehouseId);
             await loadTireTypesForFilter();
             await loadInventory();
-        } else {
-            Toast.fire({ icon: 'warning', title: 'Please select a warehouse on the Dashboard.' });
         }
-    }
     
     function generateDotCodeOptions() {
         if (dotCodeOptions.length > 0) return;
@@ -244,7 +260,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             const batchExpiry = `<div>${item.batch_number || 'N/A'}</div><div>${expiryHtml}</div>`;
 
-            let actionButton = '<span class="text-muted">View Only</span>';
+            let actionButton = '<small class="text-muted">View Only</small>';
             if (canAdjust) {
                 if (item.quantity > 0) {
                     actionButton = `<button class="btn btn-sm btn-info text-white adjust-btn" 

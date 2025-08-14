@@ -3,30 +3,23 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-// Set header at the very top to avoid issues.
-header('Content-Type: application/json');
-
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../helpers/auth_helper.php';
 
 $conn = getDbConnection();
 ob_start(); // Start output buffering to catch any stray output
 
+// Authenticate user and ensure a warehouse is selected for ALL operations.
 authenticate_user(true, null);
 $current_warehouse_id = get_current_warehouse_id();
+$current_user_id = $_SESSION['user_id'];
 
+$method = $_SERVER['REQUEST_METHOD'];
 $action = $_GET['action'] ?? '';
-
-// A centralized function to safely send JSON response and terminate the script.
-function send_json_response($data) {
-    ob_end_clean(); // Clear buffer to prevent mixing errors with JSON
-    header('Content-Type: application/json');
-    echo json_encode($data);
-    exit;
-}
 
 // Helper function to check if a location is locked
 function checkLocationLockById($conn, $location_id) {
+    if (!$location_id) return; // Allow null/empty location IDs
     $stmt = $conn->prepare("SELECT location_code, is_locked FROM warehouse_locations WHERE location_id = ?");
     $stmt->bind_param("i", $location_id);
     $stmt->execute();
@@ -37,14 +30,46 @@ function checkLocationLockById($conn, $location_id) {
     }
 }
 
-switch ($action) {
-    case 'get_transfer_history': getTransferHistory($conn, $current_warehouse_id); break;
-    case 'get_products_in_warehouse': getProductsInWarehouse($conn, $current_warehouse_id); break;
-    case 'get_product_inventory': getProductInventory($conn); break;
-    case 'create_transfer': createTransfer($conn); break;
-    case 'get_transfer_details_for_print': getTransferDetailsForPrint($conn); break;
-    default: send_json_response(['status' => 'error', 'message' => 'Invalid action specified.']);
+// --- ROUTING ---
+switch ($method) {
+    case 'GET':
+        // Allow viewers to see history and details, but not create transfers.
+        authorize_user_role(['viewer', 'operator', 'manager']);
+        switch ($action) {
+            case 'get_transfer_history':
+                getTransferHistory($conn, $current_warehouse_id);
+                break;
+            case 'get_products_in_warehouse':
+                getProductsInWarehouse($conn, $current_warehouse_id);
+                break;
+            case 'get_product_inventory':
+                getProductInventory($conn);
+                break;
+            case 'get_transfer_details_for_print':
+                getTransferDetailsForPrint($conn);
+                break;
+            default:
+                sendJsonResponse(['success' => false, 'message' => 'Invalid GET action specified.']);
+        }
+        break;
+
+    case 'POST':
+        // Only operators and managers can create transfers.
+        authorize_user_role(['operator', 'manager']);
+        switch ($action) {
+            case 'create_transfer':
+                createTransfer($conn, $current_warehouse_id, $current_user_id);
+                break;
+            default:
+                sendJsonResponse(['success' => false, 'message' => 'Invalid POST action specified.']);
+        }
+        break;
+
+    default:
+        sendJsonResponse(['success' => false, 'message' => 'Method Not Allowed'], 405);
+        break;
 }
+
 
 function getTransferHistory($conn, $warehouse_id) {
     $sql = "SELECT 
@@ -69,12 +94,12 @@ function getTransferHistory($conn, $warehouse_id) {
     $result = $stmt->get_result();
     $history = $result->fetch_all(MYSQLI_ASSOC);
     
-    send_json_response(['status' => 'success', 'data' => $history]);
+    sendJsonResponse(['success' => true, 'data' => $history]);
 }
 
 function getProductsInWarehouse($conn, $warehouse_id) {
     if (empty($warehouse_id)) {
-        send_json_response(['status' => 'error', 'message' => 'Warehouse ID is required.']);
+        sendJsonResponse(['success' => false, 'message' => 'Warehouse ID is required.']);
     }
 
     $sql = "SELECT 
@@ -93,7 +118,7 @@ function getProductsInWarehouse($conn, $warehouse_id) {
     $result = $stmt->get_result();
     $products = $result->fetch_all(MYSQLI_ASSOC);
     
-    send_json_response(['status' => 'success', 'data' => $products]);
+    sendJsonResponse(['success' => true, 'data' => $products]);
 }
 
 function getProductInventory($conn) {
@@ -101,7 +126,7 @@ function getProductInventory($conn) {
     $product_id = $_GET['product_id'] ?? 0;
 
     if (empty($warehouse_id) || empty($product_id)) {
-        send_json_response(['status' => 'error', 'message' => 'Warehouse and Product IDs are required.']);
+        sendJsonResponse(['success' => false, 'message' => 'Warehouse and Product IDs are required.']);
     }
 
     $sql = "SELECT 
@@ -121,15 +146,20 @@ function getProductInventory($conn) {
     $result = $stmt->get_result();
     $inventory = $result->fetch_all(MYSQLI_ASSOC);
 
-    send_json_response(['status' => 'success', 'data' => $inventory]);
+    sendJsonResponse(['success' => true, 'data' => $inventory]);
 }
 
-function createTransfer($conn) {
+function createTransfer($conn, $current_warehouse_id, $current_user_id) {
     $data = json_decode(file_get_contents('php://input'), true);
     $items = $data['items'] ?? [];
+    $source_warehouse_id = $data['source_warehouse_id'] ?? 0;
+    $destination_warehouse_id = $data['destination_warehouse_id'] ?? 0;
 
     if (empty($items)) {
-        send_json_response(['status' => 'error', 'message' => 'No items provided for transfer.']);
+        sendJsonResponse(['success' => false, 'message' => 'No items provided for transfer.']);
+    }
+    if ($source_warehouse_id != $current_warehouse_id) {
+        sendJsonResponse(['success' => false, 'message' => 'Source warehouse does not match your current session.']);
     }
 
     $conn->begin_transaction();
@@ -143,7 +173,7 @@ function createTransfer($conn) {
         $order_number = 'TRN-' . date('Ymd-His');
         $sql_header = "INSERT INTO transfer_orders (transfer_order_number, source_warehouse_id, destination_warehouse_id, notes, created_by_user_id, status) VALUES (?, ?, ?, ?, ?, 'Completed')";
         $stmt_header = $conn->prepare($sql_header);
-        $stmt_header->bind_param("siisi", $order_number, $data['source_warehouse_id'], $data['destination_warehouse_id'], $data['notes'], $_SESSION['user_id']);
+        $stmt_header->bind_param("siisi", $order_number, $source_warehouse_id, $destination_warehouse_id, $data['notes'], $current_user_id);
         $stmt_header->execute();
         $transfer_id = $conn->insert_id;
 
@@ -170,25 +200,25 @@ function createTransfer($conn) {
             } else {
                 $sql_insert = "INSERT INTO inventory (product_id, warehouse_id, location_id, quantity, batch_number, dot_code) VALUES (?, ?, ?, ?, ?, ?)";
                 $stmt_insert = $conn->prepare($sql_insert);
-                $stmt_insert->bind_param("iiiiss", $item['productId'], $data['destination_warehouse_id'], $item['destLocationId'], $item['quantity'], $item['batch'], $item['dot']);
+                $stmt_insert->bind_param("iiiiss", $item['productId'], $destination_warehouse_id, $item['destLocationId'], $item['quantity'], $item['batch'], $item['dot']);
                 $stmt_insert->execute();
             }
         }
 
         $conn->commit();
-        send_json_response(['status' => 'success', 'message' => 'Transfer order created successfully!', 'transfer_id' => $transfer_id]);
+        sendJsonResponse(['success' => true, 'message' => 'Transfer order created successfully!', 'transfer_id' => $transfer_id]);
 
     } catch (Exception $e) {
         $conn->rollback();
         error_log("Transfer Order Error: " . $e->getMessage());
-        send_json_response(['status' => 'error', 'message' => 'Failed to create transfer order: ' . $e->getMessage()]);
+        sendJsonResponse(['success' => false, 'message' => 'Failed to create transfer order: ' . $e->getMessage()]);
     }
 }
 
 function getTransferDetailsForPrint($conn) {
     $transfer_id = $_GET['id'] ?? 0;
     if (!$transfer_id) {
-        send_json_response(['status' => 'error', 'message' => 'Invalid Transfer ID.']);
+        sendJsonResponse(['success' => false, 'message' => 'Invalid Transfer ID.']);
     }
 
     $sql_header = "SELECT t.*, sw.warehouse_name as source_warehouse, dw.warehouse_name as dest_warehouse, dw.address as dest_address, dw.city as dest_city, u.full_name as created_by
@@ -218,9 +248,9 @@ function getTransferDetailsForPrint($conn) {
         $stmt_items->execute();
         $items = $stmt_items->get_result()->fetch_all(MYSQLI_ASSOC);
         
-        send_json_response(['status' => 'success', 'header' => $header, 'items' => $items]);
+        sendJsonResponse(['success' => true, 'header' => $header, 'items' => $items]);
     } else {
-        send_json_response(['status' => 'error', 'message' => 'Transfer order not found.']);
+        sendJsonResponse(['success' => false, 'message' => 'Transfer order not found.']);
     }
 }
 

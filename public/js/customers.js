@@ -13,9 +13,13 @@ document.addEventListener('DOMContentLoaded', () => {
     initializePage();
 
     async function initializePage() {
-        const canManage = ['operator', 'manager'].includes(currentWarehouseRole);
-        if (addCustomerBtn) addCustomerBtn.style.display = canManage ? 'block' : 'none';
         
+        const canManageInbound = ['operator', 'manager'].includes(currentWarehouseRole);
+        if (!canManageInbound) {
+            $('button').prop('disabled', true);
+            Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'View-only permissions.', showConfirmButton: false, timer: 3000, timerProgressBar: true });
+        }
+    
         initializeCustomersDataTable();
         await loadCustomers();
     }

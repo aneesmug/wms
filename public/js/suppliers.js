@@ -4,14 +4,73 @@ $(document).ready(function() {
     // --- Globals ---
     let suppliersTable;
     const currentWarehouseRole = localStorage.getItem('current_warehouse_role');
-    const canManage = currentWarehouseRole === 'operator' || currentWarehouseRole === 'manager';
-    const canDelete = currentWarehouseRole === 'manager';
 
     // --- Initial Load ---
     initializePage();
 
     // --- Functions ---
+
+    /**
+     * Handles API requests and includes specific error handling for access denied errors.
+     * @param {string} url - The API endpoint.
+     * @param {string} method - The HTTP method (GET, POST, PUT, DELETE).
+     * @param {object|null} data - The request payload.
+     * @returns {Promise<object|null>} - The JSON response or null on error.
+     */
+    async function fetchData(url, method = 'POST', data = null) {
+        const options = {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+        };
+        if (data) {
+            options.body = JSON.stringify(data);
+        }
+        try {
+            const response = await fetch(url, options);
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.message || `API Error: Status ${response.status}`);
+            }
+            return result;
+        } catch (error) {
+            console.error('Fetch Error:', error);
+            const isAccessDeniedError = error.message.includes('Access Denied');
+            Swal.fire({
+                title: 'Error',
+                text: error.message,
+                icon: 'error',
+                confirmButtonText: 'OK',
+                allowOutsideClick: false
+            }).then((result) => {
+                if (result.isConfirmed && isAccessDeniedError) {
+                    window.location.href = 'dashboard.php';
+                }
+            });
+            return { success: false, message: error.message }; // Return a consistent error object
+        }
+    }
+
     function initializePage() {
+        // MODIFICATION: Block 'viewer' role from accessing this page.
+        if (currentWarehouseRole === 'viewer') {
+            Swal.fire({
+                title: 'Access Denied',
+                text: 'You do not have sufficient permissions to view this page.',
+                icon: 'error',
+                confirmButtonText: 'OK',
+                allowOutsideClick: false
+            }).then(() => {
+                window.location.href = 'dashboard.php';
+            });
+            // Hide the main content to prevent a flash of the unloaded table
+            $('#suppliersTable_wrapper').hide();
+            $('#addSupplierBtn').hide();
+            return; // Stop further execution
+        }
+
+        const canManage = currentWarehouseRole === 'operator' || currentWarehouseRole === 'manager';
+        const canDelete = currentWarehouseRole === 'manager';
+
         // Hide add button if user doesn't have permission
         if (!canManage) {
             $('#addSupplierBtn').hide();
@@ -20,11 +79,11 @@ $(document).ready(function() {
         // Initialize DataTable
         suppliersTable = $('#suppliersTable').DataTable({
             processing: true,
-            serverSide: false, // Using client-side processing for simplicity
+            serverSide: false, // Using client-side processing
             ajax: {
                 url: 'api/suppliers_api.php',
                 type: 'GET',
-                dataSrc: 'data' // The key in the JSON response that holds the array of suppliers
+                dataSrc: 'data'
             },
             columns: [
                 { data: 'supplier_name' },
@@ -57,7 +116,7 @@ $(document).ready(function() {
                 }
             ],
             rowCallback: function(row, data, index) {
-                // You can add custom row logic here if needed
+                // Custom row logic can be added here if needed
             }
         });
 
@@ -65,7 +124,6 @@ $(document).ready(function() {
         $('#addSupplierBtn').on('click', handleAddSupplier);
         $('#suppliersTable tbody').on('click', '.edit-btn', handleEditSupplier);
         $('#suppliersTable tbody').on('click', '.delete-btn', handleDeleteSupplier);
-        $('#logoutBtn').on('click', handleLogout);
     }
 
     // --- SweetAlert2 Form Logic ---
@@ -113,9 +171,6 @@ $(document).ready(function() {
             confirmButtonText: 'Save Supplier',
             showCancelButton: true,
             focusConfirm: false,
-            didOpen: () => {
-                // Any custom logic when the modal opens
-            },
             preConfirm: () => {
                 const form = document.getElementById('swalSupplierForm');
                 const supplierName = form.querySelector('#supplierName').value.trim();
@@ -137,10 +192,10 @@ $(document).ready(function() {
             if (result.isConfirmed) {
                 const data = result.value;
                 const response = await fetchData('api/suppliers_api.php', 'POST', data);
-                if (response.success) {
+                if (response && response.success) {
                     Swal.fire('Success!', 'Supplier created successfully.', 'success');
                     suppliersTable.ajax.reload();
-                } else {
+                } else if (response) {
                     Swal.fire('Error!', response.message || 'Failed to create supplier.', 'error');
                 }
             }
@@ -178,10 +233,10 @@ $(document).ready(function() {
             if (result.isConfirmed) {
                 const data = result.value;
                 const response = await fetchData('api/suppliers_api.php', 'PUT', data);
-                if (response.success) {
+                if (response && response.success) {
                     Swal.fire('Success!', 'Supplier updated successfully.', 'success');
                     suppliersTable.ajax.reload(null, false); // reload and keep pagination
-                } else {
+                } else if (response) {
                     Swal.fire('Error!', response.message || 'Failed to update supplier.', 'error');
                 }
             }
@@ -202,18 +257,13 @@ $(document).ready(function() {
         }).then(async (result) => {
             if (result.isConfirmed) {
                 const response = await fetchData(`api/suppliers_api.php?id=${rowData.supplier_id}`, 'DELETE');
-                if (response.success) {
+                if (response && response.success) {
                     Swal.fire('Deleted!', 'The supplier has been deleted.', 'success');
                     suppliersTable.ajax.reload();
-                } else {
+                } else if (response) {
                     Swal.fire('Error!', response.message || 'Failed to delete supplier.', 'error');
                 }
             }
         });
-    }
-
-    async function handleLogout() {
-        await fetchData('api/auth.php?action=logout');
-        redirectToLogin();
     }
 });

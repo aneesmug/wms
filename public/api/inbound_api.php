@@ -1,6 +1,11 @@
 <?php
 // api/inbound.php
-// 015-inbound_api.php
+// 016-inbound_api.php
+
+/*
+* MODIFICATION SUMMARY:
+* 001 (2025-08-14): Modified handleGetAvailableLocations to exclude locations of type 'bin', 'block_area', and 'ground' from the putaway location dropdown.
+*/
 
 require_once __DIR__ . '/../config/config.php';
 
@@ -622,7 +627,22 @@ function updateContainerStatus($conn, $container_id) {
 // --- OTHER GET FUNCTIONS ---
 
 function handleGetAvailableLocations($conn, $warehouse_id) {
-    $sql = "SELECT location_id, location_code, max_capacity_units, COALESCE((SELECT SUM(quantity) FROM inventory WHERE location_id = wl.location_id), 0) as current_usage FROM warehouse_locations wl WHERE warehouse_id = ? AND is_active = 1 AND is_locked = 0";
+    $sql = "
+        SELECT 
+            wl.location_id, 
+            wl.location_code, 
+            wl.max_capacity_units, 
+            COALESCE((SELECT SUM(quantity) FROM inventory WHERE location_id = wl.location_id), 0) as current_usage 
+        FROM 
+            warehouse_locations wl
+        JOIN 
+            location_types lt ON wl.location_type_id = lt.type_id
+        WHERE 
+            wl.warehouse_id = ? 
+            AND wl.is_active = 1 
+            AND wl.is_locked = 0
+            AND lt.type_name NOT IN ('bin', 'block_area', 'ground')
+    ";
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("i", $warehouse_id);
     $stmt->execute();
@@ -739,3 +759,4 @@ function handleGetReportData($conn, $warehouse_id) {
 
     sendJsonResponse(['success' => true, 'data' => $receipt]);
 }
+
