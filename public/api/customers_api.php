@@ -1,7 +1,12 @@
 <?php
-// api/customers.php
+// api/customers_api.php
+
+// MODIFICATION SUMMARY:
+// 1. New action 'get_order_history': Fetches a detailed list of all items a customer has ordered, including the specific DOT code for each item from the original pick. It also calculates the quantity already returned for each item.
+// 2. handleGetCustomerDetails: This function has been simplified. It no longer fetches detailed order and item information, as this is now handled by the new 'get_order_history' action, making the initial load faster.
 
 require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../helpers/auth_helper.php';
 
 $conn = getDbConnection();
 ob_start();
@@ -16,6 +21,9 @@ switch ($method) {
         authorize_user_role(['viewer', 'operator', 'manager']);
         if ($action === 'get_details') {
             handleGetCustomerDetails($conn);
+        } elseif ($action === 'get_order_history') {
+            // MODIFICATION: Added new action
+            handleGetCustomerOrderHistory($conn);
         } else {
             handleGetCustomers($conn);
         }
@@ -38,6 +46,60 @@ switch ($method) {
         break;
 }
 
+// MODIFICATION: New function to get detailed order history with DOT codes
+function handleGetCustomerOrderHistory($conn) {
+    $customer_id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
+    if (!$customer_id) {
+        sendJsonResponse(['success' => false, 'message' => 'Invalid Customer ID.'], 400);
+        return;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT
+            oo.order_id,
+            oo.order_number,
+            oo.order_date,
+            p.product_id,
+            p.product_name,
+            p.sku,
+            p.article_no,
+            oi.outbound_item_id,
+            oip.dot_code,
+            oip.picked_quantity,
+            (
+                SELECT COALESCE(SUM(ri_sub.expected_quantity), 0)
+                FROM return_items ri_sub
+                JOIN returns r_sub ON ri_sub.return_id = r_sub.return_id
+                WHERE ri_sub.outbound_item_id = oi.outbound_item_id
+                AND r_sub.status != 'Cancelled'
+            ) as returned_quantity
+        FROM
+            outbound_orders oo
+        JOIN
+            outbound_items oi ON oo.order_id = oi.order_id
+        JOIN
+            products p ON oi.product_id = p.product_id
+        LEFT JOIN
+            outbound_item_picks oip ON oi.outbound_item_id = oip.outbound_item_id
+        WHERE
+            oo.customer_id = ?
+            AND oo.status IN ('Shipped', 'Delivered', 'Partially Returned', 'Returned')
+            AND oi.picked_quantity > 0
+        GROUP BY
+            oi.outbound_item_id, oo.order_id, oo.order_number, oo.order_date, p.product_id, p.product_name, p.sku, p.article_no, oip.dot_code, oip.picked_quantity
+        ORDER BY
+            oo.order_date DESC, p.product_name ASC
+    ");
+
+    $stmt->bind_param("i", $customer_id);
+    $stmt->execute();
+    $history = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+
+    sendJsonResponse(['success' => true, 'data' => $history]);
+}
+
+
 function handleGetCustomerDetails($conn) {
     $customer_id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
     if (!$customer_id) {
@@ -55,45 +117,14 @@ function handleGetCustomerDetails($conn) {
         sendJsonResponse(['success' => false, 'message' => 'Customer not found.'], 404);
         return;
     }
-
+    
+    // MODIFICATION: Simplified this function. No longer fetching all orders and items here.
+    // That logic is moved to the new handleGetCustomerOrderHistory function.
     $stmt_orders = $conn->prepare("SELECT order_id, order_number, status, order_date FROM outbound_orders WHERE customer_id = ? ORDER BY order_date DESC");
     $stmt_orders->bind_param("i", $customer_id);
     $stmt_orders->execute();
     $orders = $stmt_orders->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt_orders->close();
-
-    // MODIFICATION START: Fetch items with returned quantity for each order
-    foreach ($orders as &$order) {
-        $stmt_items = $conn->prepare("
-            SELECT
-                oi.outbound_item_id,
-                oi.product_id,
-                p.sku,
-                p.product_name,
-                p.article_no,
-                oi.ordered_quantity,
-                oi.picked_quantity,
-                COALESCE(SUM(ri.expected_quantity), 0) as returned_quantity
-            FROM
-                outbound_items oi
-            JOIN
-                products p ON oi.product_id = p.product_id
-            LEFT JOIN
-                return_items ri ON oi.outbound_item_id = ri.outbound_item_id
-            LEFT JOIN
-                returns r ON ri.return_id = r.return_id AND r.status != 'Cancelled'
-            WHERE
-                oi.order_id = ?
-            GROUP BY
-                oi.outbound_item_id, p.sku, p.product_name, p.article_no, oi.ordered_quantity, oi.picked_quantity
-        ");
-        $stmt_items->bind_param("i", $order['order_id']);
-        $stmt_items->execute();
-        $order['items'] = $stmt_items->get_result()->fetch_all(MYSQLI_ASSOC);
-        $stmt_items->close();
-    }
-    unset($order); // Unset reference
-    // MODIFICATION END
 
     $stmt_returns = $conn->prepare("SELECT return_id, return_number, status, created_at FROM returns WHERE customer_id = ? ORDER BY created_at DESC");
     $stmt_returns->bind_param("i", $customer_id);
@@ -109,7 +140,6 @@ function handleGetCustomerDetails($conn) {
 }
 
 function handleGetCustomers($conn) {
-    // MODIFICATION: Added a subquery to count orders for each customer
     $sql = "
         SELECT 
             c.customer_id, 

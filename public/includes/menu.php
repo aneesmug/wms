@@ -16,7 +16,7 @@ $permissions = [
     ],
     'operator' => [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
-        'locations.php', 'batch_search.php', 'picking.php', 'returns.php' // <-- Added returns page
+        'locations.php', 'batch_search.php', 'picking.php', 'returns.php', 'transfer_order.php' // <-- Added returns page
     ],
     'picker' => [
         'dashboard.php', 'inventory.php', 'picking.php',

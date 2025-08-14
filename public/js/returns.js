@@ -1,9 +1,10 @@
 // public/js/returns.js
 // MODIFICATION SUMMARY:
-// 1. Added a "Putaway Destination" selector to choose between "Same Warehouse" and "Another Warehouse".
-// 2. The "Select Another Warehouse" dropdown is now hidden by default and only appears when "Another Warehouse" is chosen.
-// 3. When "Another Warehouse" is selected, the current warehouse is excluded from the list.
-// 4. The logic has been streamlined to fetch all warehouses once and filter the list on the client-side based on the user's selection.
+// 1. populateReturnItemsTable: Now displays `expected_dot_code` and `received_dot_code`. Passes `expected_dot_code` to the inspection modal.
+// 2. showInspectionModal:
+//    - Displays the `expected_dot_code` as read-only text for reference.
+//    - Adds a mandatory input field for the user to enter the `received_dot_code`.
+// 3. preConfirm: The `received_dot_code` is now captured from the modal and sent in the payload to the backend for verification.
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
@@ -125,13 +126,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function loadReturnItems(returnId) {
-        returnItemsTableBody.innerHTML = `<tr><td colspan="8" class="text-center p-4">Loading items...</td></tr>`;
+        returnItemsTableBody.innerHTML = `<tr><td colspan="10" class="text-center p-4">Loading items...</td></tr>`;
         try {
             const response = await fetchData(`api/returns_api.php?return_id=${returnId}`);
             if (response.success && response.data) {
                 populateReturnItemsTable(response.data.items);
             } else {
-                returnItemsTableBody.innerHTML = `<tr><td colspan="8" class="text-center p-4">Could not load items.</td></tr>`;
+                returnItemsTableBody.innerHTML = `<tr><td colspan="10" class="text-center p-4">Could not load items.</td></tr>`;
             }
         } catch (error) {
             Swal.fire('Error', `Could not load return items: ${error.message}`, 'error');
@@ -141,7 +142,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function populateReturnItemsTable(items) {
         returnItemsTableBody.innerHTML = '';
         if (items.length === 0) {
-            returnItemsTableBody.innerHTML = `<tr><td colspan="8" class="text-center p-4">No items found for this return.</td></tr>`;
+            returnItemsTableBody.innerHTML = `<tr><td colspan="10" class="text-center p-4">No items found for this return.</td></tr>`;
             return;
         }
 
@@ -150,18 +151,22 @@ document.addEventListener('DOMContentLoaded', () => {
             const mainRow = returnItemsTableBody.insertRow();
             mainRow.className = isFullyProcessed ? 'table-success fw-bold' : 'fw-bold';
 
+            // MODIFICATION: Added cells for expected_dot_code and received_dot_code
             mainRow.innerHTML = `
                 <td>${item.sku}</td>
                 <td>${item.product_name}</td>
                 <td>${item.article_no || 'N/A'}</td>
+                <td><span class="badge bg-info">${item.expected_dot_code || 'N/A'}</span></td>
+                <td><span class="badge bg-secondary">${item.received_dot_code || 'N/A'}</span></td>
                 <td>${item.expected_quantity}</td>
                 <td>${item.processed_quantity}</td>
                 <td>${item.condition || 'N/A'}</td>
-                <td></td>
+                <td>${item.putaway_location_code || 'N/A'}</td>
                 <td class="text-center">
                     ${!isFullyProcessed ? `<button class="btn btn-sm btn-info inspect-item-btn" 
                                             data-return-item-id="${item.return_item_id}" 
-                                            data-product-id="${item.product_id}" 
+                                            data-product-id="${item.product_id}"
+                                            data-expected-dot="${item.expected_dot_code || ''}"
                                             data-remaining-qty="${item.expected_quantity - item.processed_quantity}"
                                             title="Inspect & Put Away">
                                             <i class="bi bi-box-arrow-in-down"></i>
@@ -174,7 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const putawayRow = returnItemsTableBody.insertRow();
                     putawayRow.className = 'table-light';
                     putawayRow.innerHTML = `
-                        <td colspan="6" class="text-end fst-italic py-1">
+                        <td colspan="8" class="text-end fst-italic py-1">
                             ↳ Putaway to <strong>${putaway.location_code}</strong>
                         </td>
                         <td class="py-1">${putaway.quantity}</td>
@@ -200,25 +205,38 @@ document.addEventListener('DOMContentLoaded', () => {
         const returnItemId = button.dataset.returnItemId;
         const productId = button.dataset.productId;
         const remainingQty = button.dataset.remainingQty;
+        const expectedDot = button.dataset.expectedDot; // MODIFICATION
 
         const { value: formValues } = await Swal.fire({
             title: 'Inspect & Put Away Item',
+            // MODIFICATION: Added DOT code inputs
             html: `
                 <form id="inspectForm" class="text-start mt-3">
-                    <div class="mb-3">
-                        <label for="swal-quantity" class="form-label">Quantity to Process</label>
-                        <input type="number" id="swal-quantity" class="form-control" value="${remainingQty}" min="1" max="${remainingQty}" required>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="swal-quantity" class="form-label">Quantity to Process</label>
+                            <input type="number" id="swal-quantity" class="form-control" value="${remainingQty}" min="1" max="${remainingQty}" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="swal-condition" class="form-label">Condition</label>
+                            <select id="swal-condition" class="form-select">
+                                <option value="Good" selected>Good (Return to Stock)</option>
+                                <option value="Damaged">Damaged</option>
+                                <option value="Scrap">Scrap</option>
+                            </select>
+                        </div>
                     </div>
-                    <div class="mb-3">
-                        <label for="swal-condition" class="form-label">Condition</label>
-                        <select id="swal-condition" class="form-select">
-                            <option value="Good" selected>Good (Return to Stock)</option>
-                            <option value="Damaged">Damaged</option>
-                            <option value="Scrap">Scrap</option>
-                        </select>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Expected DOT</label>
+                            <input type="text" class="form-control" value="${expectedDot}" disabled readonly>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="swal-received-dot" class="form-label">Received DOT Code*</label>
+                            <input type="text" id="swal-received-dot" class="form-control" placeholder="WWYY" maxlength="4" required>
+                        </div>
                     </div>
                     <div id="putaway-group" class="mb-3">
-                        <!-- MODIFICATION: New selector for destination type -->
                         <div class="mb-3">
                             <label for="swal-putaway-type" class="form-label">Putaway Destination</label>
                             <select id="swal-putaway-type" class="form-select">
@@ -226,7 +244,6 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <option value="other">Another Warehouse</option>
                             </select>
                         </div>
-                        <!-- MODIFICATION: This container will be shown/hidden -->
                         <div class="mb-3" id="warehouse-select-container" style="display: none;">
                            <label for="swal-warehouse-select" class="form-label">Select Another Warehouse</label>
                            <select id="swal-warehouse-select" class="form-select" style="width:100%"></select>
@@ -247,23 +264,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 const quantityInput = document.getElementById('swal-quantity');
                 const $locationSelect = $('#swal-location-select');
                 const $warehouseSelect = $('#swal-warehouse-select');
-                // MODIFICATION: Get new elements
                 const $putawayTypeSelect = $('#swal-putaway-type');
                 const $warehouseSelectContainer = $('#warehouse-select-container');
 
-                let allWarehouses = []; // To store the fetched list of warehouses
+                let allWarehouses = [];
 
                 const formatLocation = (location) => {
                     if (!location.id) return location.text;
-                    
                     const $option = $(location.element);
                     const availableStr = $option.data('available');
                     const available = (availableStr === null || typeof availableStr === 'undefined') ? null : parseInt(availableStr, 10);
                     const quantity = parseInt(quantityInput.value, 10);
                     const quantityToMove = (!isNaN(quantity) && quantity > 0) ? quantity : 0;
-                    
                     let badge = '';
-
                     if (available === null || isNaN(available)) {
                         badge = `<span class="badge bg-secondary float-end">Availability not set</span>`;
                     } else if (quantityToMove > 0 && quantityToMove > available) {
@@ -271,23 +284,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else {
                         badge = `<span class="badge bg-success float-end">Available: ${available}</span>`;
                     }
-                    
                     return $(`<div>${location.text} ${badge}</div>`);
                 };
 
                 const validateLocationCapacity = () => {
                     const quantity = parseInt(quantityInput.value, 10);
                     const quantityToValidate = (!isNaN(quantity) && quantity > 0) ? quantity : 1;
-
                     let isSelectedDisabled = false;
-
                     $locationSelect.find('option').each(function() {
                         const option = $(this);
                         if (!option.val()) return;
-                        
                         const availableStr = option.data('available');
                         const available = (availableStr === null || typeof availableStr === 'undefined') ? null : parseInt(availableStr, 10);
-
                         if (available === null || isNaN(available) || quantityToValidate > available) {
                             option.prop('disabled', true);
                             if(option.is(':selected')) {
@@ -297,11 +305,9 @@ document.addEventListener('DOMContentLoaded', () => {
                             option.prop('disabled', false);
                         }
                     });
-                    
                     if(isSelectedDisabled) {
                         $locationSelect.val(null);
                     }
-
                     $locationSelect.select2('destroy').select2({
                         placeholder: 'Scan or select a location...',
                         theme: 'bootstrap-5',
@@ -318,7 +324,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         theme: 'bootstrap-5',
                         dropdownParent: $('.swal2-container')
                     });
-
                     try {
                         const response = await fetchData(`api/returns_api.php?action=get_putaway_locations&warehouse_id=${warehouseId}`);
                         $locationSelect.empty().append(new Option('', '', true, true));
@@ -337,18 +342,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 };
                 
-                // MODIFICATION: Helper to populate warehouse dropdown based on filter
                 const populateWarehouseSelect = (excludeCurrent = false) => {
                     $warehouseSelect.empty();
                     const warehousesToShow = excludeCurrent 
                         ? allWarehouses.filter(wh => wh.warehouse_id != currentWarehouseId)
                         : allWarehouses;
-                    
                     warehousesToShow.forEach(wh => {
                         const option = new Option(wh.warehouse_name, wh.warehouse_id, false, false);
                         $warehouseSelect.append(option);
                     });
-                    // Set a placeholder and trigger change to load locations for the first item
                     $warehouseSelect.val(null).select2({
                         placeholder: 'Select a warehouse...',
                         theme: 'bootstrap-5',
@@ -356,22 +358,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     }).trigger('change');
                 };
                 
-                // Initialize selects
                 $locationSelect.select2({ placeholder: 'Select a warehouse first', theme: 'bootstrap-5', dropdownParent: $('.swal2-container') });
 
-                // Fetch all warehouses ONCE
                 try {
                     const response = await fetchData('api/returns_api.php?action=get_warehouses');
                     if(response.success && Array.isArray(response.data)) {
                         allWarehouses = response.data;
-                        // Initially load locations for the current warehouse
                         loadLocations(currentWarehouseId);
                     }
                 } catch(e) {
                      console.error("Failed to load warehouses", e);
                 }
 
-                // --- Event Listeners ---
                 quantityInput.addEventListener('input', validateLocationCapacity);
                 
                 $warehouseSelect.on('change', function() {
@@ -387,15 +385,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     putawayGroup.style.display = e.target.value === 'Good' ? 'block' : 'none';
                 });
 
-                // MODIFICATION: Event listener for the new destination type selector
                 $putawayTypeSelect.on('change', function() {
                     const type = $(this).val();
                     if (type === 'other') {
                         $warehouseSelectContainer.show();
-                        populateWarehouseSelect(true); // Populate with other warehouses
-                    } else { // 'same'
+                        populateWarehouseSelect(true);
+                    } else {
                         $warehouseSelectContainer.hide();
-                        loadLocations(currentWarehouseId); // Load locations for current warehouse
+                        loadLocations(currentWarehouseId);
                     }
                 });
             },
@@ -404,17 +401,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 const condition = document.getElementById('swal-condition').value;
                 const putawayType = document.getElementById('swal-putaway-type').value;
                 const locationCode = document.getElementById('swal-location-select').value;
-                
-                // MODIFICATION: Determine warehouse ID based on selection type
+                const receivedDot = document.getElementById('swal-received-dot').value; // MODIFICATION
+
                 let warehouseId;
                 if (putawayType === 'same') {
                     warehouseId = currentWarehouseId;
-                } else { // 'other'
+                } else {
                     warehouseId = document.getElementById('swal-warehouse-select').value;
                 }
 
                 if (!quantity || parseInt(quantity) <= 0 || parseInt(quantity) > remainingQty) {
                     Swal.showValidationMessage(`Please enter a quantity between 1 and ${remainingQty}.`);
+                    return false;
+                }
+                // MODIFICATION: Validate received DOT code
+                if (!receivedDot || receivedDot.length !== 4 || isNaN(receivedDot)) {
+                    Swal.showValidationMessage('Please enter a valid 4-digit DOT code (WWYY).');
                     return false;
                 }
                 if (condition === 'Good' && !locationCode) {
@@ -425,11 +427,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     Swal.showValidationMessage('A putaway warehouse must be selected.');
                     return false;
                 }
+                
+                // MODIFICATION: Add received_dot_code to payload
                 return {
                     return_item_id: returnItemId,
                     quantity: parseInt(quantity),
                     condition: condition,
                     location_barcode: locationCode,
+                    received_dot_code: receivedDot,
                     putaway_warehouse_id: parseInt(warehouseId)
                 };
             }

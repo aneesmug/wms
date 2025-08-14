@@ -1,9 +1,24 @@
 <?php
 // api/returns_api.php
+
+/*
+-- REQUIRED DATABASE CHANGE --
+-- Please run the following SQL query on your database to add the necessary columns for DOT code tracking in returns.
+
+ALTER TABLE `return_items`
+ADD COLUMN `expected_dot_code` VARCHAR(4) NULL DEFAULT NULL COMMENT 'The DOT code that was shipped to the customer' AFTER `outbound_item_id`,
+ADD COLUMN `received_dot_code` VARCHAR(4) NULL DEFAULT NULL COMMENT 'The DOT code of the actual item received back' AFTER `expected_dot_code`;
+
+*/
+
 // MODIFICATION SUMMARY:
-// 1. Added a new 'get_warehouses' action to fetch all active warehouses.
-// 2. Modified 'get_putaway_locations' to fetch locations for a specific warehouse ID passed as a parameter, defaulting to the current session's warehouse if not provided.
-// 3. Updated 'process_item' to accept a 'putaway_warehouse_id' and use it for location validation and inventory creation, allowing items to be put away in different warehouses.
+// 1. handleCreateReturn: Now fetches the `dot_code` from the original outbound pick and saves it as `expected_dot_code` when creating a return item.
+// 2. handleGetReturns: The detailed view now fetches and returns both `expected_dot_code` and `received_dot_code` for each item.
+// 3. handleProcessItem:
+//    - Now requires a `received_dot_code` in the input.
+//    - Validates that the `received_dot_code` matches the `expected_dot_code`.
+//    - Saves the verified `received_dot_code` to the `return_items` table upon processing.
+//    - Uses the verified `dot_code` when creating a new inventory record for 'Good' condition items.
 
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../helpers/auth_helper.php';
@@ -23,10 +38,8 @@ switch ($method) {
     case 'GET':
         authorize_user_role(['viewer', 'operator', 'manager']);
         if ($action === 'get_putaway_locations') {
-            // MODIFICATION: No longer pass $current_warehouse_id directly
             handleGetPutawayLocations($conn);
         } elseif ($action === 'get_warehouses') {
-            // MODIFICATION: Added new action to get all warehouses
             handleGetWarehouses($conn);
         } else {
             handleGetReturns($conn, $current_warehouse_id);
@@ -39,7 +52,6 @@ switch ($method) {
         } 
         elseif ($action === 'process_item') {
             authorize_user_role(['operator', 'manager']);
-            // MODIFICATION: Pass current_warehouse_id for context, but the function will use the one from the payload.
             handleProcessItem($conn, $current_warehouse_id, $current_user_id);
         } else {
             sendJsonResponse(['success' => false, 'message' => 'Invalid POST action'], 400);
@@ -50,7 +62,6 @@ switch ($method) {
         break;
 }
 
-// MODIFICATION: New function to get all active warehouses
 function handleGetWarehouses($conn) {
     $stmt = $conn->prepare("SELECT warehouse_id, warehouse_name FROM warehouses WHERE is_active = 1 ORDER BY warehouse_name");
     $stmt->execute();
@@ -60,10 +71,7 @@ function handleGetWarehouses($conn) {
     sendJsonResponse(['success' => true, 'data' => $warehouses]);
 }
 
-
-// MODIFICATION: Function now gets warehouse_id from GET param
 function handleGetPutawayLocations($conn) {
-    // If warehouse_id is provided in the request, use it. Otherwise, default to the user's current warehouse.
     $warehouse_id_to_use = $_GET['warehouse_id'] ?? get_current_warehouse_id();
     if (!$warehouse_id_to_use) {
         sendJsonResponse(['success' => false, 'message' => 'Warehouse ID not specified or found.'], 400);
@@ -98,7 +106,6 @@ function handleGetPutawayLocations($conn) {
     $stmt->close();
     sendJsonResponse(['success' => true, 'data' => $locations]);
 }
-
 
 function calculateExpiryDateForReturn($dot_code, $expiry_years) {
     if (empty($dot_code) || strlen($dot_code) !== 4 || !is_numeric($dot_code) || $expiry_years === null || !is_numeric($expiry_years)) {
@@ -174,8 +181,12 @@ function handleGetReturns($conn, $warehouse_id) {
             return;
         }
 
+        // MODIFICATION: Added expected_dot_code and received_dot_code to the query
         $stmt_items = $conn->prepare("
-            SELECT ri.*, p.sku, p.product_name, p.article_no, wl.location_code as putaway_location_code
+            SELECT 
+                ri.*, 
+                p.sku, p.product_name, p.article_no, 
+                wl.location_code as putaway_location_code
             FROM return_items ri
             JOIN products p ON ri.product_id = p.product_id
             LEFT JOIN warehouse_locations wl ON ri.putaway_location_id = wl.location_id
@@ -277,13 +288,18 @@ function handleCreateReturn($conn, $user_id) {
 
             if (!$outbound_item_id || !$quantity || $quantity <= 0) throw new Exception("Invalid data for an item to be returned.");
             
+            // Fetch original item details including the DOT code from the pick
+            // MODIFICATION: Added oip.dot_code to the check
             $stmt_check = $conn->prepare("
                 SELECT
                     oi.product_id,
                     oi.picked_quantity,
+                    oip.dot_code,
                     COALESCE(SUM(ri.expected_quantity), 0) AS returned_quantity
                 FROM
                     outbound_items oi
+                LEFT JOIN
+                    outbound_item_picks oip ON oi.outbound_item_id = oip.outbound_item_id
                 LEFT JOIN
                     return_items ri ON oi.outbound_item_id = ri.outbound_item_id
                 LEFT JOIN
@@ -291,7 +307,8 @@ function handleCreateReturn($conn, $user_id) {
                 WHERE
                     oi.outbound_item_id = ? AND oi.order_id = ?
                 GROUP BY
-                    oi.outbound_item_id, oi.product_id, oi.picked_quantity
+                    oi.outbound_item_id, oi.product_id, oi.picked_quantity, oip.dot_code
+                LIMIT 1
             ");
             $stmt_check->bind_param("ii", $outbound_item_id, $order_id);
             $stmt_check->execute();
@@ -299,7 +316,7 @@ function handleCreateReturn($conn, $user_id) {
             $stmt_check->close();
 
             if (!$check_result) {
-                throw new Exception("An item to be returned was not found on the original order.");
+                throw new Exception("An item to be returned was not found on the original order pick details.");
             }
 
             $returnable_quantity = $check_result['picked_quantity'] - $check_result['returned_quantity'];
@@ -307,9 +324,11 @@ function handleCreateReturn($conn, $user_id) {
             if ($quantity > $returnable_quantity) {
                 throw new Exception("Return quantity ({$quantity}) for an item exceeds the available returnable quantity ({$returnable_quantity}).");
             }
-
-            $stmt_items = $conn->prepare("INSERT INTO return_items (return_id, product_id, outbound_item_id, expected_quantity) VALUES (?, ?, ?, ?)");
-            $stmt_items->bind_param("iiii", $return_id, $check_result['product_id'], $outbound_item_id, $quantity);
+            
+            // MODIFICATION: Added expected_dot_code to the insert statement
+            $expected_dot_code = $check_result['dot_code'];
+            $stmt_items = $conn->prepare("INSERT INTO return_items (return_id, product_id, outbound_item_id, expected_dot_code, expected_quantity) VALUES (?, ?, ?, ?, ?)");
+            $stmt_items->bind_param("iiisi", $return_id, $check_result['product_id'], $outbound_item_id, $expected_dot_code, $quantity);
             $stmt_items->execute();
             $stmt_items->close();
         }
@@ -330,23 +349,29 @@ function handleProcessItem($conn, $current_warehouse_id, $user_id) {
     $quantity = filter_var($input['quantity'] ?? 0, FILTER_VALIDATE_INT);
     $condition = sanitize_input($input['condition'] ?? '');
     $location_barcode = sanitize_input($input['location_barcode'] ?? '');
-    // MODIFICATION: Get the target warehouse ID from the request. Default to the current warehouse if not provided.
     $putaway_warehouse_id = filter_var($input['putaway_warehouse_id'] ?? $current_warehouse_id, FILTER_VALIDATE_INT);
+    // MODIFICATION: Get received_dot_code from input
+    $received_dot_code = sanitize_input($input['received_dot_code'] ?? '');
     
-    if (!$return_item_id || $quantity <= 0 || empty($condition)) {
-        sendJsonResponse(['success' => false, 'message' => 'Item ID, quantity, and condition are required.'], 400);
+    // MODIFICATION: Added validation for received_dot_code
+    if (!$return_item_id || $quantity <= 0 || empty($condition) || empty($received_dot_code)) {
+        sendJsonResponse(['success' => false, 'message' => 'Item ID, quantity, condition, and received DOT code are required.'], 400);
+        return;
+    }
+    if (strlen($received_dot_code) !== 4 || !is_numeric($received_dot_code)) {
+        sendJsonResponse(['success' => false, 'message' => 'Invalid DOT code format. It must be 4 digits (WWYY).'], 400);
         return;
     }
     
     $conn->begin_transaction();
     try {
+        // MODIFICATION: No longer need to join to get dot_code, it's now in return_items as expected_dot_code
         $stmt_item = $conn->prepare("
             SELECT 
                 ri.*, 
                 r.return_id, 
                 r.order_id, 
-                p.expiry_years,
-                (SELECT oip.dot_code FROM outbound_item_picks oip WHERE oip.outbound_item_id = ri.outbound_item_id LIMIT 1) as dot_code
+                p.expiry_years
             FROM return_items ri
             JOIN returns r ON ri.return_id = r.return_id
             JOIN products p ON ri.product_id = p.product_id
@@ -357,12 +382,19 @@ function handleProcessItem($conn, $current_warehouse_id, $user_id) {
         $item = $stmt_item->get_result()->fetch_assoc();
         $stmt_item->close();
 
-        if (!$item) throw new Exception("Return item not found or could not be traced to original shipment details.");
+        if (!$item) throw new Exception("Return item not found.");
+        
+        // MODIFICATION: Validate received DOT code against expected DOT code
+        if ($item['expected_dot_code'] !== $received_dot_code) {
+            throw new Exception("DOT Code Mismatch. Expected: {$item['expected_dot_code']}, Received: {$received_dot_code}. Cannot process item.");
+        }
+        
         if (($item['processed_quantity'] + $quantity) > $item['expected_quantity']) {
             throw new Exception("Processing quantity exceeds expected quantity.");
         }
 
-        $calculated_expiry_date = calculateExpiryDateForReturn($item['dot_code'], $item['expiry_years']);
+        // MODIFICATION: Use the verified received_dot_code for expiry calculation
+        $calculated_expiry_date = calculateExpiryDateForReturn($received_dot_code, $item['expiry_years']);
         $unit_cost = null;
         $new_inventory_id = null;
         $location_id = null; 
@@ -370,7 +402,6 @@ function handleProcessItem($conn, $current_warehouse_id, $user_id) {
         if ($condition === 'Good') {
             if (empty($location_barcode)) throw new Exception("Location barcode is required for 'Good' items.");
             
-            // MODIFICATION: Validate location against the specified putaway warehouse.
             $stmt_loc = $conn->prepare("
                 SELECT wl.location_id, wl.is_locked 
                 FROM warehouse_locations wl
@@ -393,7 +424,7 @@ function handleProcessItem($conn, $current_warehouse_id, $user_id) {
 
             $new_batch_number = 'RET-' . date('ymd') . '-' . strtoupper(bin2hex(random_bytes(4)));
             
-            // MODIFICATION: Use the specified putaway_warehouse_id for the new inventory record.
+            // MODIFICATION: Use the verified received_dot_code for the new inventory record
             $stmt_inv_insert = $conn->prepare("
                 INSERT INTO inventory (
                     warehouse_id, product_id, source_inbound_item_id, location_id, quantity, 
@@ -402,7 +433,7 @@ function handleProcessItem($conn, $current_warehouse_id, $user_id) {
             ");
             $stmt_inv_insert->bind_param("iiiissssd", 
                 $putaway_warehouse_id, $item['product_id'], $return_item_id, $location_id, $quantity, 
-                $new_batch_number, $calculated_expiry_date, $item['dot_code'], $unit_cost
+                $new_batch_number, $calculated_expiry_date, $received_dot_code, $unit_cost
             );
 
             if (!$stmt_inv_insert->execute()) {
@@ -411,8 +442,7 @@ function handleProcessItem($conn, $current_warehouse_id, $user_id) {
             $new_inventory_id = $stmt_inv_insert->insert_id;
             $stmt_inv_insert->close();
             
-            // MODIFICATION: Use the specified putaway_warehouse_id for the stock adjustment.
-            $notes = "Stock added from return item ID: {$return_item_id} for Order ID: {$item['order_id']}.";
+            $notes = "Stock added from return item ID: {$return_item_id} for Order ID: {$item['order_id']}. Verified DOT: {$received_dot_code}.";
             $stmt_adj = $conn->prepare("INSERT INTO stock_adjustments (product_id, warehouse_id, location_id, user_id, quantity_adjusted, reason_code, notes) VALUES (?, ?, ?, ?, ?, 'Return', ?)");
             $stmt_adj->bind_param("iiiiis", $item['product_id'], $putaway_warehouse_id, $location_id, $user_id, $quantity, $notes);
             $stmt_adj->execute();
@@ -421,7 +451,8 @@ function handleProcessItem($conn, $current_warehouse_id, $user_id) {
             $stmt_sticker = $conn->prepare("INSERT INTO return_putaway_stickers (inventory_id, return_id, unique_barcode) VALUES (?, ?, ?)");
             for ($i = 0; $i < $quantity; $i++) {
                 $unique_id = strtoupper(bin2hex(random_bytes(3)));
-                $barcode_value = "RET-".($item['dot_code'] ?? 'NA')."-{$unique_id}";
+                // MODIFICATION: Use the verified received_dot_code in the sticker
+                $barcode_value = "RET-".($received_dot_code ?? 'NA')."-{$unique_id}";
                 $stmt_sticker->bind_param("iis", $new_inventory_id, $item['return_id'], $barcode_value);
                 if (!$stmt_sticker->execute()) {
                     throw new Exception("Failed to generate sticker barcode: " . $stmt_sticker->error);
@@ -430,8 +461,9 @@ function handleProcessItem($conn, $current_warehouse_id, $user_id) {
             $stmt_sticker->close();
         }
 
-        $stmt_update_item = $conn->prepare("UPDATE return_items SET processed_quantity = processed_quantity + ?, `condition` = ?, putaway_location_id = ?, inspected_by = ?, inspected_at = NOW() WHERE return_item_id = ?");
-        $stmt_update_item->bind_param("isiii", $quantity, $condition, $location_id, $user_id, $return_item_id);
+        // MODIFICATION: Update the received_dot_code field in return_items
+        $stmt_update_item = $conn->prepare("UPDATE return_items SET processed_quantity = processed_quantity + ?, `condition` = ?, putaway_location_id = ?, inspected_by = ?, inspected_at = NOW(), received_dot_code = ? WHERE return_item_id = ?");
+        $stmt_update_item->bind_param("isiisi", $quantity, $condition, $location_id, $user_id, $received_dot_code, $return_item_id);
         $stmt_update_item->execute();
         $stmt_update_item->close();
 

@@ -1,5 +1,16 @@
 // public/js/customer_details.js
 
+// MODIFICATION SUMMARY:
+// 1. Added a "Create Return" button (`createReturnBtn`) and its event listener.
+// 2. Removed the per-order return button logic from the data table.
+// 3. Implemented `showCreateReturnSweetAlert` to handle the entire return process in a single SweetAlert2 modal.
+// 4. The new modal fetches all returnable items for the customer.
+// 5. Added a search input within the modal to filter items by Product Name or Article Number in real-time.
+// 6. The modal allows entering quantities for multiple items at once.
+// 7. The `preConfirm` function gathers all items with a quantity greater than zero and sends them in a single API call to create the RMA.
+// 8. The return modal now displays the original Order # and the quantity already returned for each item.
+// 9. The search functionality in the modal now also includes searching by Order #.
+
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
     const customerNameHeader = document.getElementById('customerNameHeader');
@@ -9,6 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const transactionOrderSelect = document.getElementById('transactionOrder');
     const addTransactionSection = document.getElementById('addTransactionSection');
     const editCustomerBtn = document.getElementById('editCustomerBtn');
+    const createReturnBtn = document.getElementById('createReturnBtn'); // MODIFICATION
 
     // --- State & Config ---
     const urlParams = new URLSearchParams(window.location.search);
@@ -26,6 +38,9 @@ document.addEventListener('DOMContentLoaded', () => {
             Swal.fire('Please Wait', 'Customer data is still loading.', 'info');
         }
     });
+    // MODIFICATION: Added event listener for the new return button
+    if (createReturnBtn) createReturnBtn.addEventListener('click', showCreateReturnSweetAlert);
+
 
     initializePage();
 
@@ -40,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const canManage = ['operator', 'manager'].includes(currentWarehouseRole);
         if (addTransactionSection) addTransactionSection.style.display = canManage ? 'block' : 'none';
         if (editCustomerBtn) editCustomerBtn.style.display = canManage ? 'block' : 'none';
+        if (createReturnBtn) createReturnBtn.style.display = canManage ? 'block' : 'none'; // MODIFICATION
 
         initializeOrdersDataTable();
         await loadCustomerDetails();
@@ -74,11 +90,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const id = $(this).data('id');
             const type = $(this).data('type');
             showDetailsModal(id, type);
-        });
-        
-        $('#ordersTable tbody').on('click', '.create-return-btn', function() {
-            const orderId = $(this).data('order-id');
-            showReturnCreationModal(orderId);
         });
     }
 
@@ -116,18 +127,14 @@ document.addEventListener('DOMContentLoaded', () => {
     function populateOrdersTable(orders, returns) {
         const tableData = [];
         orders.forEach(o => {
-            let actionsHtml = '';
-            const canReturn = ['Shipped', 'Delivered', 'Partially Returned'].includes(o.status) && ['operator', 'manager'].includes(currentWarehouseRole);
-            if (canReturn) {
-                actionsHtml = `<button data-order-id="${o.order_id}" class="btn btn-sm btn-outline-warning create-return-btn" title="Create Return"><i class="bi bi-arrow-return-left"></i></button>`;
-            }
+            // MODIFICATION: Removed the per-row return button.
             tableData.push({ 
                 id: o.order_id, 
                 number: o.order_number, 
                 type: 'Order', 
                 status: `<span class="badge bg-primary">${o.status}</span>`, 
                 date: new Date(o.order_date).toLocaleDateString(),
-                actions: actionsHtml
+                actions: '' // No actions here anymore
             });
         });
         returns.forEach(r => tableData.push({ 
@@ -146,26 +153,155 @@ document.addEventListener('DOMContentLoaded', () => {
         transactionOrderSelect.innerHTML = '<option value="">None</option>';
         orders.forEach(order => transactionOrderSelect.add(new Option(`Order #${order.order_number} (${order.status})`, order.order_id)));
     }
-
-    async function loadTransactions() {
-        if (!transactionsTableBody) return;
-        transactionsTableBody.innerHTML = `<tr><td colspan="6" class="text-center p-4">Loading...</td></tr>`;
-        const response = await fetchData(`api/customer_transactions_api.php?customer_id=${customerId}`);
-        transactionsTableBody.innerHTML = '';
-        if (response?.success && Array.isArray(response.data)) {
-            if (response.data.length === 0) {
-                transactionsTableBody.innerHTML = `<tr><td colspan="6" class="text-center p-4">No transactions found.</td></tr>`;
-                return;
-            }
-            response.data.forEach(tx => {
-                const row = transactionsTableBody.insertRow();
-                const isCredit = ['payment', 'credit'].includes(tx.transaction_type);
-                const amountFormatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'SAR' }).format(tx.amount);
-                row.innerHTML = `<td>${new Date(tx.transaction_date).toLocaleDateString()}</td><td><span class="badge ${isCredit ? 'bg-success-subtle text-success-emphasis' : 'bg-danger-subtle text-danger-emphasis'}">${tx.transaction_type}</span></td><td class="fw-bold ${isCredit ? 'text-success' : 'text-danger'}">${isCredit ? '+' : '-'} ${amountFormatted}</td><td>${tx.order_number || 'N/A'}</td><td>${tx.notes || ''}</td><td>${tx.created_by_user || 'System'}</td>`;
-            });
-        } else {
-            transactionsTableBody.innerHTML = `<tr><td colspan="6" class="text-center p-4">Error loading transactions.</td></tr>`;
+    
+    // MODIFICATION: New function to handle creating a return via SweetAlert2
+    async function showCreateReturnSweetAlert() {
+        const response = await fetchData(`api/customers_api.php?action=get_order_history&id=${customerId}`);
+        if (!response.success || !Array.isArray(response.data)) {
+            return Swal.fire('Error', 'Could not load customer order history.', 'error');
         }
+
+        const returnableItems = response.data.filter(item => (parseInt(item.picked_quantity, 10) - parseInt(item.returned_quantity, 10)) > 0);
+
+        if (returnableItems.length === 0) {
+            return Swal.fire('No Returnable Items', 'This customer has no items eligible for return.', 'info');
+        }
+
+        // MODIFICATION: Added Order # and Returned columns
+        let itemsHtml = returnableItems.map(item => {
+            const pickedQty = parseInt(item.picked_quantity, 10);
+            const returnedQty = parseInt(item.returned_quantity, 10);
+            const returnableQty = pickedQty - returnedQty;
+            return `
+                <tr class="return-item-row" data-order-id="${item.order_id}" data-outbound-item-id="${item.outbound_item_id}">
+                    <td data-search-term="${item.order_number.toLowerCase()}">${item.order_number}</td>
+                    <td data-search-term="${item.product_name.toLowerCase()}">${item.product_name}</td>
+                    <td data-search-term="${(item.article_no || '').toLowerCase()}">${item.article_no || 'N/A'}</td>
+                    <td>${item.dot_code || 'N/A'}</td>
+                    <td class="text-center">${returnedQty}</td>
+                    <td class="text-center">${returnableQty}</td>
+                    <td>
+                        <input type="number" class="form-control form-control-sm return-qty-input" 
+                               max="${returnableQty}" min="0" value="0" style="width: 70px;">
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        Swal.fire({
+            title: 'Create New Return',
+            html: `
+                <div class="text-start">
+                    <div class="mb-3">
+                        <label for="swal-return-reason" class="form-label">Reason for Return*</label>
+                        <textarea id="swal-return-reason" class="form-control" rows="2" placeholder="e.g., Damaged, wrong item..."></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="swal-item-search" class="form-label">Search by Order #, Product Name, or Article No.</label>
+                        <input type="text" id="swal-item-search" class="form-control" placeholder="Start typing to filter items...">
+                    </div>
+                    <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                        <table class="table table-bordered table-sm">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th>Order #</th>
+                                    <th>Product</th>
+                                    <th>Article No.</th>
+                                    <th>DOT</th>
+                                    <th>Returned</th>
+                                    <th>Returnable</th>
+                                    <th>Return Qty</th>
+                                </tr>
+                            </thead>
+                            <tbody id="return-items-table-body">${itemsHtml}</tbody>
+                        </table>
+                    </div>
+                </div>
+            `,
+            width: '80%',
+            showCancelButton: true,
+            confirmButtonText: 'Initiate Return',
+            allowOutsideClick: false,
+            didOpen: () => {
+                const searchInput = document.getElementById('swal-item-search');
+                const tableBody = document.getElementById('return-items-table-body');
+                const rows = tableBody.getElementsByClassName('return-item-row');
+
+                // MODIFICATION: Updated search logic
+                searchInput.addEventListener('keyup', () => {
+                    const searchTerm = searchInput.value.toLowerCase();
+                    for (const row of rows) {
+                        const orderNo = row.cells[0].dataset.searchTerm;
+                        const productName = row.cells[1].dataset.searchTerm;
+                        const articleNo = row.cells[2].dataset.searchTerm;
+                        if (orderNo.includes(searchTerm) || productName.includes(searchTerm) || articleNo.includes(searchTerm)) {
+                            row.style.display = '';
+                        } else {
+                            row.style.display = 'none';
+                        }
+                    }
+                });
+            },
+            preConfirm: () => {
+                const reason = document.getElementById('swal-return-reason').value;
+                if (!reason.trim()) {
+                    Swal.showValidationMessage('A reason for the return is required.');
+                    return false;
+                }
+
+                const itemsByOrder = {};
+                document.querySelectorAll('.return-item-row').forEach(row => {
+                    const qty = parseInt(row.querySelector('.return-qty-input').value, 10);
+                    if (qty > 0) {
+                        const orderId = row.dataset.orderId;
+                        if (!itemsByOrder[orderId]) {
+                            itemsByOrder[orderId] = [];
+                        }
+                        itemsByOrder[orderId].push({
+                            outbound_item_id: row.dataset.outboundItemId,
+                            quantity: qty
+                        });
+                    }
+                });
+
+                if (Object.keys(itemsByOrder).length === 0) {
+                    Swal.showValidationMessage('You must specify a return quantity for at least one item.');
+                    return false;
+                }
+                
+                return { itemsByOrder, reason };
+            }
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                const { itemsByOrder, reason } = result.value;
+                
+                // One API call per order in the return
+                const promises = Object.keys(itemsByOrder).map(orderId => {
+                    const payload = {
+                        order_id: orderId,
+                        reason: reason,
+                        items: itemsByOrder[orderId]
+                    };
+                    return fetchData('api/returns_api.php?action=create_return', 'POST', payload);
+                });
+
+                try {
+                    const results = await Promise.all(promises);
+                    const successMessages = results.filter(r => r.success).map(r => r.message).join('<br>');
+                    const errorMessages = results.filter(r => !r.success).map(r => r.message).join('<br>');
+
+                    if (errorMessages) {
+                         Swal.fire('Partial Failure', `Some returns could not be created:<br>${errorMessages}`, 'warning');
+                    } else {
+                        Swal.fire('Success!', `The following returns were created:<br>${successMessages}`, 'success').then(() => {
+                           window.location.reload();
+                        });
+                    }
+                } catch (error) {
+                    Swal.fire('Error', error.message, 'error');
+                }
+            }
+        });
     }
 
     async function handleSaveTransaction(event) {
@@ -259,106 +395,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    async function showReturnCreationModal(orderId) {
-        const orderDetailsResponse = await fetchData(`api/outbound_api.php?order_id=${orderId}`);
-        if (!orderDetailsResponse.success) {
-            return Swal.fire('Error', 'Could not fetch order details for return.', 'error');
-        }
-
-        const items = orderDetailsResponse.data.items;
-        let itemsHtml = '<p>No returnable items found on this order.</p>';
-
-        if (items && items.length > 0) {
-            const returnableItems = items.filter(item => item.returnable_quantity > 0);
-            if(returnableItems.length > 0) {
-                itemsHtml = `
-                    <table class="table table-bordered table-sm">
-                        <thead>
-                            <tr>
-                                <th>SKU</th>
-                                <th>Product</th>
-                                <th>Shipped Qty</th>
-                                <th>Return Qty</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${returnableItems.map(item => `
-                                <tr>
-                                    <td>${item.sku}</td>
-                                    <td>${item.product_name}</td>
-                                    <td>${item.picked_quantity}</td>
-                                    <td>
-                                        <input type="number" class="form-control form-control-sm return-qty-input" 
-                                            data-outbound-item-id="${item.outbound_item_id}" 
-                                            max="${item.returnable_quantity}" min="0" value="0">
-                                    </td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                `;
-            }
-        }
-
-        Swal.fire({
-            title: 'Create Partial Return',
-            html: `
-                <div class="text-start">
-                    <div class="mb-3">
-                        <label for="swal-return-reason" class="form-label">Reason for Return</label>
-                        <textarea id="swal-return-reason" class="form-control" rows="2" placeholder="e.g., Damaged, wrong item..."></textarea>
-                    </div>
-                    ${itemsHtml}
-                </div>
-            `,
-            width: '70%',
-            showCancelButton: true,
-            confirmButtonText: 'Initiate Return',
-            allowOutsideClick: false,
-            preConfirm: () => {
-                const reason = document.getElementById('swal-return-reason').value;
-                const itemsToReturn = [];
-                document.querySelectorAll('.return-qty-input').forEach(input => {
-                    const qty = parseInt(input.value, 10);
-                    if (qty > 0) {
-                        itemsToReturn.push({
-                            outbound_item_id: input.dataset.outboundItemId,
-                            quantity: qty
-                        });
-                    }
-                });
-
-                if (!reason.trim()) {
-                    Swal.showValidationMessage('A reason for the return is required.');
-                    return false;
-                }
-                if (itemsToReturn.length === 0) {
-                    Swal.showValidationMessage('You must specify a return quantity for at least one item.');
-                    return false;
-                }
-                
-                return {
-                    order_id: orderId,
-                    reason: reason,
-                    items: itemsToReturn
-                };
-            }
-        }).then(async (result) => {
-            if (result.isConfirmed) {
-                try {
-                    const apiResult = await fetchData('api/returns_api.php?action=create_return', 'POST', result.value);
-                    if (apiResult.success) {
-                        Swal.fire('Success', apiResult.message, 'success').then(() => {
-                            window.location.href = 'returns.php';
-                        });
-                    }
-                } catch (error) {
-                    Swal.fire('Error', error.message, 'error');
-                }
-            }
-        });
-    }
-
     async function showDetailsModal(id, type) {
         Swal.fire({
             title: `Loading ${type} Details...`,
@@ -376,7 +412,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const response = await fetchData(`api/outbound_api.php?order_id=${id}`);
                 if (response.success) {
                     const order = response.data;
-                    // MODIFICATION START: Update items table to include new columns
                     let itemsHtml = order.items.map(item => `
                         <tr>
                             <td>${item.sku}</td>
@@ -417,7 +452,6 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </table>
                             </div>
                         </div>`;
-                    // MODIFICATION END
                     Swal.update({
                         title: `Order Details`,
                         html: detailsHtml,

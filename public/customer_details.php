@@ -13,7 +13,12 @@
 </head>
 <body class="bg-light">
 
-    <?php include 'includes/menu.php'; ?>
+    <?php 
+    // MODIFICATION SUMMARY:
+    // 1. Added a "Create Return" button in the "Order & Return History" card header.
+    // 2. Removed the per-row "Create Return" button from the orders table as it's now a global action for the customer.
+    include 'includes/menu.php'; 
+    ?>
 
     <!-- Main Content -->
     <div id="content">
@@ -47,8 +52,10 @@
                     <!-- Orders and Returns -->
                     <div class="col-lg-8">
                         <div class="card shadow-sm h-100">
-                            <div class="card-header">
+                            <div class="card-header d-flex justify-content-between align-items-center">
                                 <h5 class="card-title mb-0"><i class="bi bi-receipt me-2"></i>Order & Return History</h5>
+                                <!-- MODIFICATION: Added Create Return button -->
+                                <button id="createReturnBtn" class="btn btn-warning btn-sm"><i class="bi bi-box-arrow-left me-1"></i> Create Return</button>
                             </div>
                             <div class="card-body">
                                 <div class="table-responsive">
@@ -59,9 +66,7 @@
                                                 <th>Type</th>
                                                 <th>Status</th>
                                                 <th>Date</th>
-                                                <!-- MODIFICATION START -->
                                                 <th class="text-end">Actions</th>
-                                                <!-- MODIFICATION END -->
                                             </tr>
                                         </thead>
                                         <tbody></tbody>

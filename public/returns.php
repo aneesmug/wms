@@ -15,7 +15,11 @@
 </head>
 <body class="bg-light">
 
-    <?php include 'includes/menu.php'; ?>
+    <?php 
+    // MODIFICATION SUMMARY:
+    // 1. Added "Expected DOT" and "Received DOT" columns to the return items table header.
+    include 'includes/menu.php'; 
+    ?>
 
     <div id="content">
         <header class="bg-white shadow-sm border-bottom">
@@ -76,8 +80,10 @@
                                                 <th>SKU</th>
                                                 <th>Product</th>
                                                 <th>Article No</th>
-                                                <th>Expected</th>
-                                                <th>Processed</th>
+                                                <th>Expected DOT</th> <!-- MODIFICATION -->
+                                                <th>Received DOT</th> <!-- MODIFICATION -->
+                                                <th>Expected Qty</th>
+                                                <th>Processed Qty</th>
                                                 <th>Condition</th>
                                                 <th>Putaway Location</th>
                                                 <th>Actions</th>
@@ -94,7 +100,6 @@
         </main>
     </div>
     
-    <!-- MODIFICATION: Hidden iframe for printing -->
     <iframe id="print-frame-returns" style="display:none;"></iframe>
 
     <!-- JavaScript Libraries -->
