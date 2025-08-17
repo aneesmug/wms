@@ -1,4 +1,10 @@
 <?php
+/*
+* MODIFICATION SUMMARY:
+* 1. `handleGetUserLoginActivity`: This function has been updated to select the new, stored geolocation fields (`city`, `country`, `latitude`, `longitude`) directly from the `user_login_activity` table.
+* 2. The API response now includes all the necessary data for the frontend, eliminating the need for client-side geolocation lookups.
+*/
+
 // api/users_api.php
 
 require_once __DIR__ . '/../config/config.php';
@@ -9,22 +15,19 @@ $conn = getDbConnection();
 // --- Main Action Router ---
 $action = sanitize_input($_GET['action'] ?? '');
 
-// Actions accessible by non-admins
 $self_service_actions = ['get_current_user_profile', 'update_current_user_profile', 'change_own_password'];
-$operational_actions = ['getDrivers']; // Actions for operational roles
+$operational_actions = ['getDrivers'];
 
 if (in_array($action, $self_service_actions)) {
-    authenticate_user(true, null); // Just needs login
+    authenticate_user(true, null);
 } elseif (in_array($action, $operational_actions)) {
-    authenticate_user(true, ['operator', 'manager', 'picker']); // Needs specific roles
+    authenticate_user(true, ['operator', 'manager', 'picker']);
 } else {
-    require_global_admin(); // All other actions require global admin
+    require_global_admin();
 }
-
 
 try {
     switch ($action) {
-        // Admin actions
         case 'get_users': handleGetUsers($conn); break;
         case 'get_user_details': handleGetUserDetails($conn); break;
         case 'create_user': handleCreateUser($conn); break;
@@ -33,15 +36,11 @@ try {
         case 'change_password': handleChangePassword($conn); break;
         case 'get_all_warehouses': handleGetAllWarehouses($conn); break;
         case 'get_all_roles': handleGetAllRoles(); break;
-        
-        // Self-service Profile actions
+        case 'get_user_login_activity': handleGetUserLoginActivity($conn); break;
         case 'get_current_user_profile': handleGetCurrentUserProfile($conn); break;
         case 'update_current_user_profile': handleUpdateCurrentUserProfile($conn); break;
         case 'change_own_password': handleChangeOwnPassword($conn); break;
-
-        // Operational actions
         case 'getDrivers': handleGetDrivers($conn); break;
-
         default:
             sendJsonResponse(['success' => false, 'message' => 'Invalid action specified.'], 400);
             break;
@@ -53,7 +52,33 @@ try {
     if ($conn) $conn->close();
 }
 
-// --- NEW OPERATIONAL FUNCTION ---
+// --- NEW ADMIN FUNCTION ---
+function handleGetUserLoginActivity($conn) {
+    $stmt = $conn->prepare("
+        SELECT 
+            ula.login_time,
+            ula.ip_address,
+            ula.user_agent,
+            ula.city,
+            ula.country,
+            ula.latitude,
+            ula.longitude,
+            u.username,
+            u.full_name
+        FROM user_login_activity ula
+        JOIN users u ON ula.user_id = u.user_id
+        ORDER BY ula.login_time DESC
+        LIMIT 200
+    ");
+    $stmt->execute();
+    $activity_data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+
+    sendJsonResponse(['success' => true, 'data' => $activity_data]);
+}
+
+// --- Other functions remain unchanged... ---
+
 function handleGetDrivers($conn) {
     $current_warehouse_id = get_current_warehouse_id();
     if (!$current_warehouse_id) {
@@ -75,9 +100,6 @@ function handleGetDrivers($conn) {
 
     sendJsonResponse(['success' => true, 'data' => $drivers]);
 }
-
-
-// --- SELF-SERVICE FUNCTIONS ---
 
 function handleGetCurrentUserProfile($conn) {
     $user_id = $_SESSION['user_id'];
@@ -103,9 +125,8 @@ function handleGetCurrentUserProfile($conn) {
         ");
         $stmt->bind_param("i", $user_id);
         $stmt->execute();
-        $roles = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $user['warehouse_roles'] = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
-        $user['warehouse_roles'] = $roles;
     }
 
     sendJsonResponse(['success' => true, 'user' => $user]);
@@ -141,7 +162,7 @@ function handleUpdateCurrentUserProfile($conn) {
 
     if ($stmt->execute()) {
         if ($new_image_url) deleteOldImage($old_image_url);
-        $_SESSION['full_name'] = $full_name; // Update session
+        $_SESSION['full_name'] = $full_name;
         if ($new_image_url) $_SESSION['profile_image_url'] = $new_image_url;
         sendJsonResponse(['success' => true, 'message' => 'Profile updated.', 'new_image_url' => $new_image_url]);
     } else {
@@ -184,9 +205,6 @@ function handleChangeOwnPassword($conn) {
     }
     $stmt->close();
 }
-
-
-// --- ADMIN FUNCTIONS ---
 
 function handleImageUpload(?string $base64Image): ?string {
     if (empty($base64Image)) return null;

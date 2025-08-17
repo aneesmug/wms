@@ -1,4 +1,12 @@
 <?php
+/*
+* MODIFICATION SUMMARY:
+* 1. Added a new "User Activity" link to the 'Tools & Reports' submenu.
+* 2. This link points to `user_activity.php` and uses the 'bi-person-bounding-box' icon.
+* 3. Wrapped the new menu item in a conditional check `if (isset($_SESSION['is_global_admin']) && $_SESSION['is_global_admin'])`
+* to ensure it is only visible to users who are global administrators.
+*/
+
 // includes/menu.php
 
 // Ensure session is started, as we need to access session variables.
@@ -12,11 +20,11 @@ $permissions = [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
         'locations.php', 'products.php', 'customers.php', 'suppliers.php', 
         'reports.php', 'inbound_report.php', 'batch_search.php', 'users.php',
-        'warehouses.php', 'picking.php', 'returns.php', 'transfer_order.php' // <-- Added returns page
+        'warehouses.php', 'picking.php', 'returns.php', 'transfer_order.php'
     ],
     'operator' => [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
-        'locations.php', 'batch_search.php', 'picking.php', 'returns.php', 'transfer_order.php' // <-- Added returns page
+        'locations.php', 'batch_search.php', 'picking.php', 'returns.php', 'transfer_order.php'
     ],
     'picker' => [
         'dashboard.php', 'inventory.php', 'picking.php',
@@ -53,8 +61,8 @@ $menu_items = [
             ['label' => 'Inbound', 'url' => 'inbound.php', 'icon' => 'bi-box-arrow-in-down'],
             ['label' => 'Outbound', 'url' => 'outbound.php', 'icon' => 'bi-box-arrow-up-right'],
             ['label' => 'Picking', 'url' => 'picking.php', 'icon' => 'bi-box-seam'],
-            ['label' => 'Returns', 'url' => 'returns.php', 'icon' => 'bi-arrow-return-left'], // <-- New Menu Item
-            ['label' => 'Transfer Order', 'url' => 'transfer_order.php', 'icon' => 'bi-arrows-expand'] // <-- New Menu Item
+            ['label' => 'Returns', 'url' => 'returns.php', 'icon' => 'bi-arrow-return-left'],
+            ['label' => 'Transfer Order', 'url' => 'transfer_order.php', 'icon' => 'bi-arrows-expand']
         ]
     ],
     'inventory' => [
@@ -76,7 +84,8 @@ $menu_items = [
             ['label' => 'Reports', 'url' => 'reports.php', 'icon' => 'bi-file-earmark-bar-graph'],
             ['label' => 'Inbound Report', 'url' => 'inbound_report.php', 'icon' => 'bi-printer'],
             ['label' => 'Batch Search', 'url' => 'batch_search.php', 'icon' => 'bi-search'],
-            ['label' => 'Users', 'url' => 'users.php', 'icon' => 'bi-people']
+            ['label' => 'Users', 'url' => 'users.php', 'icon' => 'bi-people'],
+            ['label' => 'User Activity', 'url' => 'user_activity.php', 'icon' => 'bi-person-bounding-box', 'admin_only' => true] // New Item
         ]
     ]
 ];
@@ -100,7 +109,13 @@ function is_submenu_active($submenu_items, $current_page) {
             <?php
             if (isset($item['submenu'])) {
                 $canShow = false;
-                foreach ($item['submenu'] as $sub_item) if (can_access($sub_item['url'], $permissions, $currentUserRole)) $canShow = true;
+                foreach ($item['submenu'] as $sub_item) {
+                    if (isset($sub_item['admin_only']) && $sub_item['admin_only'] === true) {
+                        if (isset($_SESSION['is_global_admin']) && $_SESSION['is_global_admin']) $canShow = true;
+                    } else if (can_access($sub_item['url'], $permissions, $currentUserRole)) {
+                        $canShow = true;
+                    }
+                }
                 if (!$canShow) continue;
             } else {
                 if (!can_access($item['url'], $permissions, $currentUserRole)) continue;
@@ -114,9 +129,14 @@ function is_submenu_active($submenu_items, $current_page) {
                     <ul class="dropdown-menu">
                         <li><h6 class="dropdown-header"><?php echo $item['label']; ?></h6></li>
                         <?php foreach ($item['submenu'] as $sub_item): ?>
-                            <?php if (can_access($sub_item['url'], $permissions, $currentUserRole)): ?>
-                                <li><a class="dropdown-item <?php echo $current_page == $sub_item['url'] ? 'active' : ''; ?>" href="<?php echo $sub_item['url']; ?>"><i class="bi <?php echo $sub_item['icon']; ?> me-2"></i> <?php echo $sub_item['label']; ?></a></li>
-                            <?php endif; ?>
+                            <?php 
+                                if (isset($sub_item['admin_only']) && $sub_item['admin_only'] === true) {
+                                    if (!isset($_SESSION['is_global_admin']) || !$_SESSION['is_global_admin']) continue;
+                                } else if (!can_access($sub_item['url'], $permissions, $currentUserRole)) {
+                                    continue;
+                                }
+                            ?>
+                            <li><a class="dropdown-item <?php echo $current_page == $sub_item['url'] ? 'active' : ''; ?>" href="<?php echo $sub_item['url']; ?>"><i class="bi <?php echo $sub_item['icon']; ?> me-2"></i> <?php echo $sub_item['label']; ?></a></li>
                         <?php endforeach; ?>
                     </ul>
                 </li>
@@ -152,7 +172,6 @@ function is_submenu_active($submenu_items, $current_page) {
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
     </div>
     <div class="offcanvas-body d-flex flex-column">
-        <!-- User Info (Mobile) -->
         <div class="d-flex align-items-center mb-3 p-2 border-bottom border-secondary">
             <img id="userProfileImageMobile" src="uploads/users/default.png" alt="User" width="40" height="40" class="rounded-circle me-3">
             <div>
@@ -166,7 +185,13 @@ function is_submenu_active($submenu_items, $current_page) {
                 <?php
                 if (isset($item['submenu'])) {
                     $canShow = false;
-                    foreach ($item['submenu'] as $sub_item) if (can_access($sub_item['url'], $permissions, $currentUserRole)) $canShow = true;
+                     foreach ($item['submenu'] as $sub_item) {
+                        if (isset($sub_item['admin_only']) && $sub_item['admin_only'] === true) {
+                            if (isset($_SESSION['is_global_admin']) && $_SESSION['is_global_admin']) $canShow = true;
+                        } else if (can_access($sub_item['url'], $permissions, $currentUserRole)) {
+                            $canShow = true;
+                        }
+                    }
                     if (!$canShow) continue;
                 } else {
                     if (!can_access($item['url'], $permissions, $currentUserRole)) continue;
@@ -180,9 +205,14 @@ function is_submenu_active($submenu_items, $current_page) {
                         </a>
                         <ul class="collapse list-unstyled flex-column ms-4 <?php echo is_submenu_active($item['submenu'], $current_page) ? 'show' : ''; ?>" id="<?php echo $key; ?>SubmenuMobile">
                             <?php foreach ($item['submenu'] as $sub_item): ?>
-                                <?php if (can_access($sub_item['url'], $permissions, $currentUserRole)): ?>
-                                    <li><a href="<?php echo $sub_item['url']; ?>" class="nav-link text-white <?php echo $current_page == $sub_item['url'] ? 'active' : ''; ?>"><i class="bi <?php echo $sub_item['icon']; ?> me-2"></i><span><?php echo $sub_item['label']; ?></span></a></li>
-                                <?php endif; ?>
+                                <?php 
+                                    if (isset($sub_item['admin_only']) && $sub_item['admin_only'] === true) {
+                                        if (!isset($_SESSION['is_global_admin']) || !$_SESSION['is_global_admin']) continue;
+                                    } else if (!can_access($sub_item['url'], $permissions, $currentUserRole)) {
+                                        continue;
+                                    }
+                                ?>
+                                <li><a href="<?php echo $sub_item['url']; ?>" class="nav-link text-white <?php echo $current_page == $sub_item['url'] ? 'active' : ''; ?>"><i class="bi <?php echo $sub_item['icon']; ?> me-2"></i><span><?php echo $sub_item['label']; ?></span></a></li>
                             <?php endforeach; ?>
                         </ul>
                     </li>

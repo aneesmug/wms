@@ -1,4 +1,83 @@
+/*
+* MODIFICATION SUMMARY:
+* 1. Added a comprehensive session inactivity timer feature.
+* 2. `INACTIVITY_TIMEOUT`: A constant set to 30 minutes (in milliseconds).
+* 3. `inactivityTimer`: A global variable to hold the timeout instance.
+* 4. `showLockScreen()`: A new function that displays a SweetAlert2 modal, prompting the user for their password to unlock the session. It handles the API call for re-authentication.
+* 5. `resetInactivityTimer()`: A new function that resets the 30-minute timer. This is called on user activity.
+* 6. `startInactivityTimer()`: A new function that sets up event listeners (`mousemove`, `keydown`, `click`) to detect user activity and reset the timer.
+* 7. `enforceAuthentication()`: Modified to check for a `session_locked` flag from the API. If true, it immediately calls `showLockScreen()`.
+* 8. The `DOMContentLoaded` event listener now calls `startInactivityTimer()` to begin monitoring for inactivity on every page load.
+*/
+
 // public/js/main.js
+
+// --- Inactivity Lock Screen Logic ---
+const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
+let inactivityTimer;
+
+/**
+ * Displays a SweetAlert2 modal to lock the screen and require password for re-authentication.
+ */
+function showLockScreen() {
+    Swal.fire({
+        title: 'Session Locked',
+        html: `
+            <p>You've been inactive for a while. Please enter your password to continue.</p>
+            <input type="password" id="reauth-password" class="swal2-input" placeholder="Password">
+        `,
+        icon: 'warning',
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showCancelButton: true,
+        confirmButtonText: 'Unlock',
+        cancelButtonText: 'Logout',
+        preConfirm: async () => {
+            const password = document.getElementById('reauth-password').value;
+            if (!password) {
+                Swal.showValidationMessage('Password is required');
+                return false;
+            }
+            // Call API to re-authenticate
+            const result = await fetchData('api/auth.php?action=reauthenticate', 'POST', { password });
+            if (!result || !result.success) {
+                Swal.showValidationMessage(result.message || 'Incorrect password');
+                return false;
+            }
+            return result;
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            showMessageBox('Session unlocked!', 'success');
+            resetInactivityTimer(); // Restart the timer upon success
+        } else if (result.dismiss === Swal.DismissReason.cancel) {
+            // If user clicks "Logout"
+            handleLogout();
+        }
+    });
+}
+
+/**
+ * Resets the inactivity timer.
+ */
+function resetInactivityTimer() {
+    clearTimeout(inactivityTimer);
+    inactivityTimer = setTimeout(showLockScreen, INACTIVITY_TIMEOUT);
+}
+
+/**
+ * Sets up event listeners to detect user activity and reset the timer.
+ */
+function startInactivityTimer() {
+    // Events that count as activity
+    const activityEvents = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    activityEvents.forEach(event => {
+        document.addEventListener(event, resetInactivityTimer, true);
+    });
+    // Initial start of the timer
+    resetInactivityTimer();
+}
+
 
 // --- Authentication and State Management Functions ---
 
@@ -14,6 +93,15 @@ function redirectToLogin() {
  * Handles the logout process by showing a confirmation dialog and then calling the API.
  */
 async function handleLogout() {
+    // Bypassing confirmation if the lock screen is up, as logout is an explicit action there.
+    if (Swal.isVisible() && Swal.getTitle() === 'Session Locked') {
+        const result = await fetchData('api/auth.php?action=logout', 'POST');
+        if (result && result.success) {
+            redirectToLogin();
+        }
+        return;
+    }
+
     showConfirmationModal('Confirm Logout', 'Are you sure you want to log out?', async () => {
         const result = await fetchData('api/auth.php?action=logout', 'POST');
         if (result && result.success) {
@@ -81,12 +169,11 @@ function promptWarehouseSelection(warehouses) {
 function updateUserInfoDisplay(authStatus) {
     const { user, current_warehouse_role } = authStatus;
 
-    if (!user) return; // Exit if user data is not available
+    if (!user) return;
 
     const defaultImagePath = 'uploads/users/default.png';
     const profileImageUrl = user.profile_image_url || defaultImagePath;
 
-    // Target elements in both menus
     const elements = {
         nameDesktop: document.getElementById('userFullNameDesktop'),
         roleDesktop: document.getElementById('userRoleDesktop'),
@@ -97,16 +184,14 @@ function updateUserInfoDisplay(authStatus) {
     };
 
     const displayName = user.full_name || 'User';
-    let displayRole = 'No Role Assigned'; // Default text
+    let displayRole = 'No Role Assigned';
 
     if (user.is_global_admin) {
         displayRole = 'Global Admin';
     } else if (current_warehouse_role) {
-        // Capitalize the first letter for better display
         displayRole = current_warehouse_role.charAt(0).toUpperCase() + current_warehouse_role.slice(1);
     }
 
-    // Update text content and image sources
     if (elements.nameDesktop) elements.nameDesktop.textContent = displayName;
     if (elements.roleDesktop) elements.roleDesktop.textContent = displayRole;
     if (elements.imageDesktop) {
@@ -199,9 +284,6 @@ function showConfirmationModal(title, body, onConfirm) {
 // --- NEW ADVANCED DYNAMIC FILTER FUNCTIONALITY ---
 /**
  * Initializes an advanced, dynamic, multi-column filter for a DataTable.
- * @param {DataTable} table - The DataTables instance.
- * @param {string} filterContainerId - The ID of the dropdown container for the filter UI.
- * @param {Array<Object>} columnsConfig - Configuration for filterable columns, e.g., [{columnIndex: 1, title: 'Username'}]
  */
 function initializeAdvancedFilter(table, filterContainerId, columnsConfig) {
     const container = document.getElementById(filterContainerId);
@@ -219,7 +301,7 @@ function initializeAdvancedFilter(table, filterContainerId, columnsConfig) {
                 <button id="apply-filters-btn" class="btn btn-sm btn-primary">Apply</button>
             </div>
         `;
-        addFilterRule(); // Start with one rule
+        addFilterRule();
     };
 
     const addFilterRule = () => {
@@ -248,7 +330,7 @@ function initializeAdvancedFilter(table, filterContainerId, columnsConfig) {
     };
 
     const applyFilters = () => {
-        table.columns().search('').draw(); // Clear all previous searches first
+        table.columns().search('').draw();
 
         container.querySelectorAll('.filter-rule').forEach(rule => {
             const colIndex = rule.querySelector('.filter-column').value;
@@ -257,21 +339,12 @@ function initializeAdvancedFilter(table, filterContainerId, columnsConfig) {
 
             if (value) {
                 let regex;
-                const escapedValue = value.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'); // Escape special regex characters
+                const escapedValue = value.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
                 switch(condition) {
-                    case 'exact':
-                        regex = `^${escapedValue}$`;
-                        break;
-                    case 'startsWith':
-                        regex = `^${escapedValue}`;
-                        break;
-                    case 'endsWith':
-                        regex = `${escapedValue}$`;
-                        break;
-                    case 'contain':
-                    default:
-                        regex = escapedValue;
-                        break;
+                    case 'exact': regex = `^${escapedValue}$`; break;
+                    case 'startsWith': regex = `^${escapedValue}`; break;
+                    case 'endsWith': regex = `${escapedValue}$`; break;
+                    default: regex = escapedValue; break;
                 }
                 table.column(colIndex).search(regex, true, false);
             }
@@ -296,12 +369,6 @@ function initializeAdvancedFilter(table, filterContainerId, columnsConfig) {
 }
 
 // --- General Input Handling ---
-
-/**
- * Initializes a datepicker on an element, preventing past date selection.
- * @param {HTMLElement} element - The specific input element to initialize.
- * @param {HTMLElement} [container=document.body] - The container to append the datepicker to. Defaults to body.
- */
 function initializeDatepicker(element, container = document.body) {
     if (element && typeof Datepicker !== 'undefined') {
         new Datepicker(element, {
@@ -309,22 +376,16 @@ function initializeDatepicker(element, container = document.body) {
             autohide: true,
             buttonClass: 'btn',
             container: container,
-            minDate: new Date() // This prevents selecting dates before today
+            minDate: new Date()
         });
     }
 }
 
-/**
- * Attaches event listeners to handle validation for amount/decimal inputs.
- * Any input with the class 'amount-validation' will be validated.
- */
 function setupInputValidations() {
-    // Force numeric keyboards on mobile
     document.querySelectorAll('.amount-validation, .numeric-only, .saudi-mobile-number').forEach(input => {
-        input.setAttribute('inputmode', 'numeric'); // Mobile numeric keyboard
-        input.setAttribute('pattern', '[0-9]*');   // Extra hint for Android
+        input.setAttribute('inputmode', 'numeric');
+        input.setAttribute('pattern', '[0-9]*');
     });
-    // Real-time input formatting
     document.body.addEventListener('input', function(event) {
         const input = event.target;
 
@@ -355,7 +416,6 @@ function setupInputValidations() {
         }
     });
 
-    // Validation on field exit
     document.body.addEventListener('focusout', function(event) {
         const input = event.target;
 
@@ -378,9 +438,6 @@ function setupInputValidations() {
     });
 }
 
-
-
-
 // --- Common Page Setup ---
 
 /**
@@ -396,7 +453,12 @@ async function enforceAuthentication() {
             return;
         }
 
-        // ALWAYS update the user info display if authenticated
+        // If session is locked due to inactivity, show the lock screen
+        if (authStatus.session_locked) {
+            showLockScreen();
+            return; // Stop further execution until re-authenticated
+        }
+
         updateUserInfoDisplay(authStatus);
 
         if (!authStatus.current_warehouse_id) {
@@ -425,12 +487,6 @@ function setupCommonEventListeners() {
     logoutButtons.forEach(btn => {
         if (btn) btn.addEventListener('click', handleLogout);
     });
-
-    // Initialize general input handlers
-    // setupNumericOnlyInputs();
-    // setupSaudiMobileValidation();
-    // setupEmailValidation();
-    // setupAmountValidation(); // Activate the new amount validation handler
     setupInputValidations();
 }
 
@@ -438,4 +494,8 @@ function setupCommonEventListeners() {
 document.addEventListener('DOMContentLoaded', () => {
     enforceAuthentication();
     setupCommonEventListeners();
+    // Start the inactivity timer on all protected pages
+    if (!window.location.pathname.endsWith('/') && !window.location.pathname.endsWith('index.php')) {
+        startInactivityTimer();
+    }
 });

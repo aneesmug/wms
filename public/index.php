@@ -1,3 +1,14 @@
+<?php
+/*
+* MODIFICATION SUMMARY:
+* 1. CRITICAL FIX: Added the missing `api.js` script file.
+* 2. Re-ordered the script tags to ensure dependencies are loaded correctly.
+* - `api.js` (which defines `fetchData`) is now loaded first.
+* - `main.js` (which uses `fetchData` and defines other helpers) is loaded second.
+* - `auth.js` (which depends on both of the above) is loaded last.
+* 3. This resolves the "fetchData is not defined" reference error that occurred on the login page.
+*/
+?>
 <!DOCTYPE html>
 <html lang="en" class="h-100">
 <head>
@@ -6,7 +17,6 @@
     <title>WMS Login</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
-    <!-- SweetAlert2 for notifications -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
     <link rel="stylesheet" href="css/style.css">
 </head>
@@ -29,6 +39,13 @@
                 <label for="password">Password</label>
             </div>
 
+            <div class="form-check text-start my-3">
+                <input class="form-check-input" type="checkbox" value="remember-me" id="rememberMe">
+                <label class="form-check-label" for="rememberMe">
+                    Remember me
+                </label>
+            </div>
+
             <button class="w-100 btn btn-lg btn-primary" type="submit">Sign in</button>
             <p class="mt-5 mb-3 text-muted text-center">&copy; 2024-2025</p>
         </form>
@@ -38,8 +55,9 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     
-    <!-- **FIX:** Replaced inline script with external file includes for proper functionality -->
-    <script src="js/main.js"></script>
-    <script src="js/auth.js"></script>
+    <!-- Corrected Script Loading Order -->
+    <script src="js/api.js"></script>      <!-- Defines fetchData -->
+    <script src="js/main.js"></script>     <!-- Uses fetchData, defines showMessageBox -->
+    <script src="js/auth.js"></script>     <!-- Uses both -->
 </body>
 </html>

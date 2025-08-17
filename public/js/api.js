@@ -1,3 +1,11 @@
+/*
+* MODIFICATION SUMMARY:
+* 1. The global `fetchData` function has been modified to be activity-aware.
+* 2. Before making any API call, it now checks for the existence of `resetInactivityTimer`.
+* 3. If the function exists (i.e., on a protected page), it calls it.
+* 4. This ensures that any action resulting in a server request (saving, fetching data, etc.) is treated as user activity and resets the 30-minute session lock timer.
+*/
+
 // public/js/api.js
 
 /**
@@ -11,18 +19,21 @@
  * @returns {Promise<object>} - JSON response data, including on error.
  */
 async function fetchData(url, method = 'GET', data = null) {
+    // Any API call is considered user activity, so reset the inactivity timer.
+    if (typeof resetInactivityTimer === 'function') {
+        resetInactivityTimer();
+    }
+
     try {
         const options = {
             method: method,
             headers: {
                 'Content-Type': 'application/json',
-                // Add any necessary authentication headers (e.g., token) here if using token-based auth
             },
         };
 
-        // Access global currentWarehouseId (defined in main.js)
-        if (typeof currentWarehouseId !== 'undefined' && currentWarehouseId !== null &&
-            !url.includes('api/auth.php') && !url.includes('api/warehouses_api.php')) {
+        const currentWarehouseId = localStorage.getItem('current_warehouse_id');
+        if (currentWarehouseId && !url.includes('api/auth.php') && !url.includes('api/warehouses_api.php')) {
             if (method === 'GET') {
                 url += (url.includes('?') ? '&' : '?') + `warehouse_id=${currentWarehouseId}`;
             } else {
@@ -40,39 +51,30 @@ async function fetchData(url, method = 'GET', data = null) {
 
         const response = await fetch(url, options);
         
-        // If the response is not OK, we still try to parse it for a more specific error message.
         if (!response.ok) {
             let errorPayload = { success: false, message: `API Error: Status ${response.status}` };
             try {
-                // Attempt to parse the error response from the server
                 const errorJson = await response.json();
-                // Use the server's message if available
                 errorPayload.message = errorJson.message || errorPayload.message;
             } catch (e) {
-                // This catch runs if the error response is not valid JSON (e.g., HTML error page)
                 console.error("Could not parse error response as JSON.", e);
             }
             
             console.error(`API Error: ${response.status} - ${errorPayload.message}`);
 
-            // Handle specific errors that require redirection
-            if (response.status === 401) { // Unauthorized
+            if (response.status === 401) {
                 if (typeof redirectToLogin === 'function') {
                     setTimeout(redirectToLogin, 1500);
                 }
             }
             
-            // CORRECTION: Always return the structured error object so the calling function doesn't crash
             return errorPayload; 
         }
 
-        // For successful responses, return the parsed JSON
         return await response.json();
         
     } catch (error) {
-        // This block catches network errors (e.g., server is down) or other exceptions
         console.error('Network or parsing error:', error);
-        // On network failure, return a consistent error object to prevent crashes
         return { success: false, message: 'Network error. Please check your connection and the console.' };
     }
 }
