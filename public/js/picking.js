@@ -1,12 +1,14 @@
 // public/js/picking.js
 /********************************************************************
 * MODIFICATION SUMMARY:
-* - Added a new "Change Driver" button and its corresponding event listener.
-* - The `loadOrderItems` function was updated to manage the visibility of the "Assign Driver" and "Change Driver" buttons.
-* - "Change Driver" now appears if a driver is already assigned and the order status is appropriate (Staged, Assigned, etc.).
-* - The "Assign Driver" button will only show if no driver is assigned yet.
-* - Both buttons use the same `openAssignDriverSweetAlert` modal, streamlining the assignment/re-assignment process.
-* - Updated `displayOrders` function to allow searching by customer code and to display the customer code on the order card.
+* - Implemented a searchable Select2 dropdown for existing third-party drivers.
+* - The dropdown allows searching by driver name, mobile number, or ID number.
+* - Selecting an existing driver auto-fills their information.
+* - Added a custom `matcher` function to the Select2 initialization for multi-field searching.
+* - Ensured the "New Driver" option remains available and clears the fields when selected.
+* - Corrected the event listener for Select2 to use 'select2:select' to ensure the auto-fill logic triggers correctly.
+* - Added logic to reset the driver form if the delivery company is changed after a driver has been selected.
+* - When adding multiple drivers, a driver selected in one dropdown will not appear in the others.
 ********************************************************************/
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -68,11 +70,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     initializePage();
 
-    /**
-     * MODIFICATION:
-     * - Updated the catch block to handle the "Access Denied" error specifically.
-     * - If an "Access Denied" error occurs, the user will be redirected to dashboard.php after clicking "OK".
-     */
     async function fetchData(endpoint, method = 'GET', body = null) {
         const options = { 
             method, 
@@ -87,9 +84,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         try {
             const response = await fetch(endpoint, options);
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.message || 'API request failed');
-            return data;
+            if (!response.ok) {
+                 const errorData = await response.json().catch(() => ({ message: 'An unknown error occurred' }));
+                 throw new Error(errorData.message || 'API request failed');
+            }
+            const text = await response.text();
+            return text ? JSON.parse(text) : { success: true };
         } catch (error) {
             console.error('API Error:', error);
             const isAccessDeniedError = error.message.includes('Access Denied');
@@ -100,7 +100,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 confirmButtonText: 'OK',
                 allowOutsideClick: false 
             }).then((result) => {
-                // If the user confirms and it's the specific access denied error
                 if (result.isConfirmed && isAccessDeniedError) {
                     window.location.href = 'dashboard.php';
                 }
@@ -745,29 +744,41 @@ document.addEventListener('DOMContentLoaded', () => {
         let driverCounter = 0;
 
         const getDriverBlockHtml = (index) => `
-            <div class="driver-block border rounded p-3 mb-3" data-driver-index="${index}">
+            <div class="driver-block border rounded p-3 mb-3" data-driver-index="${index}" style="position: relative;">
                 <h6 class="fw-bold">Driver ${index + 1}</h6>
                 ${index > 0 ? '<button type="button" class="btn-close remove-driver-btn" aria-label="Close" style="position: absolute; top: 10px; right: 10px;"></button>' : ''}
+                
+                <div class="mb-2">
+                    <label class="form-label">Select Existing Driver (Optional)</label>
+                    <select class="form-select existing-driver-select" data-driver-index="${index}"><option value="">-- New Driver --</option></select>
+                </div>
                 <div class="mb-2">
                     <label class="form-label">Driver Name*</label>
                     <input type="text" class="form-control driver-name" required>
                 </div>
                 <div class="mb-2">
                     <label class="form-label">Driver Mobile No*</label>
-                    <input type="tel" class="form-control driver-mobile" required>
+                    <input type="tel" class="form-control driver-mobile saudi-mobile-number" required>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label">Driver ID Number</label>
+                    <input type="text" class="form-control driver-id-number">
                 </div>
                 <div class="mb-2">
                     <label class="form-label">WAY BILL NO.*</label>
                     <input type="text" class="form-control driver-waybill" required>
                 </div>
                 <div class="mb-2">
-                    <label class="form-label">Attach ID*</label>
-                    <input type="file" class="form-control driver-id" accept="image/*,application/pdf" required>
+                    <label class="form-label">Attach ID</label>
+                    <input type="file" class="form-control driver-id" accept="image/*,application/pdf">
+                    <div class="existing-file-info id-info small text-muted mt-1"></div>
                 </div>
                 <div class="mb-2">
-                    <label class="form-label">Attach Driving License*</label>
-                    <input type="file" class="form-control driver-license" accept="image/*,application/pdf" required>
+                    <label class="form-label">Attach Driving License</label>
+                    <input type="file" class="form-control driver-license" accept="image/*,application/pdf">
+                    <div class="existing-file-info license-info small text-muted mt-1"></div>
                 </div>
+                <input type="hidden" class="driver-db-id" name="driver_id">
             </div>
         `;
 
@@ -819,7 +830,12 @@ document.addEventListener('DOMContentLoaded', () => {
             confirmButtonText: 'Confirm Assignment',
             allowOutsideClick: false,
             didOpen: () => {
+                if (typeof setupInputValidations === 'function') {
+                    setupInputValidations();
+                }
                 const swalContainer = document.getElementById('assignDriverFormSwal');
+                const $deliveryCompanySelect = $('#deliveryCompanySelectSwal');
+                
                 $('#driverSelectSwal, #deliveryCompanySelectSwal').select2({
                     theme: 'bootstrap-5',
                     dropdownParent: $('.swal2-container')
@@ -843,18 +859,137 @@ document.addEventListener('DOMContentLoaded', () => {
                 inHouseRadio.addEventListener('change', toggleVisibility);
                 thirdPartyRadio.addEventListener('change', toggleVisibility);
                 
-                $('#deliveryCompanySelectSwal').on('change', function() {
-                    if ($(this).val()) {
+                let companyDriversCache = {};
+
+                async function loadCompanyDrivers(companyId, driverSelectElement) {
+                    const $select = $(driverSelectElement);
+                    if ($select.hasClass("select2-hidden-accessible")) {
+                        $select.select2('destroy');
+                    }
+                    $select.empty();
+
+                    if (!companyId) {
+                        $select.append(new Option('-- Select Company First --', ''));
+                        $select.select2({ theme: 'bootstrap-5', dropdownParent: $('.swal2-container'), placeholder: 'Search...' });
+                        return;
+                    }
+                    
+                    let drivers = companyDriversCache[companyId];
+                    if (!drivers) {
+                        const response = await fetchData(`api/picking_api.php?action=getCompanyDrivers&company_id=${companyId}`);
+                        drivers = response?.success ? response.data : [];
+                        companyDriversCache[companyId] = drivers;
+                    }
+                    
+                    populateDriverDropdown($select, drivers);
+                }
+
+                function populateDriverDropdown($select, drivers) {
+                    $select.append(new Option('-- New Driver --', ''));
+                    
+                    // Filter out already selected drivers
+                    const selectedDriverIds = [];
+                    $('.existing-driver-select').each(function() {
+                        if ($(this).val() && $(this)[0] !== $select[0]) {
+                            selectedDriverIds.push($(this).val());
+                        }
+                    });
+
+                    const availableDrivers = drivers.filter(d => !selectedDriverIds.includes(String(d.driver_id)));
+
+                    availableDrivers.forEach(driver => {
+                        const option = new Option(`${driver.driver_name} (${driver.driver_mobile})`, driver.driver_id);
+                        option.dataset.driver = JSON.stringify(driver);
+                        $select.append(option);
+                    });
+
+                    $select.select2({
+                        theme: 'bootstrap-5',
+                        dropdownParent: $('.swal2-container'),
+                        placeholder: 'Search by Name, Mobile, or ID...',
+                        matcher: (params, data) => {
+                            if ($.trim(params.term) === '') { return data; }
+                            if (typeof data.text === 'undefined' || !data.element || !data.element.dataset.driver) { return data; }
+                            
+                            const term = params.term.toUpperCase();
+                            const driver = JSON.parse(data.element.dataset.driver);
+                            const textToSearch = `${driver.driver_name} ${driver.driver_mobile} ${driver.driver_id_number || ''}`.toUpperCase();
+                            
+                            if (textToSearch.indexOf(term) > -1) {
+                                return data;
+                            }
+                            return null;
+                        }
+                    });
+                }
+
+                const driverBlocksContainer = document.getElementById('driver-blocks-container');
+
+                $deliveryCompanySelect.on('select2:select', function() {
+                    const companyId = this.value;
+                    driverCounter = 0;
+                    driverBlocksContainer.innerHTML = getDriverBlockHtml(0);
+                    const firstDriverSelect = driverBlocksContainer.querySelector('.existing-driver-select');
+
+                    if (companyId) {
                         driverDetailsWrapper.classList.remove('d-none');
+                        loadCompanyDrivers(companyId, firstDriverSelect);
                     } else {
                         driverDetailsWrapper.classList.add('d-none');
                     }
                 });
+                
+                $(swalContainer).on('select2:select', '.existing-driver-select', function(e) {
+                    const selectedOption = e.params.data.element;
+                    const driverBlock = this.closest('.driver-block');
+                    const nameInput = driverBlock.querySelector('.driver-name');
+                    const mobileInput = driverBlock.querySelector('.driver-mobile');
+                    const idNumberInput = driverBlock.querySelector('.driver-id-number');
+                    const idInfo = driverBlock.querySelector('.id-info');
+                    const licenseInfo = driverBlock.querySelector('.license-info');
+                    const driverIdInput = driverBlock.querySelector('.driver-db-id');
+                    const idFileInput = driverBlock.querySelector('.driver-id');
+                    const licenseFileInput = driverBlock.querySelector('.driver-license');
 
-                const driverBlocksContainer = document.getElementById('driver-blocks-container');
+                    if (selectedOption && selectedOption.value && selectedOption.dataset.driver) {
+                        const driverData = JSON.parse(selectedOption.dataset.driver);
+                        nameInput.value = driverData.driver_name;
+                        mobileInput.value = driverData.driver_mobile;
+                        idNumberInput.value = driverData.driver_id_number || '';
+                        driverIdInput.value = driverData.driver_id;
+                        
+                        idInfo.innerHTML = driverData.driver_id_path ? `Current ID: <a href="${driverData.driver_id_path}" target="_blank">View File</a>` : 'No ID on file.';
+                        licenseInfo.innerHTML = driverData.driver_license_path ? `Current License: <a href="${driverData.driver_license_path}" target="_blank">View File</a>` : 'No License on file.';
+                        
+                        nameInput.readOnly = true;
+                        mobileInput.readOnly = true;
+                        idNumberInput.readOnly = true;
+                        idFileInput.required = false;
+                        licenseFileInput.required = false;
+
+                    } else {
+                        nameInput.value = '';
+                        mobileInput.value = '';
+                        idNumberInput.value = '';
+                        driverIdInput.value = '';
+                        idInfo.innerHTML = '';
+                        licenseInfo.innerHTML = '';
+                        nameInput.readOnly = false;
+                        mobileInput.readOnly = false;
+                        idNumberInput.readOnly = false;
+                        idFileInput.required = true;
+                        licenseFileInput.required = true;
+                    }
+                });
+
                 document.getElementById('add-driver-btn').addEventListener('click', () => {
                     driverCounter++;
                     driverBlocksContainer.insertAdjacentHTML('beforeend', getDriverBlockHtml(driverCounter));
+                    const newDriverSelect = driverBlocksContainer.querySelector(`.existing-driver-select[data-driver-index="${driverCounter}"]`);
+                    const companyId = $deliveryCompanySelect.val();
+                    if (companyId) {
+                        loadCompanyDrivers(companyId, newDriverSelect);
+                    }
                 });
 
                 driverBlocksContainer.addEventListener('click', (e) => {
@@ -898,31 +1033,22 @@ document.addEventListener('DOMContentLoaded', () => {
                         const name = block.querySelector('.driver-name').value.trim();
                         const mobile = block.querySelector('.driver-mobile').value.trim();
                         const waybill = block.querySelector('.driver-waybill').value.trim();
+                        const idNumber = block.querySelector('.driver-id-number').value.trim();
                         const idFile = block.querySelector('.driver-id').files[0];
                         const licenseFile = block.querySelector('.driver-license').files[0];
+                        const driverId = block.querySelector('.driver-db-id').value;
+                        const isExistingDriver = !!driverId;
 
-                        if (!name) {
-                            Swal.showValidationMessage(`Driver Name is required for Driver ${index + 1}.`);
-                            allValid = false; return;
-                        }
-                        if (!mobile) {
-                            Swal.showValidationMessage(`Driver Mobile No is required for Driver ${index + 1}.`);
-                            allValid = false; return;
-                        }
-                        if (!waybill) {
-                            Swal.showValidationMessage(`WAY BILL NO. is required for Driver ${index + 1}.`);
-                            allValid = false; return;
-                        }
-                        if (!idFile) {
-                            Swal.showValidationMessage(`An ID attachment is required for Driver ${index + 1}.`);
-                            allValid = false; return;
-                        }
-                        if (!licenseFile) {
-                            Swal.showValidationMessage(`A Driving License attachment is required for Driver ${index + 1}.`);
-                            allValid = false; return;
+                        if (!name) { Swal.showValidationMessage(`Driver Name is required for Driver ${index + 1}.`); allValid = false; return; }
+                        if (!mobile) { Swal.showValidationMessage(`Driver Mobile No is required for Driver ${index + 1}.`); allValid = false; return; }
+                        if (!waybill) { Swal.showValidationMessage(`WAY BILL NO. is required for Driver ${index + 1}.`); allValid = false; return; }
+                        
+                        if (!isExistingDriver) {
+                            if (!idFile) { Swal.showValidationMessage(`An ID attachment is required for new Driver ${index + 1}.`); allValid = false; return; }
+                            if (!licenseFile) { Swal.showValidationMessage(`A Driving License attachment is required for new Driver ${index + 1}.`); allValid = false; return; }
                         }
                         
-                        drivers.push({ name, mobile, waybill });
+                        drivers.push({ name, mobile, waybill, driver_id: driverId, driver_id_number: idNumber });
                         if (idFile) formData.append(`id_file_${index}`, idFile);
                         if (licenseFile) formData.append(`license_file_${index}`, licenseFile);
                     });
@@ -994,7 +1120,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // MODIFICATION: Updated to use new data fields for sticker counts
     async function handlePrintStickers() {
         if (!selectedOrderId) { Swal.fire('Error', 'No order is selected.', 'error'); return; }
         printStickersBtn.disabled = true;

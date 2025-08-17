@@ -1,15 +1,10 @@
 // public/js/inventory.js
 // MODIFICATION SUMMARY:
-// 1. Implemented new `formatLocation` and `validateLocationCapacity` helper functions inside the `openAdjustmentModal` and `openAddStockModal` methods.
-// 2. These functions provide the same user experience as in `returns.js`:
-//    - Locations with no capacity set are disabled and marked with a grey "Availability not set" badge.
-//    - Locations with insufficient space for the entered quantity are disabled and marked with a red "Space not available" badge.
-//    - Available locations show a green badge with the remaining space.
-// 3. Event listeners on the quantity input fields now trigger this validation in real-time.
-// 4. The `populateLocationSelect` function was updated to only handle setting the raw `data-available` attribute, simplifying its role.
-// 5. Fixed an issue where the availability badge would disappear after a location was selected.
-// 6. Corrected the initialization of the main page's Select2 filters to ensure they render correctly.
-// 7. Added initial Select2 initialization in the modals to ensure they are styled correctly upon opening.
+// 1. Added a "Reprint Stickers" button to each inventory row with a quantity greater than zero.
+// 2. Implemented the logic for the reprint button to open the print dialog for the selected item's stickers.
+// 3. Added a final validation check within the "Add Stock" modal to prevent submitting if the selected location's capacity is insufficient for the quantity being added.
+// 4. Ensured the inventory item's ID is passed correctly to enable the reprint functionality.
+// 5. Reordered the "Quantity to Add" and "To Location" fields in the "Add Stock" modal for a better user experience. Now, entering a quantity dynamically filters the location dropdown based on available capacity.
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
@@ -260,16 +255,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             const batchExpiry = `<div>${item.batch_number || 'N/A'}</div><div>${expiryHtml}</div>`;
 
-            let actionButton = '<small class="text-muted">View Only</small>';
+            let actionButtons = '<small class="text-muted">View Only</small>';
             if (canAdjust) {
                 if (item.quantity > 0) {
-                    actionButton = `<button class="btn btn-sm btn-info text-white adjust-btn" 
-                                    title="Adjust/Transfer">
-                                    <i class="bi bi-gear"></i></button>`;
+                    actionButtons = `<button class="btn btn-sm btn-info text-white adjust-btn" title="Adjust/Transfer"><i class="bi bi-gear"></i></button>
+                                     <button class="btn btn-sm btn-secondary reprint-btn ms-1" title="Reprint Stickers"><i class="bi bi-printer"></i></button>`;
                 } else {
-                    actionButton = `<button class="btn btn-sm btn-success text-white add-stock-btn"
-                                    title="Add Stock">
-                                    <i class="bi bi-plus-circle"></i></button>`;
+                    actionButtons = `<button class="btn btn-sm btn-success text-white add-stock-btn" title="Add Stock"><i class="bi bi-plus-circle"></i></button>`;
                 }
             }
 
@@ -279,6 +271,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             return {
+                inventory_id: item.inventory_id,
                 product_id: item.product_id,
                 product_article_no: item.article_no || '',
                 location_code: item.location_code || '',
@@ -293,7 +286,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 quantity: item.quantity,
                 batch_expiry: batchExpiry,
                 last_moved: lastMovedDate,
-                actions: actionButton,
+                actions: actionButtons,
             };
         });
         inventoryDataTable.clear();
@@ -306,6 +299,19 @@ document.addEventListener('DOMContentLoaded', () => {
         $('#inventoryTable tbody').off('click', '.add-stock-btn').on('click', '.add-stock-btn', function() {
             const rowData = inventoryDataTable.row($(this).closest('tr')).data();
             openAddStockModal(rowData);
+        });
+        $('#inventoryTable tbody').off('click', '.reprint-btn').on('click', '.reprint-btn', function() {
+            const rowData = inventoryDataTable.row($(this).closest('tr')).data();
+            if (rowData.inventory_id) {
+                $('#print-frame').remove();
+                $('<iframe>', {
+                    id: 'print-frame',
+                    src: `print_label.php?inventory_id=${rowData.inventory_id}`,
+                    style: 'display:none;'
+                }).appendTo('body');
+            } else {
+                Swal.fire('Error', 'Could not find the inventory ID for this item.', 'error');
+            }
         });
     }
 
@@ -500,8 +506,33 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const result = await fetchData('api/inventory_api.php', 'POST', data);
             if (result && result.success) {
-                Swal.fire('Success!', result.message, 'success');
-                await loadInventory();
+                // Check if it was a positive adjustment and if an inventory_id was returned for printing
+                if (result.inventory_id && data.quantity_change > 0) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Stock Added Successfully!',
+                        text: result.message,
+                        showCancelButton: true,
+                        confirmButtonText: '<i class="bi bi-printer"></i> Print Stickers',
+                        cancelButtonText: 'Close',
+                        allowOutsideClick: false,
+                    }).then((dialogResult) => {
+                        if (dialogResult.isConfirmed) {
+                            // The print_label.php page needs to exist and work.
+                            $('#print-frame').remove(); 
+                            $('<iframe>', {
+                                id: 'print-frame',
+                                src: `print_label.php?inventory_id=${result.inventory_id}`,
+                                style: 'display:none;'
+                            }).appendTo('body');
+                        }
+                        loadInventory(); // Reload inventory after closing the dialog or printing
+                    });
+                } else {
+                    // For other adjustments (negative, transfer) just show a standard success message
+                    Swal.fire('Success!', result.message, 'success');
+                    await loadInventory();
+                }
             } else {
                  Swal.fire('Error!', result ? result.message : 'An unknown error occurred.', 'error');
             }
@@ -513,6 +544,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function openAddStockModal(item) {
         const { product_id, product_article_no } = item;
+        let modalLocations = [];
 
         const { value: formValues } = await Swal.fire({
             title: 'Add Stock to Inventory',
@@ -524,12 +556,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         <input type="text" id="swalAddProductArticleNo" class="form-control" value="${product_article_no}" readonly>
                     </div>
                     <div class="mb-3">
-                        <label for="swalAddLocation" class="form-label">To Location</label>
-                        <select id="swalAddLocation" class="form-select" style="width:100%;" required></select>
-                    </div>
-                    <div class="mb-3">
                         <label for="swalAddQuantity" class="form-label">Quantity to Add</label>
                         <input type="number" id="swalAddQuantity" class="form-control numeric-only" placeholder="e.g., 10" required min="1">
+                    </div>
+                    <div class="mb-3">
+                        <label for="swalAddLocation" class="form-label">To Location</label>
+                        <select id="swalAddLocation" class="form-select" style="width:100%;" required></select>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
@@ -615,6 +647,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const locations = await fetchData(`api/inventory_api.php?action=location_stock&warehouse_id=${currentWarehouseId}&product_id=${product_id}`);
                 if (locations.success) {
+                    modalLocations = locations.data;
                     const nonBlockLocations = locations.data.filter(loc => loc.type_name !== 'block_area');
                     populateLocationSelect(locationSelect, nonBlockLocations, null);
                     validateLocationCapacity();
@@ -623,14 +656,23 @@ document.addEventListener('DOMContentLoaded', () => {
             preConfirm: () => {
                 const popup = Swal.getPopup();
                 const location = $('#swalAddLocation').val();
-                const quantity = popup.querySelector('#swalAddQuantity').value;
+                const quantity = parseInt(popup.querySelector('#swalAddQuantity').value, 10) || 0;
                 const dot_code = $('#swalAddDotCode').val();
+
+                const selectedLocationData = modalLocations.find(loc => loc.location_code === location);
+                if (selectedLocationData) {
+                    const available = selectedLocationData.available_capacity;
+                    if (available !== null && quantity > available) {
+                        Swal.showValidationMessage(`Not enough space. Location only has space for ${available} units.`);
+                        return false;
+                    }
+                }
 
                 if (!location) {
                     Swal.showValidationMessage('A destination location is required.');
                     return false;
                 }
-                if (!quantity || parseInt(quantity) <= 0) {
+                if (!quantity || quantity <= 0) {
                     Swal.showValidationMessage('A positive quantity is required.');
                     return false;
                 }

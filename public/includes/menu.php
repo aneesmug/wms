@@ -5,6 +5,8 @@
 * 2. This link points to `user_activity.php` and uses the 'bi-person-bounding-box' icon.
 * 3. Wrapped the new menu item in a conditional check `if (isset($_SESSION['is_global_admin']) && $_SESSION['is_global_admin'])`
 * to ensure it is only visible to users who are global administrators.
+* 4. Added "Delivery Companies" link to the 'Master Data' submenu, pointing to `delivery_companies.php`.
+* 5. Added `delivery_companies.php` to the 'manager' role permissions.
 */
 
 // includes/menu.php
@@ -20,7 +22,8 @@ $permissions = [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
         'locations.php', 'products.php', 'customers.php', 'suppliers.php', 
         'reports.php', 'inbound_report.php', 'batch_search.php', 'users.php',
-        'warehouses.php', 'picking.php', 'returns.php', 'transfer_order.php'
+        'warehouses.php', 'picking.php', 'returns.php', 'transfer_order.php',
+        'delivery_companies.php' // <-- MODIFICATION: Added permission
     ],
     'operator' => [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
@@ -76,7 +79,9 @@ $menu_items = [
             ['label' => 'Locations', 'url' => 'locations.php', 'icon' => 'bi-geo-alt'],
             ['label' => 'Warehouses', 'url' => 'warehouses.php', 'icon' => 'bi-buildings'],
             ['label' => 'Customers', 'url' => 'customers.php', 'icon' => 'bi-people'],
-            ['label' => 'Suppliers', 'url' => 'suppliers.php', 'icon' => 'bi-truck']
+            ['label' => 'Suppliers', 'url' => 'suppliers.php', 'icon' => 'bi-truck'],
+            // <-- MODIFICATION: Added new menu item -->
+            ['label' => 'Delivery Companies', 'url' => 'delivery_companies.php', 'icon' => 'bi-truck-front']
         ]
     ],
     'tools' => [

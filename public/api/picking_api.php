@@ -5,10 +5,10 @@
  */
 /********************************************************************
 * MODIFICATION SUMMARY:
-* - Modified the `handleAssignDriver` function to allow changing a driver after an order has been assigned or is out for delivery.
-* - The status check now permits 'Assigned' and 'Out for Delivery' statuses, in addition to 'Staged' and 'Delivery Failed'.
-* - This enables the new "Change Driver" functionality on the frontend.
-* - Added `customer_code` to the SELECT statement in `handleGetOrdersForPicking` to enable searching and displaying by customer code.
+* - Added a new case `getCompanyDrivers` to fetch drivers for a specific delivery company.
+* - Modified `handleAssignDriver` to save new third-party driver information, including the Driver ID Number, to the `delivery_company_drivers` table.
+* - When assigning a third-party driver, the system now checks if the driver exists for that company. If not, a new record is created.
+* - This prevents duplicate driver entries and allows for reusing driver information.
 ********************************************************************/
 
 require_once __DIR__ . '/../config/config.php';
@@ -72,6 +72,9 @@ switch ($action) {
     case 'getDeliveryCompanies': 
         handleGetDeliveryCompanies($conn);
         break;
+    case 'getCompanyDrivers':
+        handleGetCompanyDrivers($conn);
+        break;
     case 'pickItem':
         handlePickItem($conn, $current_warehouse_id, $current_user_id);
         break;
@@ -90,6 +93,21 @@ switch ($action) {
     default:
         sendJsonResponse(['success' => false, 'message' => 'Invalid picking action provided.'], 400);
         break;
+}
+
+function handleGetCompanyDrivers($conn) {
+    $company_id = filter_input(INPUT_GET, 'company_id', FILTER_VALIDATE_INT);
+    if (!$company_id) {
+        sendJsonResponse(['success' => false, 'message' => 'Company ID is required.'], 400);
+        return;
+    }
+
+    $stmt = $conn->prepare("SELECT * FROM delivery_company_drivers WHERE company_id = ? AND is_active = 1 ORDER BY driver_name ASC");
+    $stmt->bind_param("i", $company_id);
+    $stmt->execute();
+    $drivers = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+    sendJsonResponse(['success' => true, 'data' => $drivers]);
 }
 
 
@@ -675,9 +693,40 @@ function handleAssignDriver($conn, $warehouse_id, $user_id) {
                 $name = sanitize_input($driver['name']);
                 $mobile = sanitize_input($driver['mobile']);
                 $waybill = sanitize_input($driver['waybill']);
+                // MODIFICATION: Added driver_id_number
+                $id_number = sanitize_input($driver['driver_id_number'] ?? null);
+                $driver_id_from_form = filter_var($driver['driver_id'] ?? null, FILTER_VALIDATE_INT);
+
+                $id_path = null;
+                $license_path = null;
                 
-                $id_path = handleFileUpload($_FILES['id_file_' . $index] ?? null, $order_id, $name, 'id');
-                $license_path = handleFileUpload($_FILES['license_file_' . $index] ?? null, $order_id, $name, 'license');
+                if ($driver_id_from_form) {
+                    $stmt_get_driver = $conn->prepare("SELECT driver_id_path, driver_license_path FROM delivery_company_drivers WHERE driver_id = ? AND company_id = ?");
+                    $stmt_get_driver->bind_param("ii", $driver_id_from_form, $third_party_company_id);
+                    $stmt_get_driver->execute();
+                    $existing_driver_data = $stmt_get_driver->get_result()->fetch_assoc();
+                    $stmt_get_driver->close();
+
+                    $id_path = handleFileUpload($_FILES['id_file_' . $index] ?? null, $order_id, $name, 'id') ?? $existing_driver_data['driver_id_path'];
+                    $license_path = handleFileUpload($_FILES['license_file_' . $index] ?? null, $order_id, $name, 'license') ?? $existing_driver_data['driver_license_path'];
+                } else {
+                    $id_path = handleFileUpload($_FILES['id_file_' . $index] ?? null, $order_id, $name, 'id');
+                    $license_path = handleFileUpload($_FILES['license_file_' . $index] ?? null, $order_id, $name, 'license');
+
+                    $stmt_check_driver = $conn->prepare("SELECT driver_id FROM delivery_company_drivers WHERE company_id = ? AND driver_name = ? AND driver_mobile = ?");
+                    $stmt_check_driver->bind_param("iss", $third_party_company_id, $name, $mobile);
+                    $stmt_check_driver->execute();
+                    $existing_driver = $stmt_check_driver->get_result()->fetch_assoc();
+                    $stmt_check_driver->close();
+
+                    if (!$existing_driver) {
+                        // MODIFICATION: Added driver_id_number to the INSERT statement
+                        $stmt_save_driver = $conn->prepare("INSERT INTO delivery_company_drivers (company_id, driver_name, driver_mobile, driver_id_number, driver_id_path, driver_license_path) VALUES (?, ?, ?, ?, ?, ?)");
+                        $stmt_save_driver->bind_param("isssss", $third_party_company_id, $name, $mobile, $id_number, $id_path, $license_path);
+                        $stmt_save_driver->execute();
+                        $stmt_save_driver->close();
+                    }
+                }
 
                 if (!empty($name)) {
                     $stmt_assign->bind_param("iisisssss", $order_id, $user_id, $assignment_type, $third_party_company_id, $name, $mobile, $id_path, $license_path, $waybill);
@@ -785,7 +834,6 @@ function handleGetDeliveryCompanies($conn) {
     sendJsonResponse(['success' => true, 'data' => $companies]);
 }
 
-// MODIFICATION: Updated to provide detailed counts for stickers
 function handleGetPickStickers($conn, $warehouse_id) {
     $order_id = filter_input(INPUT_GET, 'order_id', FILTER_VALIDATE_INT);
     if (!$order_id) {

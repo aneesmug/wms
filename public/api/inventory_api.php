@@ -1,7 +1,14 @@
 <?php
 // api/inventory_api.php
 // MODIFICATION SUMMARY:
-// 1. Modified `handleGetLocationStock` to send raw `available_capacity` data (a number or null) instead of pre-formatted HTML. This makes the API cleaner and gives the frontend full control over the display logic.
+// 1. Added a `calculateExpiryDate` helper function (from inbound_api.php) to calculate expiry dates from DOT codes.
+// 2. Modified `adjustInventoryQuantity` to handle sticker generation when stock is added.
+//    - It now reliably gets the `inventory_id` for both new and existing stock.
+//    - It calculates and saves the `expiry_date` for new stock.
+//    - It programmatically finds or creates a "System Internal" supplier and a daily "MANUAL-YYYYMMDD" receipt to associate with the stock, which is required for sticker generation.
+//    - It generates sticker data in the `inbound_putaway_stickers` table for each unit added.
+//    - It returns the `inventory_id` of the affected stock.
+// 3. Updated `handleInventoryAdjustment` to include the new `inventory_id` in the API response, allowing the frontend to trigger the print dialog.
 
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../helpers/auth_helper.php';
@@ -166,9 +173,10 @@ function handleInventoryAdjustment($conn, $input, $warehouse_id, $user_id) {
     $conn->begin_transaction();
     try {
         $message = '';
+        $inventory_id = null;
         if ($action_type === 'adjust_quantity') {
             checkLocationLock($conn, $input['current_location_article_no'], $warehouse_id);
-            adjustInventoryQuantity($conn, $input, $warehouse_id, $user_id);
+            $inventory_id = adjustInventoryQuantity($conn, $input, $warehouse_id, $user_id);
             $message = 'Inventory quantity adjusted successfully.';
         } elseif ($action_type === 'transfer' || $action_type === 'block_item') {
             checkLocationLock($conn, $input['current_location_article_no'], $warehouse_id);
@@ -194,7 +202,7 @@ function handleInventoryAdjustment($conn, $input, $warehouse_id, $user_id) {
             throw new Exception('Invalid action type provided.');
         }
         $conn->commit();
-        sendJsonResponse(['success' => true, 'message' => $message]);
+        sendJsonResponse(['success' => true, 'message' => $message, 'inventory_id' => $inventory_id]);
     } catch (Exception $e) {
         $conn->rollback();
         error_log("Inventory adjustment error: " . $e->getMessage());
@@ -228,27 +236,98 @@ function adjustInventoryQuantity($conn, $input, $warehouse_id, $user_id) {
         }
     }
 
-    $stmt_update = $conn->prepare("UPDATE inventory SET quantity = quantity + ?, last_moved_at = CURRENT_TIMESTAMP WHERE product_id = ? AND location_id = ? AND batch_number <=> ? AND dot_code <=> ? AND warehouse_id = ?");
-    $stmt_update->bind_param("iisssi", $quantity_change, $product_id, $location_id, $batch_number, $dot_code, $warehouse_id);
-    $stmt_update->execute();
-    $affected_rows = $stmt_update->affected_rows;
-    $stmt_update->close();
+    $inventory_id = null;
 
-    if ($affected_rows === 0 && $quantity_change > 0) {
+    // Find existing inventory item
+    $stmt_find = $conn->prepare("SELECT inventory_id, quantity FROM inventory WHERE product_id = ? AND location_id = ? AND batch_number <=> ? AND dot_code <=> ? AND warehouse_id = ?");
+    $stmt_find->bind_param("iissi", $product_id, $location_id, $batch_number, $dot_code, $warehouse_id);
+    $stmt_find->execute();
+    $existing_item = $stmt_find->get_result()->fetch_assoc();
+    $stmt_find->close();
+
+    if ($existing_item) {
+        $inventory_id = $existing_item['inventory_id'];
+        if ($quantity_change < 0 && $existing_item['quantity'] < abs($quantity_change)) {
+            throw new Exception("Insufficient stock. The specified item batch/DOT has only {$existing_item['quantity']} units at this location.");
+        }
+        $stmt_update = $conn->prepare("UPDATE inventory SET quantity = quantity + ?, last_moved_at = CURRENT_TIMESTAMP WHERE inventory_id = ?");
+        $stmt_update->bind_param("ii", $quantity_change, $inventory_id);
+        $stmt_update->execute();
+        $stmt_update->close();
+    } else if ($quantity_change > 0) {
         if (empty($batch_number)) {
             $batch_number = 'INV-' . strtoupper(bin2hex(random_bytes(4)));
         }
 
-        $stmt_insert = $conn->prepare("INSERT INTO inventory (warehouse_id, product_id, location_id, quantity, batch_number, dot_code, last_moved_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)");
-        $stmt_insert->bind_param("iiiiss", $warehouse_id, $product_id, $location_id, $quantity_change, $batch_number, $dot_code);
+        $stmt_prod = $conn->prepare("SELECT expiry_years FROM products WHERE product_id = ?");
+        $stmt_prod->bind_param("i", $product_id);
+        $stmt_prod->execute();
+        $product_data = $stmt_prod->get_result()->fetch_assoc();
+        $stmt_prod->close();
+        $expiry_years = $product_data['expiry_years'] ?? 2;
+        $expiry_date = calculateExpiryDate($dot_code, $expiry_years);
+
+        $stmt_insert = $conn->prepare("INSERT INTO inventory (warehouse_id, product_id, location_id, quantity, batch_number, dot_code, expiry_date, last_moved_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)");
+        $stmt_insert->bind_param("iiiisss", $warehouse_id, $product_id, $location_id, $quantity_change, $batch_number, $dot_code, $expiry_date);
         if (!$stmt_insert->execute()) {
              throw new Exception("Database error during insert.");
         }
+        $inventory_id = $stmt_insert->insert_id;
         $stmt_insert->close();
-    } elseif ($affected_rows === 0 && $quantity_change < 0) {
+    } else { // $quantity_change < 0 and no item found
         throw new Exception("Insufficient stock. The specified item batch/DOT was not found at this location.");
     }
-    
+
+    // Sticker Generation for positive quantity changes
+    if ($inventory_id && $quantity_change > 0) {
+        // Find or create a "System Internal" supplier
+        $stmt_supplier = $conn->prepare("SELECT supplier_id FROM suppliers WHERE supplier_name = 'System Internal'");
+        $stmt_supplier->execute();
+        $supplier_res = $stmt_supplier->get_result()->fetch_assoc();
+        $stmt_supplier->close();
+        if ($supplier_res) {
+            $system_supplier_id = $supplier_res['supplier_id'];
+        } else {
+            $stmt_insert_supplier = $conn->prepare("INSERT INTO suppliers (supplier_name, is_active) VALUES ('System Internal', 1)");
+            $stmt_insert_supplier->execute();
+            $system_supplier_id = $stmt_insert_supplier->insert_id;
+            $stmt_insert_supplier->close();
+        }
+
+        // Find or create a daily manual receipt
+        $receipt_number = 'MANUAL-' . date('Ymd');
+        $stmt_receipt = $conn->prepare("SELECT receipt_id FROM inbound_receipts WHERE receipt_number = ? AND warehouse_id = ?");
+        $stmt_receipt->bind_param("si", $receipt_number, $warehouse_id);
+        $stmt_receipt->execute();
+        $receipt_res = $stmt_receipt->get_result()->fetch_assoc();
+        $stmt_receipt->close();
+        if ($receipt_res) {
+            $manual_receipt_id = $receipt_res['receipt_id'];
+        } else {
+            $stmt_insert_receipt = $conn->prepare("INSERT INTO inbound_receipts (warehouse_id, receipt_number, supplier_id, status, received_by, actual_arrival_date) VALUES (?, ?, ?, 'Completed', ?, NOW())");
+            $stmt_insert_receipt->bind_param("isii", $warehouse_id, $receipt_number, $system_supplier_id, $user_id);
+            $stmt_insert_receipt->execute();
+            $manual_receipt_id = $stmt_insert_receipt->insert_id;
+            $stmt_insert_receipt->close();
+        }
+        
+        // Update inventory record with the receipt_id
+        $stmt_update_inv_receipt = $conn->prepare("UPDATE inventory SET receipt_id = ? WHERE inventory_id = ?");
+        $stmt_update_inv_receipt->bind_param("ii", $manual_receipt_id, $inventory_id);
+        $stmt_update_inv_receipt->execute();
+        $stmt_update_inv_receipt->close();
+
+        // Generate sticker records
+        $stmt_sticker = $conn->prepare("INSERT INTO inbound_putaway_stickers (inventory_id, receipt_id, unique_barcode) VALUES (?, ?, ?)");
+        for ($i = 0; $i < $quantity_change; $i++) {
+            $unique_id = strtoupper(bin2hex(random_bytes(3)));
+            $barcode = "MAN-{$dot_code}-{$unique_id}";
+            $stmt_sticker->bind_param("iis", $inventory_id, $manual_receipt_id, $barcode);
+            if (!$stmt_sticker->execute()) { throw new Exception("Failed to generate sticker barcode: " . $stmt_sticker->error); }
+        }
+        $stmt_sticker->close();
+    }
+
     $reason_code = $quantity_change > 0 ? 'Manual Add' : 'Manual Remove';
     $notes = "Manual adjustment of {$quantity_change} units for product ID {$product_id} at location {$location_article_no}.";
     $stmt_adj = $conn->prepare("INSERT INTO stock_adjustments (product_id, warehouse_id, location_id, user_id, quantity_adjusted, reason_code, notes) VALUES (?, ?, ?, ?, ?, ?, ?)");
@@ -259,6 +338,8 @@ function adjustInventoryQuantity($conn, $input, $warehouse_id, $user_id) {
     $stmt_cleanup = $conn->prepare("DELETE FROM inventory WHERE quantity <= 0");
     $stmt_cleanup->execute();
     $stmt_cleanup->close();
+
+    return $inventory_id;
 }
 
 function transferInventory($conn, $input, $warehouse_id, $user_id) {

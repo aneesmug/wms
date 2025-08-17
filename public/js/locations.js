@@ -256,8 +256,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        const typeOptions = locationTypes.map(type => 
+        /*const typeOptions = locationTypes.map(type => 
             `<option value="${type.type_id}" ${isUpdating && type.type_id == locationData.location_type_id ? 'selected' : ''}>
+                ${type.type_name.charAt(0).toUpperCase() + type.type_name.slice(1).replace(/_/g, ' ')}
+            </option>`
+        ).join('');*/
+
+        const typeOptions = locationTypes.map(type => 
+            `<option value="${type.type_id}" ${(isUpdating ? type.type_id == locationData.location_type_id : type.type_id == 2) ? 'selected' : ''}>
                 ${type.type_name.charAt(0).toUpperCase() + type.type_name.slice(1).replace(/_/g, ' ')}
             </option>`
         ).join('');
@@ -276,15 +282,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="mb-3">
                         <label for="swalMaxCapacityUnits" class="form-label">Max Capacity (Units)</label>
-                        <input type="number" step="1" id="swalMaxCapacityUnits" min="0" class="form-control" value="${locationData.max_capacity_units || ''}">
+                        <input type="text" step="1" id="swalMaxCapacityUnits" min="0" class="form-control numeric-only" value="${locationData.max_capacity_units || '36'}">
                     </div>
                     <div class="mb-3">
                         <label for="swalMaxCapacityWeight" class="form-label">Max Capacity (Weight, kg)</label>
-                        <input type="number" step="0.01" id="swalMaxCapacityWeight" min="0" class="form-control" value="${locationData.max_capacity_weight || ''}">
+                        <input type="text" step="0.01" id="swalMaxCapacityWeight" min="0" class="form-control numeric-only" value="${locationData.max_capacity_weight || ''}">
                     </div>
                     <div class="mb-3">
                         <label for="swalMaxCapacityVolume" class="form-label">Max Capacity (Volume, m³)</label>
-                        <input type="number" step="0.01" id="swalMaxCapacityVolume" min="0" class="form-control" value="${locationData.max_capacity_volume || ''}">
+                        <input type="text" step="0.01" id="swalMaxCapacityVolume" min="0" class="form-control" value="${locationData.max_capacity_volume || ''}">
                     </div>
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="swalIsActive" ${isUpdating ? (locationData.is_active == 1 ? 'checked' : '') : 'checked'}>

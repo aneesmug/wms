@@ -238,6 +238,7 @@ function handleGetUsers($conn) {
         FROM users u
         LEFT JOIN user_warehouse_roles uwr ON u.user_id = uwr.user_id
         LEFT JOIN warehouses w ON uwr.warehouse_id = w.warehouse_id AND w.is_active = 1
+        WHERE u.user_id > 1
         GROUP BY u.user_id
         ORDER BY u.full_name;
     ";

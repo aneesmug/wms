@@ -1,10 +1,10 @@
 /*
 * MODIFICATION SUMMARY:
-* 1. CRITICAL FIX: Modified the global `fetchData` function to prevent page reloads on login failure.
-* 2. The function now checks if the user is currently on the login page.
-* 3. The automatic redirect for a 401 (Unauthorized) error will now ONLY happen if the user is NOT on the login page.
-* 4. This resolves the issue where entering a wrong password would cause the page to refresh.
-* 5. All other existing logic, including the inactivity timer and helper functions, has been preserved.
+* 1. CRITICAL FIX: Modified the global `fetchData` function to correctly handle both JSON data and FormData (for file uploads).
+* 2. The function now checks if the data being sent is a FormData object.
+* 3. If it is FormData, it omits the 'Content-Type' header (allowing the browser to set it automatically) and sends the data as-is.
+* 4. If it's not FormData, it behaves as before, setting the 'Content-Type' to 'application/json' and stringifying the data.
+* 5. This resolves the error when editing a driver and uploading new files.
 */
 
 // public/js/main.js
@@ -82,7 +82,7 @@ function resetInactivityTimer() {
     timeRemaining = INACTIVITY_TIMEOUT;
     timerStartTime = Date.now();
     timerPaused = false;
-    inactivityTimer = setTimeout(showLockScreen, timeRemaining);
+    inactivityTimer = setTimeout(showLockScreen, INACTIVITY_TIMEOUT);
 }
 
 function startInactivityTimer() {
@@ -202,9 +202,11 @@ async function fetchData(url, method = 'GET', data = null) {
         resetInactivityTimer();
     }
     try {
+        const isFormData = data instanceof FormData;
+        
         const options = {
             method: method,
-            headers: { 'Content-Type': 'application/json' },
+            headers: isFormData ? {} : { 'Content-Type': 'application/json' },
         };
 
         if (method === 'GET') {
@@ -212,15 +214,21 @@ async function fetchData(url, method = 'GET', data = null) {
         }
 
         if (data) {
-            options.body = JSON.stringify(data);
+            options.body = isFormData ? data : JSON.stringify(data);
         }
+
         const response = await fetch(url, options);
+        // It's possible for a file upload to return no JSON body on success
+        if (response.ok && response.headers.get('Content-Length') === '0') {
+            return { success: true };
+        }
+        
         const result = await response.json();
+
         if (!response.ok) {
             console.error(`API Error: ${response.status} - ${result.message || 'Unknown error'}`);
             showMessageBox(result.message || `An error occurred (Status: ${response.status})`, 'error');
             
-            // **FIX: Only redirect on 401 if we are NOT on the login page.**
             if (response.status === 401) {
                 const isLoginPage = window.location.pathname.endsWith('/') || window.location.pathname.endsWith('index.php');
                 if (!isLoginPage) {
