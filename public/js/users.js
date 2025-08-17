@@ -1,9 +1,11 @@
 /*
 * MODIFICATION SUMMARY:
-* 1. Reverted the password change functionality back to using SweetAlert2.
-* 2. Removed all selectors and event listeners related to the Bootstrap password modal.
-* 3. The `openChangePasswordForm` function now closes the main user edit modal before opening the SweetAlert2 pop-up for a cleaner user experience.
-* 4. The user's full name is now passed to the `openChangePasswordForm` function and displayed in the title of the SweetAlert2 pop-up.
+* 1. Replaced the old dropdown-based role assignment UI with a new, dedicated modal.
+* 2. Added `permissionsModal` for a matrix-style (table) view of warehouses and roles.
+* 3. Implemented `openPermissionsModal` to dynamically build a table with radio buttons, ensuring only one role can be selected per warehouse.
+* 4. The "Apply Permissions" button in the new modal updates the `localAssignedRoles` array, which is then saved when the main form is submitted.
+* 5. Added `updatePermissionsCount` to provide immediate feedback on the main form about assigned roles.
+* 6. Removed all now-unused code related to the old dropdowns and list-based UI.
 */
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM & Modal Selectors ---
@@ -12,6 +14,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const userModal = new bootstrap.Modal(userModalEl, { backdrop: 'static', keyboard: false });
     const userForm = document.getElementById('userForm');
     const saveUserBtn = document.getElementById('saveUserBtn');
+    const permissionsModalEl = document.getElementById('permissionsModal');
+    const permissionsModal = new bootstrap.Modal(permissionsModalEl);
     
     const defaultImagePath = 'uploads/users/default.png';
     let availableWarehouses = [];
@@ -34,7 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
             },
             columns: [
                 { 
-                    data: 'full_name', // Use raw data for searching
+                    data: 'full_name',
                     title: 'User',
                     render: function (data, type, row) {
                         if (type === 'display') {
@@ -62,13 +66,13 @@ document.addEventListener('DOMContentLoaded', () => {
                                 return `<div class="mb-1"><strong>${location.trim()}:</strong> <span class="badge bg-secondary">${role.trim()}</span></div>`;
                             }).join('');
                         }
-                        return data; // Return raw data for filtering
+                        return data;
                     }
                 },
                 { 
                     data: null,
                     orderable: false,
-                    searchable: false, // This column is not searchable
+                    searchable: false,
                     className: 'text-end',
                     render: function (data, type, row) {
                         return `<button class="btn btn-sm btn-outline-primary me-2" onclick="openUserForm(${row.user_id})"><i class="bi bi-pencil"></i> Edit</button><button class="btn btn-sm btn-outline-danger" onclick="handleDeleteUser(${row.user_id}, '${row.username}')"><i class="bi bi-trash"></i> Delete</button>`;
@@ -76,17 +80,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             ],
             "initComplete": function(settings, json) {
-                // Dynamically create filter configuration from table headers
                 const filterConfig = [];
                 usersTable.columns().every(function() {
                     const column = this;
-                    // Check if the column is searchable
                     if (column.settings()[0].aoColumns[column.index()].bSearchable) {
                          const title = $(column.header()).text();
                          filterConfig.push({ columnIndex: column.index(), title: title });
                     }
                 });
-                // Initialize the new advanced filter from main.js
                 initializeAdvancedFilter(usersTable, 'filterContainer', filterConfig);
             }
         });
@@ -104,17 +105,16 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- UI Rendering & Helpers ---
-    const renderAssignedRoles = () => {
-        const list = document.getElementById('assignedRolesList');
-        if (!list) return;
-        list.innerHTML = localAssignedRoles.length === 0 ? '<li class="list-group-item text-muted">No roles assigned.</li>'
-            : localAssignedRoles.map((role, index) => `<li class="list-group-item d-flex justify-content-between align-items-center"><span><i class="bi bi-building me-2"></i><strong>${role.warehouse_name}</strong> as <span class="badge bg-primary">${role.role}</span></span><button type="button" class="btn-close" aria-label="Remove" data-index="${index}"></button></li>`).join('');
-        list.querySelectorAll('.btn-close').forEach(btn => {
-            btn.addEventListener('click', e => {
-                localAssignedRoles.splice(parseInt(e.target.dataset.index), 1);
-                renderAssignedRoles();
-            });
-        });
+    const updatePermissionsCount = () => {
+        const countSpan = document.getElementById('permissionsCount');
+        const count = localAssignedRoles.length;
+        if (count === 0) {
+            countSpan.textContent = 'No permissions assigned.';
+        } else if (count === 1) {
+            countSpan.textContent = '1 permission assigned.';
+        } else {
+            countSpan.textContent = `${count} permissions assigned.`;
+        }
     };
     
     const setupPasswordToggle = (toggleBtnId, passwordInputId) => {
@@ -165,8 +165,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Main Form Logic ---
     window.openUserForm = async (userId = null) => {
-        await loadWarehouses();
-        await loadRoles();
+        await Promise.all([loadWarehouses(), loadRoles()]);
         userForm.reset();
         userForm.classList.remove('was-validated');
         croppedImageData = null;
@@ -198,7 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('profileImagePreview').src = defaultImagePath;
         }
 
-        renderAssignedRoles();
+        updatePermissionsCount();
         toggleWarehouseRolesSection(document.getElementById('isGlobalAdmin').checked);
         userModal.show();
     };
@@ -206,7 +205,46 @@ document.addEventListener('DOMContentLoaded', () => {
     const toggleWarehouseRolesSection = (isAdmin) => {
         const section = document.getElementById('warehouseRolesSection');
         section.style.opacity = isAdmin ? '0.5' : '1';
-        section.querySelectorAll('select, button').forEach(c => c.disabled = isAdmin);
+        section.querySelectorAll('button').forEach(c => c.disabled = isAdmin);
+    };
+
+    const openPermissionsModal = () => {
+        const container = document.getElementById('permissionsMatrixContainer');
+        if (!availableWarehouses.length || !availableRoles.length) {
+            container.innerHTML = '<p class="text-danger">Could not load warehouses or roles. Please try again.</p>';
+            permissionsModal.show();
+            return;
+        }
+    
+        const rolesWithNone = ['None', ...availableRoles];
+        let tableHTML = '<table class="table table-bordered table-hover"><thead><tr><th>Warehouse</th>';
+        rolesWithNone.forEach(role => {
+            tableHTML += `<th class="text-center text-capitalize">${role}</th>`;
+        });
+        tableHTML += '</tr></thead><tbody>';
+    
+        availableWarehouses.forEach(wh => {
+            tableHTML += `<tr><td><strong>${wh.warehouse_name}</strong></td>`;
+            const assignedRole = localAssignedRoles.find(r => r.warehouse_id == wh.warehouse_id);
+            const currentRole = assignedRole ? assignedRole.role : 'none';
+    
+            rolesWithNone.forEach(role => {
+                const roleValue = role.toLowerCase();
+                const isChecked = currentRole.toLowerCase() === roleValue;
+                tableHTML += `<td class="text-center align-middle">
+                    <input class="form-check-input" type="radio" 
+                           name="warehouse-role-${wh.warehouse_id}" 
+                           value="${roleValue}" 
+                           data-warehouse-id="${wh.warehouse_id}"
+                           ${isChecked ? 'checked' : ''}>
+                </td>`;
+            });
+            tableHTML += '</tr>';
+        });
+    
+        tableHTML += '</tbody></table>';
+        container.innerHTML = tableHTML;
+        permissionsModal.show();
     };
 
     // --- Event Listeners ---
@@ -228,19 +266,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('isGlobalAdmin').addEventListener('change', (e) => toggleWarehouseRolesSection(e.target.checked));
 
-    document.getElementById('addRoleBtn').addEventListener('click', () => {
-        const warehouseSelect = document.getElementById('warehouseSelect');
-        const roleSelect = document.getElementById('roleSelect');
-        const warehouseId = parseInt(warehouseSelect.value);
-        const role = roleSelect.value;
-        if (!warehouseId || !role) return;
-        const warehouseName = warehouseSelect.options[warehouseSelect.selectedIndex].text;
-        const existing = localAssignedRoles.find(r => r.warehouse_id == warehouseId);
-        if (existing) existing.role = role;
-        else localAssignedRoles.push({ warehouse_id: warehouseId, warehouse_name: warehouseName, role });
-        renderAssignedRoles();
-    });
+    document.getElementById('managePermissionsBtn').addEventListener('click', openPermissionsModal);
+
+    document.getElementById('applyPermissionsBtn').addEventListener('click', () => {
+        localAssignedRoles = []; // Clear existing roles
+        const matrix = document.getElementById('permissionsMatrixContainer');
+        
+        availableWarehouses.forEach(wh => {
+            const checkedRadio = matrix.querySelector(`input[name="warehouse-role-${wh.warehouse_id}"]:checked`);
+            if (checkedRadio && checkedRadio.value !== 'none') {
+                localAssignedRoles.push({
+                    warehouse_id: parseInt(checkedRadio.dataset.warehouseId),
+                    warehouse_name: wh.warehouse_name,
+                    role: checkedRadio.value
+                });
+            }
+        });
     
+        updatePermissionsCount();
+        permissionsModal.hide();
+    });
+
     document.getElementById('changePasswordBtn').addEventListener('click', () => {
         const fullName = document.getElementById('fullName').value;
         openChangePasswordForm(currentUserId, fullName);
@@ -275,13 +321,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    userModalEl.addEventListener('shown.bs.modal', () => {
-        const warehouseSelect = document.getElementById('warehouseSelect');
-        const roleSelect = document.getElementById('roleSelect');
-        warehouseSelect.innerHTML = availableWarehouses.map(w => `<option value="${w.warehouse_id}">${w.warehouse_name}</option>`).join('');
-        roleSelect.innerHTML = availableRoles.map(r => `<option value="${r}">${r.charAt(0).toUpperCase() + r.slice(1)}</option>`).join('');
-    });
-
     // --- Global Functions ---
     window.handleDeleteUser = (userId, username) => {
         Swal.fire({
@@ -305,9 +344,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const openChangePasswordForm = (userId, fullName) => {
-        userModal.hide(); // Close the main edit modal first
+        userModal.hide();
 
-        // Use a timeout to allow the modal backdrop to fade out before showing the alert
         setTimeout(() => {
             Swal.fire({
                 title: `Change Password for ${fullName}`,
@@ -328,7 +366,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }).then((result) => {
                 if (result.isConfirmed) Swal.fire('Success!', 'Password has been changed successfully.', 'success');
             });
-        }, 500); // 500ms delay
+        }, 500);
     };
 
     // --- Initializations ---

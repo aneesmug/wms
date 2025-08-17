@@ -94,13 +94,55 @@
                         <div id="changePasswordBtnContainer" class="mb-3" style="display: none;"><label class="form-label">Password</label><div><button type="button" class="btn btn-secondary" id="changePasswordBtn"><i class="bi bi-key me-2"></i>Change Password</button></div></div>
                         <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" role="switch" id="isGlobalAdmin" name="is_global_admin"><label class="form-check-label" for="isGlobalAdmin">Is Global Admin</label></div>
                         <hr>
-                        <div id="warehouseRolesSection"><h5>Warehouse Permissions</h5><p class="text-muted small">Assign roles for specific warehouses. This is disabled for Global Admins.</p><div class="row g-3 align-items-end" id="addRoleControls"><div class="col-md-5"><label for="warehouseSelect" class="form-label">Warehouse</label><select id="warehouseSelect" class="form-select"></select></div><div class="col-md-5"><label for="roleSelect" class="form-label">Role</label><select id="roleSelect" class="form-select"></select></div><div class="col-md-2"><button type="button" class="btn btn-success w-100" id="addRoleBtn">Add</button></div></div><div class="mt-3"><h6 class="mb-2">Assigned Roles</h6><ul class="list-group" id="assignedRolesList"></ul></div></div>
+                        <!-- 
+                            MODIFICATION SUMMARY:
+                            1. Replaced the old dropdown-based role assignment with a single button.
+                            2. This button will now trigger a new, dedicated modal for managing permissions.
+                            3. Added a span (`#permissionsCount`) to give the user feedback on how many roles are assigned without opening the modal.
+                        -->
+                        <div id="warehouseRolesSection">
+                            <h5>Warehouse Permissions</h5>
+                            <p class="text-muted small">Assign roles for specific warehouses. This is disabled for Global Admins.</p>
+                            <button type="button" class="btn btn-outline-secondary" id="managePermissionsBtn">
+                                <i class="bi bi-shield-check me-1"></i> Manage Permissions
+                            </button>
+                            <span id="permissionsCount" class="ms-3 text-muted">No permissions assigned.</span>
+                        </div>
                     </form>
                 </div>
                 <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" id="saveUserBtn">Save Changes</button></div>
             </div>
         </div>
     </div>
+
+    <!-- 
+        MODIFICATION SUMMARY:
+        1. Added a new, large modal specifically for assigning user roles to warehouses.
+        2. The body of this modal (`#permissionsMatrixContainer`) will be filled dynamically by JavaScript.
+        3. It features a clear table layout (matrix) for better usability.
+        4. The "Apply Permissions" button will save the selections back to the main user form, not directly to the server.
+    -->
+    <div class="modal fade" id="permissionsModal" tabindex="-1" aria-labelledby="permissionsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="permissionsModalLabel">Manage Warehouse Permissions</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted">Select a single role for each warehouse. Selecting 'None' will remove any existing permission for that warehouse.</p>
+                    <div id="permissionsMatrixContainer" class="table-responsive">
+                        <!-- Matrix will be dynamically generated here by users.js -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="applyPermissionsBtn">Apply Permissions</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
 
     <script src="https://code.jquery.com/jquery-3.7.0.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
