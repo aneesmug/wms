@@ -1,16 +1,10 @@
 <?php
 /*
 * MODIFICATION SUMMARY:
-* 1. Added session inactivity validation logic.
-* 2. `handleLogin` & `validate_remember_me_cookie`: Now set `$_SESSION['last_activity'] = time();` upon successful login to start the timer.
-* 3. `checkAuthentication`:
-* - On every check, it first updates `$_SESSION['last_activity']` if the session is valid, effectively resetting the timer on each user action.
-* - It then checks if 30 minutes (1800 seconds) have passed since the last activity.
-* - If expired, it returns a new `session_locked: true` flag to the frontend instead of logging the user out.
-* 4. NEW `reauthenticate` action:
-* - Creates a new `handleReauthentication` function.
-* - This function validates the password provided by the user against their stored hash.
-* - If the password is correct, it updates `$_SESSION['last_activity']` and confirms success, unlocking the session.
+* 1. The `handleLogin` function now provides specific, machine-readable error codes.
+* 2. If the username is not found, it returns an `error_code: 'USERNAME_NOT_FOUND'`.
+* 3. If the password is incorrect, it returns an `error_code: 'INCORRECT_PASSWORD'`.
+* 4. This allows the frontend JavaScript to distinguish between the two types of errors and handle them differently.
 */
 
 // api/auth.php
@@ -43,7 +37,7 @@ switch ($action) {
     case 'get_user_warehouses':
         handleGetUserWarehouses($conn);
         break;
-    case 'reauthenticate': // New action
+    case 'reauthenticate':
         handleReauthentication($conn);
         break;
     default:
@@ -61,6 +55,7 @@ function handleLogin($conn) {
 
     if (empty($username) || empty($password)) {
         sendJsonResponse(['message' => 'Username and password are required'], 400);
+        return;
     }
 
     $stmt = $conn->prepare("SELECT user_id, username, password_hash, is_global_admin, full_name, profile_image_url FROM users WHERE username = ?");
@@ -69,12 +64,17 @@ function handleLogin($conn) {
     $user = $stmt->get_result()->fetch_assoc();
     $stmt->close();
 
-    if ($user && password_verify($password, $user['password_hash'])) {
+    if (!$user) {
+        sendJsonResponse(['success' => false, 'message' => 'Username not found.', 'error_code' => 'USERNAME_NOT_FOUND'], 404);
+        return;
+    }
+
+    if (password_verify($password, $user['password_hash'])) {
         session_regenerate_id(true);
         $new_session_id = session_id();
 
         set_user_session($user);
-        $_SESSION['last_activity'] = time(); // Start activity timer
+        $_SESSION['last_activity'] = time();
         
         update_active_session_and_log_activity($conn, $user['user_id'], $new_session_id);
 
@@ -89,7 +89,7 @@ function handleLogin($conn) {
         
         sendJsonResponse(['success' => true, 'message' => 'Login successful']);
     } else {
-        sendJsonResponse(['success' => false, 'message' => 'Invalid username or password'], 401);
+        sendJsonResponse(['success' => false, 'message' => 'Incorrect password.', 'error_code' => 'INCORRECT_PASSWORD'], 401);
     }
 }
 
@@ -108,7 +108,6 @@ function handleLogout($conn) {
 
 function checkAuthentication($conn) {
     if (isset($_SESSION['user_id'])) {
-        // --- Single Session Validation ---
         $stmt = $conn->prepare("SELECT active_session_id FROM users WHERE user_id = ?");
         $stmt->bind_param("i", $_SESSION['user_id']);
         $stmt->execute();
@@ -120,16 +119,13 @@ function checkAuthentication($conn) {
             return;
         }
 
-        // --- Inactivity Timeout Check ---
         if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity'] > SESSION_TIMEOUT_SECONDS)) {
-            // Don't destroy session, just flag it as locked
             $response = refresh_and_get_auth_status_data($conn);
             $response['session_locked'] = true;
             sendJsonResponse($response);
             return;
         }
         
-        // If active, update the activity timestamp
         $_SESSION['last_activity'] = time();
 
         refresh_and_send_auth_status($conn);
@@ -143,9 +139,6 @@ function checkAuthentication($conn) {
     }
 }
 
-/**
- * Handles re-authentication for a locked session.
- */
 function handleReauthentication($conn) {
     if (!isset($_SESSION['user_id'])) {
         sendJsonResponse(['success' => false, 'message' => 'No active session found.'], 401);
@@ -167,7 +160,6 @@ function handleReauthentication($conn) {
     $stmt->close();
 
     if ($user && password_verify($password, $user['password_hash'])) {
-        // Success, reset the activity timer
         $_SESSION['last_activity'] = time();
         sendJsonResponse(['success' => true, 'message' => 'Re-authenticated successfully.']);
     } else {
@@ -341,7 +333,7 @@ function validate_remember_me_cookie($conn): bool {
             session_regenerate_id(true);
             $new_session_id = session_id();
             set_user_session($user);
-            $_SESSION['last_activity'] = time(); // Start activity timer
+            $_SESSION['last_activity'] = time();
 
             update_active_session_and_log_activity($conn, $user['user_id'], $new_session_id);
 

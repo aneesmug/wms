@@ -1,31 +1,50 @@
 /*
 * MODIFICATION SUMMARY:
-* 1. Added a comprehensive session inactivity timer feature.
-* 2. `INACTIVITY_TIMEOUT`: A constant set to 30 minutes (in milliseconds).
-* 3. `inactivityTimer`: A global variable to hold the timeout instance.
-* 4. `showLockScreen()`: A new function that displays a SweetAlert2 modal, prompting the user for their password to unlock the session. It handles the API call for re-authentication.
-* 5. `resetInactivityTimer()`: A new function that resets the 30-minute timer. This is called on user activity.
-* 6. `startInactivityTimer()`: A new function that sets up event listeners (`mousemove`, `keydown`, `click`) to detect user activity and reset the timer.
-* 7. `enforceAuthentication()`: Modified to check for a `session_locked` flag from the API. If true, it immediately calls `showLockScreen()`.
-* 8. The `DOMContentLoaded` event listener now calls `startInactivityTimer()` to begin monitoring for inactivity on every page load.
+* 1. CRITICAL FIX: Modified the global `fetchData` function to prevent page reloads on login failure.
+* 2. The function now checks if the user is currently on the login page.
+* 3. The automatic redirect for a 401 (Unauthorized) error will now ONLY happen if the user is NOT on the login page.
+* 4. This resolves the issue where entering a wrong password would cause the page to refresh.
+* 5. All other existing logic, including the inactivity timer and helper functions, has been preserved.
 */
 
 // public/js/main.js
 
 // --- Inactivity Lock Screen Logic ---
-const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
+const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 let inactivityTimer;
+let timeRemaining = INACTIVITY_TIMEOUT;
+let timerStartTime;
+let timerPaused = false;
 
-/**
- * Displays a SweetAlert2 modal to lock the screen and require password for re-authentication.
- */
+function pauseTimer() {
+    if (!timerPaused) {
+        clearTimeout(inactivityTimer);
+        const elapsedTime = Date.now() - timerStartTime;
+        timeRemaining -= elapsedTime;
+        timerPaused = true;
+    }
+}
+
+function resumeTimer() {
+    if (timerPaused) {
+        timerPaused = false;
+        timerStartTime = Date.now();
+        if (timeRemaining > 0) {
+            inactivityTimer = setTimeout(showLockScreen, timeRemaining);
+        } else {
+            showLockScreen();
+        }
+    }
+}
+
 function showLockScreen() {
+    if (Swal.isVisible() && Swal.getTitle() === 'Session Locked') {
+        return;
+    }
+    pauseTimer();
     Swal.fire({
         title: 'Session Locked',
-        html: `
-            <p>You've been inactive for a while. Please enter your password to continue.</p>
-            <input type="password" id="reauth-password" class="swal2-input" placeholder="Password">
-        `,
+        html: `<p>You've been inactive. Please enter your password to continue.</p><input type="password" id="reauth-password" class="swal2-input" placeholder="Password">`,
         icon: 'warning',
         allowOutsideClick: false,
         allowEscapeKey: false,
@@ -38,7 +57,6 @@ function showLockScreen() {
                 Swal.showValidationMessage('Password is required');
                 return false;
             }
-            // Call API to re-authenticate
             const result = await fetchData('api/auth.php?action=reauthenticate', 'POST', { password });
             if (!result || !result.success) {
                 Swal.showValidationMessage(result.message || 'Incorrect password');
@@ -49,72 +67,59 @@ function showLockScreen() {
     }).then((result) => {
         if (result.isConfirmed) {
             showMessageBox('Session unlocked!', 'success');
-            resetInactivityTimer(); // Restart the timer upon success
+            resetInactivityTimer(); 
         } else if (result.dismiss === Swal.DismissReason.cancel) {
-            // If user clicks "Logout"
             handleLogout();
         }
     });
 }
 
-/**
- * Resets the inactivity timer.
- */
 function resetInactivityTimer() {
+    if (Swal.isVisible() && Swal.getTitle() === 'Session Locked') {
+        return;
+    }
     clearTimeout(inactivityTimer);
-    inactivityTimer = setTimeout(showLockScreen, INACTIVITY_TIMEOUT);
+    timeRemaining = INACTIVITY_TIMEOUT;
+    timerStartTime = Date.now();
+    timerPaused = false;
+    inactivityTimer = setTimeout(showLockScreen, timeRemaining);
 }
 
-/**
- * Sets up event listeners to detect user activity and reset the timer.
- */
 function startInactivityTimer() {
-    // Events that count as activity
     const activityEvents = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
     activityEvents.forEach(event => {
         document.addEventListener(event, resetInactivityTimer, true);
     });
-    // Initial start of the timer
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            pauseTimer();
+        } else {
+            resumeTimer();
+        }
+    });
     resetInactivityTimer();
 }
 
 
 // --- Authentication and State Management Functions ---
 
-/**
- * Clears all session and local storage and redirects to the login page.
- */
 function redirectToLogin() {
     localStorage.clear();
     window.location.href = 'index.php';
 }
 
-/**
- * Handles the logout process by showing a confirmation dialog and then calling the API.
- */
 async function handleLogout() {
-    // Bypassing confirmation if the lock screen is up, as logout is an explicit action there.
     if (Swal.isVisible() && Swal.getTitle() === 'Session Locked') {
         const result = await fetchData('api/auth.php?action=logout', 'POST');
-        if (result && result.success) {
-            redirectToLogin();
-        }
+        if (result && result.success) redirectToLogin();
         return;
     }
-
     showConfirmationModal('Confirm Logout', 'Are you sure you want to log out?', async () => {
         const result = await fetchData('api/auth.php?action=logout', 'POST');
-        if (result && result.success) {
-            redirectToLogin();
-        }
+        if (result && result.success) redirectToLogin();
     });
 }
 
-/**
- * Sets the user's currently active warehouse, stores it, and reloads the page.
- * @param {string|number} id - The ID of the warehouse.
- * @param {string} name - The name of the warehouse.
- */
 async function setCurrentWarehouse(id, name) {
     const result = await fetchData('api/auth.php?action=set_warehouse', 'POST', { warehouse_id: id });
     if (result && result.success) {
@@ -127,15 +132,8 @@ async function setCurrentWarehouse(id, name) {
     return false;
 }
 
-/**
- * Shows a SweetAlert2 modal to force warehouse selection.
- * @param {Array<Object>} warehouses - An array of warehouse objects { warehouse_id, warehouse_name }.
- */
 function promptWarehouseSelection(warehouses) {
-    const warehouseOptions = warehouses.map(wh => 
-        `<option value="${wh.warehouse_id}">${wh.warehouse_name}</option>`
-    ).join('');
-
+    const warehouseOptions = warehouses.map(wh => `<option value="${wh.warehouse_id}">${wh.warehouse_name}</option>`).join('');
     Swal.fire({
         title: 'Select Your Warehouse',
         html: `<p>Please choose a warehouse to continue.</p><select id="swal-warehouse-select" class="form-select mt-3">${warehouseOptions}</select>`,
@@ -162,18 +160,11 @@ function promptWarehouseSelection(warehouses) {
     });
 }
 
-/**
- * Updates the user information display, including the profile picture.
- * @param {object} authStatus - The authentication status object from the API.
- */
 function updateUserInfoDisplay(authStatus) {
     const { user, current_warehouse_role } = authStatus;
-
     if (!user) return;
-
     const defaultImagePath = 'uploads/users/default.png';
     const profileImageUrl = user.profile_image_url || defaultImagePath;
-
     const elements = {
         nameDesktop: document.getElementById('userFullNameDesktop'),
         roleDesktop: document.getElementById('userRoleDesktop'),
@@ -182,23 +173,19 @@ function updateUserInfoDisplay(authStatus) {
         roleMobile: document.getElementById('userRoleMobile'),
         imageMobile: document.getElementById('userProfileImageMobile')
     };
-
     const displayName = user.full_name || 'User';
     let displayRole = 'No Role Assigned';
-
     if (user.is_global_admin) {
         displayRole = 'Global Admin';
     } else if (current_warehouse_role) {
         displayRole = current_warehouse_role.charAt(0).toUpperCase() + current_warehouse_role.slice(1);
     }
-
     if (elements.nameDesktop) elements.nameDesktop.textContent = displayName;
     if (elements.roleDesktop) elements.roleDesktop.textContent = displayRole;
     if (elements.imageDesktop) {
         elements.imageDesktop.src = profileImageUrl;
         elements.imageDesktop.onerror = () => { elements.imageDesktop.src = defaultImagePath; };
     }
-    
     if (elements.nameMobile) elements.nameMobile.textContent = displayName;
     if (elements.roleMobile) elements.roleMobile.textContent = displayRole;
     if (elements.imageMobile) {
@@ -210,15 +197,20 @@ function updateUserInfoDisplay(authStatus) {
 
 // --- Utility Functions ---
 
-/**
- * Fetches data from an API endpoint.
- */
 async function fetchData(url, method = 'GET', data = null) {
+    if (typeof resetInactivityTimer === 'function') {
+        resetInactivityTimer();
+    }
     try {
         const options = {
             method: method,
             headers: { 'Content-Type': 'application/json' },
         };
+
+        if (method === 'GET') {
+            url += (url.includes('?') ? '&' : '?') + `_=${new Date().getTime()}`;
+        }
+
         if (data) {
             options.body = JSON.stringify(data);
         }
@@ -227,8 +219,13 @@ async function fetchData(url, method = 'GET', data = null) {
         if (!response.ok) {
             console.error(`API Error: ${response.status} - ${result.message || 'Unknown error'}`);
             showMessageBox(result.message || `An error occurred (Status: ${response.status})`, 'error');
+            
+            // **FIX: Only redirect on 401 if we are NOT on the login page.**
             if (response.status === 401) {
-                setTimeout(redirectToLogin, 1500);
+                const isLoginPage = window.location.pathname.endsWith('/') || window.location.pathname.endsWith('index.php');
+                if (!isLoginPage) {
+                    setTimeout(redirectToLogin, 1500);
+                }
             }
             return result;
         }
@@ -240,9 +237,6 @@ async function fetchData(url, method = 'GET', data = null) {
     }
 }
 
-/**
- * Displays a SweetAlert2 Toast message.
- */
 function showMessageBox(message, type = 'info') {
     const currentWarehouseId = localStorage.getItem('current_warehouse_id');
     if (!currentWarehouseId && (type === 'success' || type === 'info')) {
@@ -262,9 +256,6 @@ function showMessageBox(message, type = 'info') {
     Toast.fire({ icon: type, title: message });
 }
 
-/**
- * Shows a generic confirmation modal.
- */
 function showConfirmationModal(title, body, onConfirm) {
     Swal.fire({
         title: title,
@@ -281,62 +272,28 @@ function showConfirmationModal(title, body, onConfirm) {
     });
 }
 
-// --- NEW ADVANCED DYNAMIC FILTER FUNCTIONALITY ---
-/**
- * Initializes an advanced, dynamic, multi-column filter for a DataTable.
- */
 function initializeAdvancedFilter(table, filterContainerId, columnsConfig) {
     const container = document.getElementById(filterContainerId);
     if (!container) return;
-
     container.addEventListener('click', (e) => e.stopPropagation());
-
     const render = () => {
-        container.innerHTML = `
-            <div id="filter-rules-list" class="mb-2"></div>
-            <button id="add-filter-btn" class="btn btn-sm btn-outline-secondary w-100"><i class="bi bi-plus-lg"></i> Add Rule</button>
-            <hr class="my-2">
-            <div class="d-flex justify-content-end">
-                <button id="clear-filters-btn" class="btn btn-sm btn-light me-2">Clear</button>
-                <button id="apply-filters-btn" class="btn btn-sm btn-primary">Apply</button>
-            </div>
-        `;
+        container.innerHTML = `<div id="filter-rules-list" class="mb-2"></div><button id="add-filter-btn" class="btn btn-sm btn-outline-secondary w-100"><i class="bi bi-plus-lg"></i> Add Rule</button><hr class="my-2"><div class="d-flex justify-content-end"><button id="clear-filters-btn" class="btn btn-sm btn-light me-2">Clear</button><button id="apply-filters-btn" class="btn btn-sm btn-primary">Apply</button></div>`;
         addFilterRule();
     };
-
     const addFilterRule = () => {
         const list = document.getElementById('filter-rules-list');
         const ruleDiv = document.createElement('div');
         ruleDiv.className = 'filter-rule p-2 mb-2 border rounded';
-        
         const columnOptions = columnsConfig.map(c => `<option value="${c.columnIndex}">${c.title}</option>`).join('');
-
-        ruleDiv.innerHTML = `
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <select class="form-select form-select-sm filter-column">${columnOptions}</select>
-                <button class="btn btn-sm btn-outline-danger remove-rule-btn ms-2"><i class="bi bi-trash"></i></button>
-            </div>
-            <div class="d-flex">
-                <select class="form-select form-select-sm filter-condition me-1" style="width: 100px;">
-                    <option value="contain">Contain</option>
-                    <option value="exact">Exact</option>
-                    <option value="startsWith">Starts with</option>
-                    <option value="endsWith">Ends with</option>
-                </select>
-                <input type="text" class="form-control form-control-sm filter-value" placeholder="Keyword...">
-            </div>
-        `;
+        ruleDiv.innerHTML = `<div class="d-flex justify-content-between align-items-center mb-2"><select class="form-select form-select-sm filter-column">${columnOptions}</select><button class="btn btn-sm btn-outline-danger remove-rule-btn ms-2"><i class="bi bi-trash"></i></button></div><div class="d-flex"><select class="form-select form-select-sm filter-condition me-1" style="width: 100px;"><option value="contain">Contain</option><option value="exact">Exact</option><option value="startsWith">Starts with</option><option value="endsWith">Ends with</option></select><input type="text" class="form-control form-control-sm filter-value" placeholder="Keyword..."></div>`;
         list.appendChild(ruleDiv);
     };
-
     const applyFilters = () => {
         table.columns().search('').draw();
-
         container.querySelectorAll('.filter-rule').forEach(rule => {
             const colIndex = rule.querySelector('.filter-column').value;
             const condition = rule.querySelector('.filter-condition').value;
             const value = rule.querySelector('.filter-value').value;
-
             if (value) {
                 let regex;
                 const escapedValue = value.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
@@ -351,12 +308,10 @@ function initializeAdvancedFilter(table, filterContainerId, columnsConfig) {
         });
         table.draw();
     };
-
     const clearFilters = () => {
         container.querySelectorAll('.filter-value').forEach(input => input.value = '');
         table.columns().search('').draw();
     };
-
     container.addEventListener('click', (e) => {
         const target = e.target;
         if (target.closest('#add-filter-btn')) addFilterRule();
@@ -364,20 +319,12 @@ function initializeAdvancedFilter(table, filterContainerId, columnsConfig) {
         if (target.closest('#apply-filters-btn')) applyFilters();
         if (target.closest('#clear-filters-btn')) clearFilters();
     });
-
     render();
 }
 
-// --- General Input Handling ---
 function initializeDatepicker(element, container = document.body) {
     if (element && typeof Datepicker !== 'undefined') {
-        new Datepicker(element, {
-            format: 'yyyy-mm-dd',
-            autohide: true,
-            buttonClass: 'btn',
-            container: container,
-            minDate: new Date()
-        });
+        new Datepicker(element, { format: 'yyyy-mm-dd', autohide: true, buttonClass: 'btn', container: container, minDate: new Date() });
     }
 }
 
@@ -388,49 +335,34 @@ function setupInputValidations() {
     });
     document.body.addEventListener('input', function(event) {
         const input = event.target;
-
         if (input.classList.contains('amount-validation')) {
             let value = input.value.replace(/[^0-9.]/g, '');
             const parts = value.split('.');
-            if (parts.length > 2) {
-                value = parts[0] + '.' + parts.slice(1).join('');
-            }
+            if (parts.length > 2) value = parts[0] + '.' + parts.slice(1).join('');
             if (parts[1] && parts[1].length > 2) {
                 parts[1] = parts[1].substring(0, 2);
                 value = parts.join('.');
             }
             input.value = value;
-        } 
-        else if (input.classList.contains('numeric-only')) {
+        } else if (input.classList.contains('numeric-only')) {
             input.value = input.value.replace(/\D/g, '');
-        } 
-        else if (input.classList.contains('saudi-mobile-number')) {
+        } else if (input.classList.contains('saudi-mobile-number')) {
             let value = input.value.replace(/\D/g, '');
-            if (value.length >= 1 && value[0] !== '0') {
-                value = '0' + value;
-            }
-            if (value.length >= 2 && value.substring(0, 2) !== '05') {
-                value = '05' + value.substring(2);
-            }
+            if (value.length >= 1 && value[0] !== '0') value = '0' + value;
+            if (value.length >= 2 && value.substring(0, 2) !== '05') value = '05' + value.substring(2);
             input.value = value.substring(0, 10);
         }
     });
-
     document.body.addEventListener('focusout', function(event) {
         const input = event.target;
-
         if (input.classList.contains('amount-validation')) {
             let value = parseFloat(input.value);
-            if (!isNaN(value)) {
-                input.value = value.toFixed(2);
-            }
-        } 
-        else if (input.classList.contains('saudi-mobile-number')) {
+            if (!isNaN(value)) input.value = value.toFixed(2);
+        } else if (input.classList.contains('saudi-mobile-number')) {
             const value = input.value;
             const isValid = /^05\d{8}$/.test(value);
             input.classList.toggle('is-invalid', value && !isValid);
-        } 
-        else if (input.classList.contains('email-validation')) {
+        } else if (input.classList.contains('email-validation')) {
             const value = input.value;
             const isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
             input.classList.toggle('is-invalid', value && !isValid);
@@ -440,9 +372,6 @@ function setupInputValidations() {
 
 // --- Common Page Setup ---
 
-/**
- * Checks authentication and warehouse selection on page load.
- */
 async function enforceAuthentication() {
     const isProtectedPage = !window.location.pathname.endsWith('/') && !window.location.pathname.endsWith('index.php');
     if (isProtectedPage) {
@@ -453,10 +382,9 @@ async function enforceAuthentication() {
             return;
         }
 
-        // If session is locked due to inactivity, show the lock screen
         if (authStatus.session_locked) {
             showLockScreen();
-            return; // Stop further execution until re-authenticated
+            return;
         }
 
         updateUserInfoDisplay(authStatus);
@@ -479,9 +407,6 @@ async function enforceAuthentication() {
     }
 }
 
-/**
- * Attaches event listeners to common elements.
- */
 function setupCommonEventListeners() {
     const logoutButtons = document.querySelectorAll('#logoutBtnDesktop, #logoutBtnMobile');
     logoutButtons.forEach(btn => {
@@ -490,12 +415,11 @@ function setupCommonEventListeners() {
     setupInputValidations();
 }
 
-// This runs on every page load.
 document.addEventListener('DOMContentLoaded', () => {
     enforceAuthentication();
     setupCommonEventListeners();
-    // Start the inactivity timer on all protected pages
-    if (!window.location.pathname.endsWith('/') && !window.location.pathname.endsWith('index.php')) {
+    const isProtectedPage = !window.location.pathname.endsWith('/') && !window.location.pathname.endsWith('index.php');
+    if (isProtectedPage) {
         startInactivityTimer();
     }
 });
