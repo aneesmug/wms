@@ -238,7 +238,7 @@ $(document).ready(function() {
                     let actionButtons = '';
                     if (!hasItems) {
                         actionButtons = `
-                            <button class="btn btn-sm btn-outline-primary edit-container-btn" title="${__('edit_container')}"><i class="bi bi-pencil"></i></button>
+                            <button class="btn btn-sm btn-outline-warning edit-container-btn" title="${__('edit_container')}"><i class="bi bi-pencil"></i></button>
                             <button class="btn btn-sm btn-outline-danger delete-container-btn ms-1" title="${__('delete_container')}"><i class="bi bi-trash"></i></button>
                         `;
                     }
@@ -655,6 +655,8 @@ $(document).ready(function() {
             `,
             confirmButtonText: __('update_container'),
             showCancelButton: true,
+            allowOutsideClick: false,
+            cancelButtonText: __('cancel'),
             didOpen: () => {
                 const dateElement = document.getElementById('swal-expectedArrivalDate');
                 initializeDatepicker(dateElement, Swal.getPopup());
