@@ -1,4 +1,10 @@
 <?php
+/*
+* MODIFICATION SUMMARY:
+* 1. Replaced all hardcoded English text for titles, headers, buttons, and table columns with the `__()` translation function.
+* 2. Added the required script tag in the <head> to load translations with `JSON_UNESCAPED_UNICODE`.
+* 3. The entire page is now fully localizable.
+*/
 require_once __DIR__ . '/helpers/auth_helper.php';
 ?>
 <!DOCTYPE html>
@@ -14,7 +20,9 @@ require_once __DIR__ . '/helpers/auth_helper.php';
     <link rel="stylesheet" href="css/style.css">
      <?php if (($_SESSION['lang'] ?? 'en') === 'ar'): ?>
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
+        <link rel="stylesheet" href="css/style-rtl.css">
     <?php endif; ?>
+    <script> window.lang = <?php echo json_encode($translations, JSON_UNESCAPED_UNICODE); ?>; </script>
 </head>
 <body class="bg-light">
 
@@ -45,9 +53,9 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                                     <select id="locationTypeFilter" class="form-select form-select-sm me-2" style="width: auto;"></select>
                                     <button id="addNewLocationBtn" class="btn btn-light btn-sm text-nowrap"><i class="bi bi-plus-circle me-1"></i> <?php echo __('new_location'); ?></button>
                                     <div class="card-header-actions">
-                                        <button type="button" class="btn-card-header" data-action="refresh" title="Refresh"><i class="bi bi-arrow-counterclockwise"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="maximize" title="Maximize"><i class="bi bi-arrows-fullscreen"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="close" title="Close"><i class="bi bi-x-lg"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="refresh" title="<?php echo __('refresh'); ?>"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="maximize" title="<?php echo __('maximize'); ?>"><i class="bi bi-arrows-fullscreen"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="close" title="<?php echo __('close'); ?>"><i class="bi bi-x-lg"></i></button>
                                     </div>
                                 </div>
                             </div>

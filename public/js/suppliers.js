@@ -1,4 +1,10 @@
-// public/js/suppliers.js
+/*
+* MODIFICATION SUMMARY:
+* 1. Replaced all hardcoded English strings in UI elements, alerts, and modals with the `__()` translation function.
+* 2. This includes placeholders, DataTable language settings, SweetAlert2 titles and messages, and error notifications.
+* 3. The entire JavaScript functionality for this page is now fully localizable.
+* 4. Ensured dynamic messages with variables are constructed correctly using translated strings.
+*/
 
 $(document).ready(function() {
     // --- Globals ---
@@ -9,14 +15,6 @@ $(document).ready(function() {
     initializePage();
 
     // --- Functions ---
-
-    /**
-     * Handles API requests and includes specific error handling for access denied errors.
-     * @param {string} url - The API endpoint.
-     * @param {string} method - The HTTP method (GET, POST, PUT, DELETE).
-     * @param {object|null} data - The request payload.
-     * @returns {Promise<object|null>} - The JSON response or null on error.
-     */
     async function fetchData(url, method = 'POST', data = null) {
         const options = {
             method: method,
@@ -29,57 +27,53 @@ $(document).ready(function() {
             const response = await fetch(url, options);
             const result = await response.json();
             if (!response.ok) {
-                throw new Error(result.message || `API Error: Status ${response.status}`);
+                throw new Error(result.message || `${__('api_error')}: Status ${response.status}`);
             }
             return result;
         } catch (error) {
             console.error('Fetch Error:', error);
-            const isAccessDeniedError = error.message.includes('Access Denied');
+            const isAccessDeniedError = error.message.includes(__('access_denied'));
             Swal.fire({
-                title: 'Error',
+                title: __('error'),
                 text: error.message,
                 icon: 'error',
-                confirmButtonText: 'OK',
+                confirmButtonText: __('ok'),
                 allowOutsideClick: false
             }).then((result) => {
                 if (result.isConfirmed && isAccessDeniedError) {
                     window.location.href = 'dashboard.php';
                 }
             });
-            return { success: false, message: error.message }; // Return a consistent error object
+            return { success: false, message: error.message };
         }
     }
 
     function initializePage() {
-        // MODIFICATION: Block 'viewer' role from accessing this page.
         if (currentWarehouseRole === 'viewer') {
             Swal.fire({
-                title: 'Access Denied',
-                text: 'You do not have sufficient permissions to view this page.',
+                title: __('access_denied'),
+                text: __('insufficient_permissions'),
                 icon: 'error',
-                confirmButtonText: 'OK',
+                confirmButtonText: __('ok'),
                 allowOutsideClick: false
             }).then(() => {
                 window.location.href = 'dashboard.php';
             });
-            // Hide the main content to prevent a flash of the unloaded table
             $('#suppliersTable_wrapper').hide();
             $('#addSupplierBtn').hide();
-            return; // Stop further execution
+            return;
         }
 
         const canManage = currentWarehouseRole === 'operator' || currentWarehouseRole === 'manager';
         const canDelete = currentWarehouseRole === 'manager';
 
-        // Hide add button if user doesn't have permission
         if (!canManage) {
             $('#addSupplierBtn').hide();
         }
 
-        // Initialize DataTable
         suppliersTable = $('#suppliersTable').DataTable({
             processing: true,
-            serverSide: false, // Using client-side processing
+            serverSide: false,
             ajax: {
                 url: 'api/suppliers_api.php',
                 type: 'GET',
@@ -87,78 +81,89 @@ $(document).ready(function() {
             },
             columns: [
                 { data: 'supplier_name' },
-                { data: 'contact_person', defaultContent: 'N/A' },
-                { data: 'email', defaultContent: 'N/A' },
-                { data: 'phone', defaultContent: 'N/A' },
+                { data: 'contact_person', defaultContent: __('n_a') },
+                { data: 'email', defaultContent: __('n_a') },
+                { data: 'phone', defaultContent: __('n_a') },
                 {
                     data: 'is_active',
                     render: function(data, type, row) {
                         const badgeClass = data == 1 ? 'bg-success' : 'bg-secondary';
-                        const text = data == 1 ? 'Yes' : 'No';
+                        const text = data == 1 ? __('yes') : __('no');
                         return `<span class="badge ${badgeClass}">${text}</span>`;
                     }
                 },
                 {
-                    data: null, // Action buttons column
+                    data: null,
                     orderable: false,
                     searchable: false,
                     className: 'text-end',
                     render: function(data, type, row) {
                         let actionsHtml = '';
                         if (canManage) {
-                            actionsHtml += `<button data-id="${row.supplier_id}" class="btn btn-sm btn-outline-primary edit-btn me-2" title="Edit"><i class="bi bi-pencil"></i></button>`;
+                            actionsHtml += `<button data-id="${row.supplier_id}" class="btn btn-sm btn-outline-primary edit-btn me-2" title="${__('edit')}"><i class="bi bi-pencil"></i></button>`;
                         }
                         if (canDelete) {
-                            actionsHtml += `<button data-id="${row.supplier_id}" class="btn btn-sm btn-outline-danger delete-btn" title="Delete"><i class="bi bi-trash"></i></button>`;
+                            actionsHtml += `<button data-id="${row.supplier_id}" class="btn btn-sm btn-outline-danger delete-btn" title="${__('delete')}"><i class="bi bi-trash"></i></button>`;
                         }
-                        return actionsHtml || '<span class="text-muted">View Only</span>';
+                        return actionsHtml || `<span class="text-muted">${__('view_only')}</span>`;
                     }
                 }
             ],
-            rowCallback: function(row, data, index) {
-                // Custom row logic can be added here if needed
+            language: {
+                search: `<span>${__('search')}:</span> _INPUT_`,
+                searchPlaceholder: `${__('search')}...`,
+                lengthMenu: `${__('show')} _MENU_ ${__('entries')}`,
+                info: `${__('showing')} _START_ ${__('to')} _END_ ${__('of')} _TOTAL_ ${__('entries')}`,
+                infoEmpty: `${__('showing')} 0 ${__('to')} 0 ${__('of')} 0 ${__('entries')}`,
+                infoFiltered: `(${__('filtered_from')} _MAX_ ${__('total_entries')})`,
+                paginate: {
+                    first: __('first'),
+                    last: __('last'),
+                    next: __('next'),
+                    previous: __('previous')
+                },
+                emptyTable: __('no_data_available_in_table'),
+                zeroRecords: __('no_matching_records_found'),
+                processing: `<div class="spinner-border text-primary" role="status"><span class="visually-hidden">${__('loading')}...</span></div>`
             }
         });
 
-        // --- Event Listeners ---
         $('#addSupplierBtn').on('click', handleAddSupplier);
         $('#suppliersTable tbody').on('click', '.edit-btn', handleEditSupplier);
         $('#suppliersTable tbody').on('click', '.delete-btn', handleDeleteSupplier);
     }
-
-    // --- SweetAlert2 Form Logic ---
 
     function getSupplierFormHtml(supplier = {}) {
         return `
             <form id="swalSupplierForm" class="text-start">
                 <input type="hidden" id="supplierId" value="${supplier.supplier_id || ''}">
                 <div class="mb-3">
-                    <label for="supplierName" class="form-label">Supplier Name*</label>
+                    <label for="supplierName" class="form-label">${__('supplier_name')}*</label>
                     <input type="text" id="supplierName" class="form-control" value="${supplier.supplier_name || ''}" required>
                 </div>
                 <div class="mb-3">
-                    <label for="contactPerson" class="form-label">Contact Person</label>
+                    <label for="contactPerson" class="form-label">${__('contact_person')}</label>
                     <input type="text" id="contactPerson" class="form-control" value="${supplier.contact_person || ''}">
                 </div>
                 <div class="mb-3">
-                    <label for="email" class="form-label">Email</label>
+                    <label for="email" class="form-label">${__('email')}</label>
                     <input type="email" id="email" class="form-control" value="${supplier.email || ''}">
                 </div>
                 <div class="mb-3">
-                    <label for="phone" class="form-label">Phone</label>
+                    <label for="phone" class="form-label">${__('phone')}</label>
                     <input type="tel" id="phone" class="form-control" value="${supplier.phone || ''}">
                 </div>
                 <div class="mb-3">
-                    <label for="paymentTerms" class="form-label">Payment Terms</label>
-                    <input type="text" id="paymentTerms" class="form-control" placeholder="e.g., Net 30" value="${supplier.payment_terms || ''}">
+                    <label for="paymentTerms" class="form-label">${__('payment_terms')}</label>
+                    <input type="text" id="paymentTerms" class="form-control" placeholder="${__('payment_terms_placeholder')}" value="${supplier.payment_terms || ''}">
                 </div>
                 <div class="mb-3">
-                    <label for="taxId" class="form-label">Tax ID</label>
-                    <input type="text" id="taxId" class="form-control" placeholder="e.g., VAT ID" value="${supplier.tax_id || ''}">
+                    <label for="taxId" class="form-label">${__('tax_id')}</label>
+                    <input type="text" id="taxId" class="form-control" placeholder="${__('tax_id_placeholder')}" value="${supplier.tax_id || ''}">
                 </div>
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="isActive" ${supplier.is_active == 1 || supplier.is_active === undefined ? 'checked' : ''}>
-                    <label class="form-check-label" for="isActive">Is Active</label>
+                    <label class="form-check-label" for="isActive">${__('is_active')}</label>
                 </div>
             </form>
         `;
@@ -166,16 +171,18 @@ $(document).ready(function() {
 
     function handleAddSupplier() {
         Swal.fire({
-            title: 'Add New Supplier',
+            title: __('add_new_supplier'),
             html: getSupplierFormHtml(),
-            confirmButtonText: 'Save Supplier',
+            confirmButtonText: __('save_supplier'),
             showCancelButton: true,
+            cancelButtonText: __('cancel'),
             focusConfirm: false,
+            allowOutsideClick: false,
             preConfirm: () => {
                 const form = document.getElementById('swalSupplierForm');
                 const supplierName = form.querySelector('#supplierName').value.trim();
                 if (!supplierName) {
-                    Swal.showValidationMessage('Supplier Name is required');
+                    Swal.showValidationMessage(__('supplier_name_is_required'));
                     return false;
                 }
                 return {
@@ -193,10 +200,10 @@ $(document).ready(function() {
                 const data = result.value;
                 const response = await fetchData('api/suppliers_api.php', 'POST', data);
                 if (response && response.success) {
-                    Swal.fire('Success!', 'Supplier created successfully.', 'success');
+                    Swal.fire(__('success'), __('supplier_created_successfully'), 'success');
                     suppliersTable.ajax.reload();
                 } else if (response) {
-                    Swal.fire('Error!', response.message || 'Failed to create supplier.', 'error');
+                    Swal.fire(__('error'), response.message || __('failed_to_create_supplier'), 'error');
                 }
             }
         });
@@ -206,16 +213,18 @@ $(document).ready(function() {
         const rowData = suppliersTable.row($(this).parents('tr')).data();
         
         Swal.fire({
-            title: 'Edit Supplier',
+            title: __('edit_supplier'),
             html: getSupplierFormHtml(rowData),
-            confirmButtonText: 'Update Supplier',
+            confirmButtonText: __('update_supplier'),
             showCancelButton: true,
+            cancelButtonText: __('cancel'),
             focusConfirm: false,
+            allowOutsideClick: false,
             preConfirm: () => {
                 const form = document.getElementById('swalSupplierForm');
                  const supplierName = form.querySelector('#supplierName').value.trim();
                 if (!supplierName) {
-                    Swal.showValidationMessage('Supplier Name is required');
+                    Swal.showValidationMessage(__('supplier_name_is_required'));
                     return false;
                 }
                 return {
@@ -234,10 +243,10 @@ $(document).ready(function() {
                 const data = result.value;
                 const response = await fetchData('api/suppliers_api.php', 'PUT', data);
                 if (response && response.success) {
-                    Swal.fire('Success!', 'Supplier updated successfully.', 'success');
-                    suppliersTable.ajax.reload(null, false); // reload and keep pagination
+                    Swal.fire(__('success'), __('supplier_updated_successfully'), 'success');
+                    suppliersTable.ajax.reload(null, false);
                 } else if (response) {
-                    Swal.fire('Error!', response.message || 'Failed to update supplier.', 'error');
+                    Swal.fire(__('error'), response.message || __('failed_to_update_supplier'), 'error');
                 }
             }
         });
@@ -247,21 +256,22 @@ $(document).ready(function() {
         const rowData = suppliersTable.row($(this).parents('tr')).data();
         
         Swal.fire({
-            title: 'Are you sure?',
-            text: `You are about to delete "${rowData.supplier_name}". This may fail if they have existing inbound receipts. This action cannot be undone.`,
+            title: __('are_you_sure'),
+            html: `${__('are_you_sure_delete_supplier')} "<strong>${rowData.supplier_name}</strong>". ${__('delete_supplier_warning')}`,
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#d33',
             cancelButtonColor: '#3085d6',
-            confirmButtonText: 'Yes, delete it!'
+            confirmButtonText: __('yes_delete_it'),
+            cancelButtonText: __('cancel')
         }).then(async (result) => {
             if (result.isConfirmed) {
                 const response = await fetchData(`api/suppliers_api.php?id=${rowData.supplier_id}`, 'DELETE');
                 if (response && response.success) {
-                    Swal.fire('Deleted!', 'The supplier has been deleted.', 'success');
+                    Swal.fire(__('deleted'), __('supplier_deleted_success'), 'success');
                     suppliersTable.ajax.reload();
                 } else if (response) {
-                    Swal.fire('Error!', response.message || 'Failed to delete supplier.', 'error');
+                    Swal.fire(__('error'), response.message || __('failed_to_delete_supplier'), 'error');
                 }
             }
         });

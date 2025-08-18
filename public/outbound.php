@@ -17,7 +17,9 @@
     <link rel="stylesheet" href="css/style.css">
     <?php if (($_SESSION['lang'] ?? 'en') === 'ar'): ?>
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
+        <link rel="stylesheet" href="css/style-rtl.css">
     <?php endif; ?>
+    <script> window.lang = <?php echo json_encode($translations, JSON_UNESCAPED_UNICODE); ?>; </script>
 </head>
 <body class="bg-light">
 
@@ -44,20 +46,21 @@
                                 <h5 class="card-title mb-0"><?php echo __('all_orders'); ?></h5>
                                 <div class="d-flex align-items-center gap-2">
                                     <select id="statusFilter" class="form-select form-select-sm me-2" style="width: auto;">
-                                        <option value="">All Statuses</option>
-                                        <option value="New">New</option>
-                                        <option value="Pending Pick">Pending Pick</option>
-                                        <option value="Partially Picked">Partially Picked</option>
-                                        <option value="Picked">Picked</option>
-                                        <option value="Ready for Pickup">Ready for Pickup</option>
-                                        <option value="Assigned">Assigned</option>
-                                        <option value="Shipped">Shipped</option>
-                                        <option value="Out for Delivery">Out for Delivery</option>
-                                        <option value="Delivered">Delivered</option>
-                                        <option value="Partially Returned">Partially Returned</option>
-                                        <option value="Returned">Returned</option>
-                                        <option value="Cancelled">Cancelled</option>
-                                        <option value="Scrapped">Scrapped</option>
+                                        <option value=""><?php echo __('all_statuses'); ?></option>
+                                        <option value="New"><?php echo __('new'); ?></option>
+                                        <option value="Pending Pick"><?php echo __('pending_pick'); ?></option>
+                                        <option value="Partially Picked"><?php echo __('partially_picked'); ?></option>
+                                        <option value="Picked"><?php echo __('picked'); ?></option>
+                                        <option value="Ready for Pickup"><?php echo __('ready_for_pickup'); ?></option>
+                                        <option value="Assigned"><?php echo __('assigned'); ?></option>
+                                        <option value="Shipped"><?php echo __('shipped'); ?></option>
+                                        <option value="Out for Delivery"><?php echo __('out_for_delivery'); ?></option>
+                                        <option value="Delivered"><?php echo __('delivered'); ?></option>
+                                        <option value="Delivery Failed"><?php echo __('delivery_failed'); ?></option>
+                                        <option value="Partially Returned"><?php echo __('partially_returned'); ?></option>
+                                        <option value="Returned"><?php echo __('returned'); ?></option>
+                                        <option value="Cancelled"><?php echo __('cancelled'); ?></option>
+                                        <option value="Scrapped"><?php echo __('scrapped'); ?></option>
                                     </select>
                                     <button id="showCreateOrderModalBtn" class="btn btn-light btn-sm text-nowrap"><i class="bi bi-plus-circle me-1"></i> <?php echo __('new_order'); ?></button>
                                     <div class="card-header-actions">

@@ -1,12 +1,13 @@
 /*
 * MODIFICATION SUMMARY:
-* 1. Replaced the old dropdown-based role assignment UI with a new, dedicated modal.
-* 2. Added `permissionsModal` for a matrix-style (table) view of warehouses and roles.
-* 3. Implemented `openPermissionsModal` to dynamically build a table with radio buttons, ensuring only one role can be selected per warehouse.
-* 4. The "Apply Permissions" button in the new modal updates the `localAssignedRoles` array, which is then saved when the main form is submitted.
-* 5. Added `updatePermissionsCount` to provide immediate feedback on the main form about assigned roles.
-* 6. Removed all now-unused code related to the old dropdowns and list-based UI.
-* 7. Added logic to handle the new `preferred_language` dropdown in the user form.
+* 1. INTEGRATED TRANSLATION: Replaced all user-facing strings with the global `__` function to support multi-language capabilities. This includes modal titles, button texts, labels, placeholders, and confirmation messages.
+* 2. Replaced the old dropdown-based role assignment UI with a new, dedicated modal.
+* 3. Added `permissionsModal` for a matrix-style (table) view of warehouses and roles.
+* 4. Implemented `openPermissionsModal` to dynamically build a table with radio buttons, ensuring only one role can be selected per warehouse.
+* 5. The "Apply Permissions" button in the new modal updates the `localAssignedRoles` array, which is then saved when the main form is submitted.
+* 6. Added `updatePermissionsCount` to provide immediate feedback on the main form about assigned roles.
+* 7. Removed all now-unused code related to the old dropdowns and list-based UI.
+* 8. Added logic to handle the new `preferred_language` dropdown in the user form.
 */
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM & Modal Selectors ---
@@ -40,7 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
             columns: [
                 { 
                     data: 'full_name',
-                    title: 'User',
+                    title: __('user'),
                     render: function (data, type, row) {
                         if (type === 'display') {
                             const profileImage = row.profile_image_url || defaultImagePath;
@@ -49,18 +50,18 @@ document.addEventListener('DOMContentLoaded', () => {
                         return data;
                     }
                 },
-                { data: 'username', title: 'Username' },
+                { data: 'username', title: __('username') },
                 { 
                     data: 'is_global_admin',
-                    title: 'Global Admin',
-                    render: (data) => data == 1 ? 'Yes' : 'No'
+                    title: __('global_admin'),
+                    render: (data) => data == 1 ? __('yes') : __('no')
                 },
                 { 
                     data: 'warehouse_roles',
-                    title: 'Assigned Locations & Roles',
+                    title: __('assigned_locations_roles'),
                     render: (data, type, row) => {
-                        if (row.is_global_admin == 1) return 'All Access';
-                        if (!data) return 'None';
+                        if (row.is_global_admin == 1) return __('all_access');
+                        if (!data) return __('none');
                         if (type === 'display') {
                             return data.split(';').map(roleInfo => {
                                 const [location, role] = roleInfo.split(':');
@@ -76,10 +77,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     searchable: false,
                     className: 'text-end',
                     render: function (data, type, row) {
-                        return `<button class="btn btn-sm btn-outline-primary me-2" onclick="openUserForm(${row.user_id})"><i class="bi bi-pencil"></i> Edit</button><button class="btn btn-sm btn-outline-danger" onclick="handleDeleteUser(${row.user_id}, '${row.username}')"><i class="bi bi-trash"></i> Delete</button>`;
+                        return `<button class="btn btn-sm btn-outline-primary me-2" onclick="openUserForm(${row.user_id})"><i class="bi bi-pencil"></i> ${__('edit')}</button><button class="btn btn-sm btn-outline-danger" onclick="handleDeleteUser(${row.user_id}, '${row.username}')"><i class="bi bi-trash"></i> ${__('delete')}</button>`;
                     }
                 }
             ],
+            language: {
+                search: `<span>${__('search')}:</span> _INPUT_`,
+                searchPlaceholder: `${__('search')}...`,
+                lengthMenu: `${__('show')} _MENU_ ${__('entries')}`,
+                info: `${__('showing')} _START_ ${__('to')} _END_ ${__('of')} _TOTAL_ ${__('entries')}`,
+                infoEmpty: `${__('showing')} 0 ${__('to')} 0 ${__('of')} 0 ${__('entries')}`,
+                infoFiltered: `(${__('filtered_from')} _MAX_ ${__('total_entries')})`,
+                paginate: {
+                    first: __('first'),
+                    last: __('last'),
+                    next: __('next'),
+                    previous: __('previous')
+                },
+                emptyTable: __('no_data_available_in_table'),
+                zeroRecords: __('no_matching_records_found'),
+                processing: `<div class="spinner-border text-primary" role="status"><span class="visually-hidden">${__('loading')}...</span></div>`
+            },
             "initComplete": function(settings, json) {
                 const filterConfig = [];
                 usersTable.columns().every(function() {
@@ -110,11 +128,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const countSpan = document.getElementById('permissionsCount');
         const count = localAssignedRoles.length;
         if (count === 0) {
-            countSpan.textContent = 'No permissions assigned.';
+            countSpan.textContent = __('no_permissions_assigned');
         } else if (count === 1) {
-            countSpan.textContent = '1 permission assigned.';
+            countSpan.textContent = __('one_permission_assigned');
         } else {
-            countSpan.textContent = `${count} permissions assigned.`;
+            countSpan.textContent = `${count} ${__('permissions_assigned')}`;
         }
     };
     
@@ -137,11 +155,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const reader = new FileReader();
             reader.onload = (event) => {
                 Swal.fire({
-                    title: 'Crop Your Image',
+                    title: __('crop_your_image'),
                     html: `<div id="croppie-editor-container" style="width:100%; height:400px;"></div>`,
                     width: 'auto',
                     showCancelButton: true,
-                    confirmButtonText: 'Crop & Save',
+                    confirmButtonText: __('crop_and_save'),
+                    cancelButtonText: __('cancel'),
                     didOpen: () => {
                         const editor = Swal.getPopup().querySelector('#croppie-editor-container');
                         croppieInstance = new Croppie(editor, {
@@ -174,7 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
         isEditing = userId !== null;
         currentUserId = userId;
 
-        document.getElementById('userModalLabel').textContent = isEditing ? 'Edit User' : 'Add New User';
+        document.getElementById('userModalLabel').textContent = isEditing ? __('edit_user') : __('add_new_user');
         document.getElementById('profileImageSection').style.display = isEditing ? 'block' : 'none';
         document.getElementById('passwordSection').style.display = isEditing ? 'none' : 'block';
         document.getElementById('changePasswordBtnContainer').style.display = isEditing ? 'block' : 'none';
@@ -183,7 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (isEditing) {
             const result = await fetchData(`api/users_api.php?action=get_user_details&user_id=${userId}`);
-            if (!result?.success) return Swal.fire('Error', 'Could not fetch user details.', 'error');
+            if (!result?.success) return Swal.fire(__('error'), __('could_not_fetch_user_details'), 'error');
             const userData = result.user;
             document.getElementById('userId').value = userData.user_id;
             document.getElementById('fullName').value = userData.full_name;
@@ -193,7 +212,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('preferred_language').value = userData.preferred_language || 'en';
             localAssignedRoles = userData.warehouse_roles.map(role => ({
                 ...role,
-                warehouse_name: availableWarehouses.find(w => w.warehouse_id == role.warehouse_id)?.warehouse_name || 'Unknown'
+                warehouse_name: availableWarehouses.find(w => w.warehouse_id == role.warehouse_id)?.warehouse_name || __('unknown')
             }));
         } else {
             document.getElementById('profileImagePreview').src = defaultImagePath;
@@ -214,15 +233,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const openPermissionsModal = () => {
         const container = document.getElementById('permissionsMatrixContainer');
         if (!availableWarehouses.length || !availableRoles.length) {
-            container.innerHTML = '<p class="text-danger">Could not load warehouses or roles. Please try again.</p>';
+            container.innerHTML = `<p class="text-danger">${__('could_not_load_warehouses_or_roles')}</p>`;
             permissionsModal.show();
             return;
         }
     
         const rolesWithNone = ['None', ...availableRoles];
-        let tableHTML = '<table class="table table-bordered table-hover"><thead><tr><th>Warehouse</th>';
+        let tableHTML = `<table class="table table-bordered table-hover"><thead><tr><th>${__('warehouse')}</th>`;
         rolesWithNone.forEach(role => {
-            tableHTML += `<th class="text-center text-capitalize">${role}</th>`;
+            tableHTML += `<th class="text-center text-capitalize">${__(role.toLowerCase())}</th>`;
         });
         tableHTML += '</tr></thead><tbody>';
     
@@ -272,7 +291,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('managePermissionsBtn').addEventListener('click', openPermissionsModal);
 
     document.getElementById('applyPermissionsBtn').addEventListener('click', () => {
-        localAssignedRoles = []; // Clear existing roles
+        localAssignedRoles = []; 
         const matrix = document.getElementById('permissionsMatrixContainer');
         
         availableWarehouses.forEach(wh => {
@@ -312,36 +331,38 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!isEditing) {
             data.password = document.getElementById('password').value;
             data.confirm_password = document.getElementById('confirmPassword').value;
-            if (data.password !== data.confirm_password) return Swal.fire('Error', 'Passwords do not match.', 'error');
+            if (data.password !== data.confirm_password) return Swal.fire(__('error'), __('passwords_do_not_match'), 'error');
         }
         const action = isEditing ? 'update_user' : 'create_user';
         const result = await fetchData(`api/users_api.php?action=${action}`, 'POST', data);
         if (result?.success) {
             userModal.hide();
-            Swal.fire('Success!', result.message, 'success');
+            Swal.fire(__('success'), result.message, 'success');
             usersTable.ajax.reload();
         } else {
-            Swal.fire('Error!', result?.message || 'An unknown error occurred.', 'error');
+            Swal.fire(__('error'), result?.message || __('an_unknown_error_occurred'), 'error');
         }
     });
     
     // --- Global Functions ---
     window.handleDeleteUser = (userId, username) => {
         Swal.fire({
-            title: 'Confirm Deletion',
-            html: `Are you sure you want to delete <strong>${username}</strong>? This cannot be undone.`,
+            title: __('confirm_deletion'),
+            html: `${__('are_you_sure_delete_user')} <strong>${username}</strong>? ${__('action_cannot_be_undone')}`,
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#d33',
-            confirmButtonText: 'Yes, delete it!'
+            confirmButtonText: __('yes_delete_it'),
+            cancelButtonText: __('cancel'),
+            allowOutsideClick: false,
         }).then(async (result) => {
             if (result.isConfirmed) {
                 const apiResult = await fetchData('api/users_api.php?action=delete_user', 'POST', { user_id: userId });
                 if (apiResult?.success) {
-                    Swal.fire('Deleted!', 'The user has been deleted.', 'success');
+                    Swal.fire(__('deleted'), __('user_has_been_deleted'), 'success');
                     usersTable.ajax.reload();
                 } else {
-                    Swal.fire('Error!', apiResult?.message || 'Failed to delete user.', 'error');
+                    Swal.fire(__('error'), apiResult?.message || __('failed_to_delete_user'), 'error');
                 }
             }
         });
@@ -352,23 +373,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setTimeout(() => {
             Swal.fire({
-                title: `Change Password for ${fullName}`,
-                html: `<input type="password" id="swal-password" class="swal2-input" placeholder="New Password"><input type="password" id="swal-confirm-password" class="swal2-input" placeholder="Confirm New Password">`,
-                confirmButtonText: 'Change Password',
+                title: `${__('change_password_for')} ${fullName}`,
+                html: `<input type="password" id="swal-password" class="swal2-input" placeholder="${__('new_password')}"><input type="password" id="swal-confirm-password" class="swal2-input" placeholder="${__('confirm_new_password')}">`,
+                confirmButtonText: __('change_password'),
+                cancelButtonText: __('cancel'),
                 focusConfirm: false,
                 preConfirm: async () => {
                     const password = document.getElementById('swal-password').value;
                     const confirmPassword = document.getElementById('swal-confirm-password').value;
-                    if (!password || !confirmPassword) return Swal.showValidationMessage('Both fields are required');
-                    if (password !== confirmPassword) return Swal.showValidationMessage('Passwords do not match');
+                    if (!password || !confirmPassword) return Swal.showValidationMessage(__('both_fields_are_required'));
+                    if (password !== confirmPassword) return Swal.showValidationMessage(__('passwords_do_not_match'));
                     const result = await fetchData('api/users_api.php?action=change_password', 'POST', {
                         user_id: userId, password: password, confirm_password: confirmPassword
                     });
-                    if (!result?.success) return Swal.showValidationMessage(`Request failed: ${result?.message || 'Unknown error'}`);
+                    if (!result?.success) return Swal.showValidationMessage(`${__('request_failed')}: ${result?.message || __('unknown_error')}`);
                     return result;
                 }
             }).then((result) => {
-                if (result.isConfirmed) Swal.fire('Success!', 'Password has been changed successfully.', 'success');
+                if (result.isConfirmed) Swal.fire(__('success'), __('password_changed_successfully'), 'success');
             });
         }, 500);
     };

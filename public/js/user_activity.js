@@ -1,8 +1,8 @@
 /*
 * MODIFICATION SUMMARY:
-* 1. Removed the `getGeoData` function and the associated IP cache. The frontend no longer performs geolocation lookups.
-* 2. The `loadActivityData` function is now simpler. It directly uses the latitude, longitude, city, and country data provided by the API.
-* 3. This makes the frontend faster, more reliable, and less complex.
+* 1. Replaced all hardcoded English strings in UI elements, alerts, and modals with the `__()` translation function.
+* 2. This includes placeholders, DataTable language settings, SweetAlert2 titles and messages, and error notifications.
+* 3. The entire JavaScript functionality for this page is now fully localizable.
 */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -23,19 +23,36 @@ document.addEventListener('DOMContentLoaded', () => {
             processing: true,
             responsive: true,
             columns: [
-                { data: 'full_name', title: 'User' },
-                { data: 'username', title: 'Username' },
+                { data: 'full_name', title: __('user') },
+                { data: 'username', title: __('username') },
                 { 
                     data: 'login_time', 
-                    title: 'Login Time',
+                    title: __('login_time'),
                     render: data => new Date(data).toLocaleString()
                 },
-                { data: 'ip_address', title: 'IP Address' },
-                { data: 'city', title: 'City' },
-                { data: 'country', title: 'Country' },
-                { data: 'user_agent', title: 'User Agent' }
+                { data: 'ip_address', title: __('ip_address') },
+                { data: 'city', title: __('city') },
+                { data: 'country', title: __('country') },
+                { data: 'user_agent', title: __('user_agent') }
             ],
-            order: [[2, 'desc']]
+            order: [[2, 'desc']],
+            language: {
+                search: `<span>${__('search')}:</span> _INPUT_`,
+                searchPlaceholder: `${__('search')}...`,
+                lengthMenu: `${__('show')} _MENU_ ${__('entries')}`,
+                info: `${__('showing')} _START_ ${__('to')} _END_ ${__('of')} _TOTAL_ ${__('entries')}`,
+                infoEmpty: `${__('showing')} 0 ${__('to')} 0 ${__('of')} 0 ${__('entries')}`,
+                infoFiltered: `(${__('filtered_from')} _MAX_ ${__('total_entries')})`,
+                paginate: {
+                    first: __('first'),
+                    last: __('last'),
+                    next: __('next'),
+                    previous: __('previous')
+                },
+                emptyTable: __('no_data_available_in_table'),
+                zeroRecords: __('no_matching_records_found'),
+                processing: `<div class="spinner-border text-primary" role="status"><span class="visually-hidden">${__('loading')}...</span></div>`
+            }
         });
     };
 
@@ -47,7 +64,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const uniqueLocations = new Map();
 
             activities.forEach(activity => {
-                // Group users by location for map markers
                 if (activity.latitude && activity.longitude) {
                     const key = `${activity.latitude},${activity.longitude}`;
                     if (!uniqueLocations.has(key)) {
@@ -65,13 +81,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
-            // Add all data to the table
             activityTable.clear().rows.add(activities).draw();
-
-            // Add grouped markers to the map
             plotMarkersOnMap(uniqueLocations);
         } else {
-            showMessageBox('Failed to load user activity.', 'error');
+            showMessageBox(__('failed_to_load_user_activity'), 'error');
         }
     };
 
@@ -80,9 +93,9 @@ document.addEventListener('DOMContentLoaded', () => {
         locations.forEach(loc => {
             const marker = L.marker([loc.geo.lat, loc.geo.lng]).addTo(activityMap);
             const popupContent = `
-                <b>Location:</b> ${loc.geo.city || 'N/A'}, ${loc.geo.country || 'N/A'}<br>
+                <b>${__('location')}:</b> ${loc.geo.city || __('n_a')}, ${loc.geo.country || __('n_a')}<br>
                 <hr class="my-1">
-                <b>Recent Logins:</b><br>
+                <b>${__('recent_logins')}:</b><br>
                 <ul>${loc.users.map(u => `<li>${u}</li>`).join('')}</ul>
             `;
             marker.bindPopup(popupContent);

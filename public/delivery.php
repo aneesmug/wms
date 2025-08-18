@@ -14,7 +14,9 @@ require_once __DIR__ . '/helpers/auth_helper.php';
     <link rel="stylesheet" href="css/style.css">
     <?php if (($_SESSION['lang'] ?? 'en') === 'ar'): ?>
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
+        <link rel="stylesheet" href="css/style-rtl.css">
     <?php endif; ?>
+    <script> window.lang = <?php echo json_encode($translations, JSON_UNESCAPED_UNICODE); ?>; </script>
     <style>
         #assignedOrdersTable tbody tr, #deliveredOrdersTable tbody tr { cursor: pointer; }
         #scanner-video { max-width: 100%; border-radius: 0.5rem; }
@@ -84,7 +86,7 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                 <div class="col-lg-12 col-xl-12">
                     <div id="orderDetailsArea" class="d-none">
                         <div class="card">
-                            <div class="card-header header-primary d-flex justify-content-between align-items-center">
+                            <div class="card-header header-warning d-flex justify-content-between align-items-center">
                                 <h5 class="card-title mb-0"><?php echo __('order_details'); ?>: <span id="orderNumberDisplay" class="text-primary"></span></h5>
                                 <span id="orderStatusBadge" class="badge"></span>
                             </div>
@@ -94,16 +96,16 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                                     <div class="col-md-6">
                                         <h6><?php echo __('customer_information'); ?></h6>
                                         <p class="mb-1"><strong><?php echo __('name'); ?>:</strong> <span id="customerName"></span></p>
-                                        <p class="mb-1"><strong>Address:</strong> <span id="customerAddress"></span></p>
+                                        <p class="mb-1"><strong><?php echo __('address'); ?>:</strong> <span id="customerAddress"></span></p>
                                     </div>
                                     <div class="col-md-6">
-                                        <h6>Order Summary</h6>
-                                        <p class="mb-1"><strong>Total Items:</strong> <span id="totalItems"></span></p>
-                                        <p class="mb-1"><strong>Items Scanned:</strong> <span id="scannedItems"></span></p>
+                                        <h6><?php echo __('order_summary'); ?></h6>
+                                        <p class="mb-1"><strong><?php echo __('total_items'); ?>:</strong> <span id="totalItems"></span></p>
+                                        <p class="mb-1"><strong><?php echo __('items_scanned'); ?>:</strong> <span id="scannedItems"></span></p>
                                         <div id="deliveryProofSection" class="d-none mt-2">
-                                             <p class="mb-1"><strong>Delivered To:</strong> <span id="deliveredToName"></span></p>
-                                             <p class="mb-1"><strong>Receiver Phone:</strong> <span id="receiverPhone"></span></p>
-                                             <p class="mb-1"><a href="#" id="deliveryPhotoLink" target="_blank" class="btn btn-sm btn-outline-info"><i class="bi bi-camera"></i> View Proof</a></p>
+                                             <p class="mb-1"><strong><?php echo __('delivered_to'); ?>:</strong> <span id="deliveredToName"></span></p>
+                                             <p class="mb-1"><strong><?php echo __('receiver_phone'); ?>:</strong> <span id="receiverPhone"></span></p>
+                                             <p class="mb-1"><a href="#" id="deliveryPhotoLink" target="_blank" class="btn btn-sm btn-outline-info"><i class="bi bi-camera"></i> <?php echo __('view_proof'); ?></a></p>
                                         </div>
                                     </div>
                                 </div>
@@ -127,7 +129,7 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                                 <div class="col-md-6">
                                     <h6><?php echo __('scanner'); ?></h6>
                                     <video id="scanner-video"></video>
-                                    <input type="text" id="manualScanInput" class="form-control mt-2" placeholder="Or enter sticker code manually...">
+                                    <input type="text" id="manualScanInput" class="form-control mt-2" placeholder="<?php echo __('or_enter_sticker_code_manually'); ?>">
                                     <div id="scanFeedback" class="mt-2"></div>
                                 </div>
                             </div>
@@ -137,9 +139,9 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                                 <table class="table table-sm table-striped">
                                     <thead>
                                         <tr>
-                                            <th>Time</th>
+                                            <th><?php echo __('time'); ?></th>
                                             <th><?php echo __('product'); ?></th>
-                                            <th>Sticker</th>
+                                            <th><?php echo __('sticker'); ?></th>
                                         </tr>
                                     </thead>
                                     <tbody id="scanHistoryTableBody"></tbody>
@@ -164,7 +166,6 @@ require_once __DIR__ . '/helpers/auth_helper.php';
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script type="text/javascript" src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
     <script src="js/main.js"></script>
-    <script src="js/notifications.js"></script>
     <script src="js/delivery.js"></script>
 </body>
 </html>

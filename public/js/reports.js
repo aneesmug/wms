@@ -1,15 +1,10 @@
 /*
-MODIFICATION SUMMARY
-- This file contains the logic to create the advanced filter UI inside the `advancedFilterContainer`.
-- When a report is rendered, this script checks the selected report option for a `data-adv-filters-config` attribute.
-- If found, it makes the "Filter" dropdown visible and calls the `initializeAdvancedFilter` function (from main.js)
-  to build the filter UI based on the configuration you set in `reports.php`.
-- This approach is data-driven, meaning you can add or change filters in the future just by editing the HTML attribute.
+* MODIFICATION SUMMARY:
+* 1. Replaced all hardcoded English strings in UI elements, alerts, and modals with the `__()` translation function.
+* 2. This includes placeholders, DataTable language settings, SweetAlert2 titles and messages, and error notifications.
+* 3. The entire JavaScript functionality for this page is now fully localizable.
+* 4. Ensured dynamic messages with variables are constructed correctly using translated strings.
 */
-// reports.js
-// This script handles the functionality of the WMS reports page.
-// It uses jQuery, DataTables.js, jsPDF, SheetJS, and SweetAlert2.
-
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Element Selectors ---
     const reportTypeSelect = document.getElementById('reportType');
@@ -25,15 +20,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const pdfBtn = document.getElementById('exportPdfBtn');
     const xlsxBtn = document.getElementById('exportXlsxBtn');
 
-    let reportTable = null; // Will hold the DataTable instance
-    let datePicker = null; // Will hold the Litepicker instance
-    let currentReportData = []; // Holds the raw data of the current report
-    let currentReportHeaders = []; // Holds the formatted headers of the current report
+    let reportTable = null;
+    let datePicker = null;
+    let currentReportData = [];
+    let currentReportHeaders = [];
 
     // --- Initializations ---
     $('#reportType').select2({
         theme: 'bootstrap-5',
-        placeholder: 'Select a report...'
+        placeholder: __('select_a_report')
     });
 
     datePicker = new Litepicker({
@@ -46,7 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function initializeDataTable(data = [], columns = []) {
         if ($.fn.DataTable.isDataTable('#reportTable')) {
             $('#reportTable').DataTable().destroy();
-            $('#reportTable').empty(); // Clear table structure
+            $('#reportTable').empty();
         }
 
         reportTable = $('#reportTable').DataTable({
@@ -54,11 +49,25 @@ document.addEventListener('DOMContentLoaded', () => {
             columns: columns,
             responsive: true,
             language: {
-                emptyTable: "Select a report type and click 'Generate Report' to see results."
+                emptyTable: __('select_report_and_generate'),
+                search: `<span>${__('search')}:</span> _INPUT_`,
+                searchPlaceholder: `${__('search')}...`,
+                lengthMenu: `${__('show')} _MENU_ ${__('entries')}`,
+                info: `${__('showing')} _START_ ${__('to')} _END_ ${__('of')} _TOTAL_ ${__('entries')}`,
+                infoEmpty: `${__('showing')} 0 ${__('to')} 0 ${__('of')} 0 ${__('entries')}`,
+                infoFiltered: `(${__('filtered_from')} _MAX_ ${__('total_entries')})`,
+                paginate: {
+                    first: __('first'),
+                    last: __('last'),
+                    next: __('next'),
+                    previous: __('previous')
+                },
+                zeroRecords: __('no_matching_records_found'),
+                processing: `<div class="spinner-border text-primary" role="status"><span class="visually-hidden">${__('loading')}...</span></div>`
             },
             lengthMenu: [
                 [10, 25, 50, -1],
-                ['10 rows', '25 rows', '50 rows', 'Show All']
+                [`10 ${__('rows')}`, `25 ${__('rows')}`, `50 ${__('rows')}`, __('show_all')]
             ]
         });
     }
@@ -79,7 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function generateReport() {
         const reportType = $('#reportType').val();
         if (!reportType) {
-            Swal.fire('Warning', 'Please select a report type.', 'warning');
+            Swal.fire(__('warning'), __('please_select_report_type'), 'warning');
             return;
         }
 
@@ -93,13 +102,13 @@ document.addEventListener('DOMContentLoaded', () => {
             queryString += `&filter=${encodeURIComponent(reportFilterInput.value)}`;
         }
         
-        reportTitle.textContent = 'Generating...';
+        reportTitle.textContent = __('generating');
         exportButtonsContainer.style.display = 'none';
         filterDropdownContainer.style.display = 'none';
 
         if (reportTable) {
             reportTable.clear().draw();
-            reportTable.settings()[0].oLanguage.sEmptyTable = "Loading report data...";
+            reportTable.settings()[0].oLanguage.sEmptyTable = __('loading_report_data');
             reportTable.draw();
         }
 
@@ -107,13 +116,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(queryString);
             const result = await response.json();
             if (!response.ok || !result.success) {
-                throw new Error(result.message || 'Failed to fetch report data.');
+                throw new Error(result.message || __('failed_to_fetch_report_data'));
             }
             renderTable(reportType, result.data);
         } catch (error) {
             console.error('Report generation error:', error);
-            reportTitle.textContent = 'Error Generating Report';
-            Swal.fire('Error', error.message, 'error');
+            reportTitle.textContent = __('error_generating_report');
+            Swal.fire(__('error'), error.message, 'error');
             renderTable(null, []);
         }
     }
@@ -121,11 +130,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- UI Update Functions ---
     function renderTable(reportType, data) {
         const selectedOption = reportType ? reportTypeSelect.querySelector(`option[value="${reportType}"]`) : null;
-        reportTitle.textContent = selectedOption ? `Report: ${selectedOption.textContent}` : 'Report Results';
+        reportTitle.textContent = selectedOption ? `${__('report')}: ${selectedOption.textContent}` : __('report_results');
         
         currentReportData = data;
 
-        const emptyMessage = reportType ? "No data found for the selected criteria." : "Select a report type and click 'Generate Report' to see results.";
+        const emptyMessage = reportType ? __('no_data_found_criteria') : __('select_report_and_generate');
         
         if (data && data.length > 0) {
             const headers = Object.keys(data[0]);
@@ -138,7 +147,6 @@ document.addEventListener('DOMContentLoaded', () => {
             initializeDataTable(data, columns);
             exportButtonsContainer.style.display = 'inline-flex';
 
-            // Initialize Advanced Filter if configured
             const advFiltersConfigAttr = selectedOption ? selectedOption.dataset.advFiltersConfig : null;
             if (advFiltersConfigAttr && typeof initializeAdvancedFilter === 'function') {
                 try {
@@ -170,8 +178,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (selectedOption && selectedOption.dataset.filterRequired === 'true') {
             mainFilterContainer.style.display = 'block';
-            document.getElementById('reportFilterLabel').textContent = selectedOption.dataset.filterLabel || 'Filter';
-            reportFilterInput.placeholder = selectedOption.dataset.filterPlaceholder || 'Enter filter value...';
+            document.getElementById('reportFilterLabel').textContent = selectedOption.dataset.filterLabel || __('filter');
+            reportFilterInput.placeholder = selectedOption.dataset.filterPlaceholder || __('enter_filter_value');
             reportFilterInput.type = selectedOption.dataset.filterType || 'text';
         } else {
             mainFilterContainer.style.display = 'none';
@@ -186,7 +194,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- Helper for Unique Filenames ---
     function generateUniqueFilename(baseName) {
         const now = new Date();
         const year = now.getFullYear();
@@ -199,7 +206,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${baseName}_${year}${month}${day}_${hours}${minutes}${seconds}_${randomPart}`;
     }
 
-    // --- Custom Export Functions ---
     function printReport() {
         const table = $('#reportTable').DataTable();
         const tableHeader = $(table.table().header()).clone();
@@ -211,10 +217,11 @@ document.addEventListener('DOMContentLoaded', () => {
         printFrame.style.height = '0';
         printFrame.style.border = '0';
         document.body.appendChild(printFrame);
+        
         const frameDoc = printFrame.contentWindow.document;
         frameDoc.open();
         frameDoc.write(`
-            <html><head><title>Print Report</title>
+            <html><head><title>${__('print_report')}</title>
             <style>
                 @page { size: A4 landscape; margin: 20px; }
                 body { font-family: sans-serif; margin: 0; }
@@ -224,7 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 th, td { border: 1px solid #ccc; padding: 4px; text-align: left; word-wrap: break-word; }
                 thead th { background-color: #f2f2f2; font-weight: bold; }
             </style></head><body>
-            <h1>WMS Reports & Analytics</h1><h2>${reportTitle.textContent}</h2>${tableHtml}
+            <h1>${__('wms_reports_analytics')}</h1><h2>${reportTitle.textContent}</h2>${tableHtml}
             </body></html>`);
         frameDoc.close();
         setTimeout(() => {
@@ -261,7 +268,6 @@ document.addEventListener('DOMContentLoaded', () => {
         XLSX.writeFile(wb, `${uniqueFileName}.xlsx`);
     }
     
-    // --- Initial Setup ---
     updateFilterUI();
     initializeDataTable();
 });

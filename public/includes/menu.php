@@ -21,7 +21,7 @@ $permissions = [
         'locations.php', 'products.php', 'customers.php', 'suppliers.php', 
         'reports.php', 'inbound_report.php', 'batch_search.php', 'users.php',
         'warehouses.php', 'picking.php', 'returns.php', 'transfer_order.php',
-        'delivery_companies.php', 'inventory_transfer.php'
+        'delivery_companies.php', 'inventory_transfer.php', 'translations.php'
     ],
     'operator' => [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
@@ -85,9 +85,10 @@ $menu_items = [
     'tools' => [
         'label' => __('tools_reports'), 'icon' => 'bi-tools', 'submenu' => [
             ['label' => __('reports'), 'url' => 'reports.php', 'icon' => 'bi-file-earmark-bar-graph'],
-            ['label' => __('inbound_report'), 'url' => 'inbound_report.php', 'icon' => 'bi-printer'],
-            ['label' => __('batch_search'), 'url' => 'batch_search.php', 'icon' => 'bi-search'],
+            // ['label' => __('inbound_report'), 'url' => 'inbound_report.php', 'icon' => 'bi-printer'],
+            // ['label' => __('batch_search'), 'url' => 'batch_search.php', 'icon' => 'bi-search'],
             ['label' => __('users'), 'url' => 'users.php', 'icon' => 'bi-people'],
+            ['label' => __('translations'), 'url' => 'translations.php', 'icon' => 'bi-translate', 'admin_only' => true],
             ['label' => __('user_activity'), 'url' => 'user_activity.php', 'icon' => 'bi-person-bounding-box', 'admin_only' => true]
         ]
     ]

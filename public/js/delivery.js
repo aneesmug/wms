@@ -40,11 +40,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(endpoint, options);
             const data = await response.json();
             if (!response.ok) {
-                throw new Error(data.message || 'API request failed');
+                throw new Error(data.message || __('api_request_failed'));
             }
             return data;
         } catch (error) {
-            Swal.fire('Error', error.message, 'error');
+            Swal.fire(__('error'), error.message, 'error');
             console.error('API Error:', error);
             return null;
         }
@@ -58,13 +58,31 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function initializeTables() {
+        const dtLanguage = {
+            search: `<span>${__('search')}:</span> _INPUT_`,
+            searchPlaceholder: `${__('search')}...`,
+            lengthMenu: `${__('show')} _MENU_ ${__('entries')}`,
+            info: `${__('showing')} _START_ ${__('to')} _END_ ${__('of')} _TOTAL_ ${__('entries')}`,
+            infoEmpty: `${__('showing')} 0 ${__('to')} 0 ${__('of')} 0 ${__('entries')}`,
+            infoFiltered: `(${__('filtered_from')} _MAX_ ${__('total_entries')})`,
+            paginate: {
+                first: __('first'),
+                last: __('last'),
+                next: __('next'),
+                previous: __('previous')
+            },
+            emptyTable: __('no_data_available_in_table'),
+            zeroRecords: __('no_matching_records_found')
+        };
+
         activeTable = $('#assignedOrdersTable').DataTable({
             responsive: true,
             order: [],
             columnDefs: [
                 { targets: '_all', className: 'align-middle' },
-                { targets: [3], visible: false } // Hide the order_id column
-            ]
+                { targets: [3], visible: false } 
+            ],
+            language: dtLanguage
         });
 
         historyTable = $('#deliveredOrdersTable').DataTable({
@@ -72,8 +90,9 @@ document.addEventListener('DOMContentLoaded', () => {
             order: [[3, 'desc']],
             columnDefs: [
                 { targets: '_all', className: 'align-middle' },
-                { targets: [4], visible: false } // Hide the order_id column
-            ]
+                { targets: [4], visible: false }
+            ],
+            language: dtLanguage
         });
     }
 
@@ -89,7 +108,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (result && result.success) {
             activeOrders = result.data;
             const tableData = activeOrders.map(order => {
-                const statusBadge = `<span class="badge bg-primary">${order.status}</span>`;
+                const statusKey = order.status.toLowerCase().replace(/\s+/g, '_');
+                const statusBadge = `<span class="badge bg-primary">${__(statusKey, order.status)}</span>`;
                 return [
                     order.order_number,
                     order.customer_name,
@@ -108,14 +128,15 @@ document.addEventListener('DOMContentLoaded', () => {
             deliveredOrders = result.data;
             const tableData = deliveredOrders.map(order => {
                 const isFailed = ['Delivery Failed', 'Cancelled', 'Rejected'].includes(order.status);
-                const statusBadge = `<span class="badge ${isFailed ? 'bg-danger' : 'bg-success'}">${order.status}</span>`;
+                const statusKey = order.status.toLowerCase().replace(/\s+/g, '_');
+                const statusBadge = `<span class="badge ${isFailed ? 'bg-danger' : 'bg-success'}">${__(statusKey, order.status)}</span>`;
                 const orderDate = order.actual_delivery_date || order.updated_at;
                 return [
                     order.order_number,
                     order.customer_name,
                     statusBadge,
                     new Date(orderDate).toLocaleString(),
-                    order.order_id // Hidden data for row selection
+                    order.order_id
                 ];
             });
 
@@ -184,9 +205,9 @@ document.addEventListener('DOMContentLoaded', () => {
             currentOrderIdInput.value = selectedOrder.order_id;
             orderNumberDisplay.textContent = selectedOrder.order_number;
             customerName.textContent = selectedOrder.customer_name;
-            customerAddress.textContent = selectedOrder.full_address || 'N/A';
-            totalItems.textContent = selectedOrder.total_items != null ? selectedOrder.total_items : 'N/A';
-            scannedItems.textContent = selectedOrder.scanned_items_count != null ? selectedOrder.scanned_items_count : 'N/A';
+            customerAddress.textContent = selectedOrder.full_address || __('n_a');
+            totalItems.textContent = selectedOrder.total_items != null ? selectedOrder.total_items : __('n_a');
+            scannedItems.textContent = selectedOrder.scanned_items_count != null ? selectedOrder.scanned_items_count : __('n_a');
             updateUIForOrderStatus();
             noOrderSelected.classList.add('d-none');
             orderDetailsArea.classList.remove('d-none');
@@ -201,81 +222,84 @@ document.addEventListener('DOMContentLoaded', () => {
         actionButtons.innerHTML = '';
         if(isAssigned) {
             actionButtons.innerHTML = `
-                <button id="scanPickupBtn" class="btn btn-primary"><i class="bi bi-upc-scan me-1"></i> Scan for Pickup</button>
-                <button id="rejectOrderBtn" class="btn btn-warning"><i class="bi bi-x-circle me-1"></i> Reject Order</button>
+                <button id="scanPickupBtn" class="btn btn-primary"><i class="bi bi-upc-scan me-1"></i> ${__('scan_for_pickup')}</button>
+                <button id="rejectOrderBtn" class="btn btn-warning"><i class="bi bi-x-circle me-1"></i> ${__('reject_order')}</button>
             `;
         } else if (isOutForDelivery) {
             actionButtons.innerHTML = `
-                <button id="confirmDeliveryBtn" class="btn btn-success"><i class="bi bi-check-circle me-1"></i> Confirm Delivery</button>
-                <button id="reportFailureBtn" class="btn btn-danger"><i class="bi bi-exclamation-triangle me-1"></i> Report Failed Attempt</button>
+                <button id="confirmDeliveryBtn" class="btn btn-success"><i class="bi bi-check-circle me-1"></i> ${__('confirm_delivery')}</button>
+                <button id="reportFailureBtn" class="btn btn-danger"><i class="bi bi-exclamation-triangle me-1"></i> ${__('report_failed_attempt')}</button>
             `;
         }
         
         if (deliveryProofSection) {
             deliveryProofSection.classList.toggle('d-none', !isComplete || selectedOrder.status !== 'Delivered');
             if (selectedOrder.status === 'Delivered') {
-                deliveredToName.textContent = selectedOrder.delivered_to_name || 'N/A';
-                receiverPhone.textContent = selectedOrder.receiver_phone || 'N/A';
+                deliveredToName.textContent = selectedOrder.delivered_to_name || __('n_a');
+                receiverPhone.textContent = selectedOrder.receiver_phone || __('n_a');
                 deliveryPhotoLink.href = selectedOrder.delivery_photo_path || '#';
             }
         }
 
-        orderStatusBadge.textContent = selectedOrder.status;
+        const statusKey = selectedOrder.status.toLowerCase().replace(/\s+/g, '_');
+        orderStatusBadge.textContent = __(statusKey, selectedOrder.status);
         const statusClasses = { 
-            'Assigned': 'bg-dark', 
-            'Out for Delivery': 'bg-primary',
-            'Delivered': 'bg-success',
-            'Delivery Failed': 'bg-danger',
-            'Cancelled': 'bg-danger',
-            'Rejected': 'bg-warning text-dark'
+            'assigned': 'bg-dark', 
+            'out_for_delivery': 'bg-primary',
+            'delivered': 'bg-success',
+            'delivery_failed': 'bg-danger',
+            'cancelled': 'bg-danger',
+            'rejected': 'bg-warning text-dark'
         };
-        orderStatusBadge.className = `badge ${statusClasses[selectedOrder.status] || 'bg-secondary'}`;
+        orderStatusBadge.className = `badge ${statusClasses[statusKey] || 'bg-secondary'}`;
     }
 
     // --- Actions ---
     function handleRejectOrder() {
         const reasons = {
-            'Vehicle full': 'Not enough space in vehicle',
-            'Schedule conflict': 'Schedule conflict',
-            'Incorrect order details': 'Incorrect order details',
-            'Other': 'Other (specify in notes)'
+            'Vehicle full': __('vehicle_full'),
+            'Schedule conflict': __('schedule_conflict'),
+            'Incorrect order details': __('incorrect_order_details'),
+            'Other': __('other_specify_in_notes')
         };
     
         Swal.fire({
-            title: 'Reject Order Assignment',
+            title: __('reject_order_assignment'),
             html: `
                 <div class="text-start">
                     <div class="mb-3">
-                        <label for="swal-rejection-reason" class="form-label">Reason for Rejection</label>
+                        <label for="swal-rejection-reason" class="form-label">${__('reason_for_rejection')}</label>
                         <select id="swal-rejection-reason" class="form-select">
-                            <option value="">-- Select a Reason --</option>
+                            <option value="">-- ${__('select_a_reason')} --</option>
                             ${Object.keys(reasons).map(key => `<option value="${key}">${reasons[key]}</option>`).join('')}
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label for="swal-rejection-notes" class="form-label">Additional Notes</label>
-                        <textarea id="swal-rejection-notes" class="form-control" placeholder="Provide more details..."></textarea>
+                        <label for="swal-rejection-notes" class="form-label">${__('additional_notes')}</label>
+                        <textarea id="swal-rejection-notes" class="form-control" placeholder="${__('provide_more_details')}"></textarea>
                     </div>
                 </div>`,
             showCancelButton: true,
-            confirmButtonText: 'Submit Rejection',
+            cancelButtonText: __('cancel'),
+            confirmButtonText: __('submit_rejection'),
             confirmButtonColor: '#dc3545',
+            allowOutsideClick: false,
             preConfirm: () => {
                 const reason = document.getElementById('swal-rejection-reason').value;
                 const notes = document.getElementById('swal-rejection-notes').value.trim();
     
                 if (!reason) {
-                    Swal.showValidationMessage('You must select a reason for rejection!');
+                    Swal.showValidationMessage(__('must_select_reason_for_rejection'));
                     return false;
                 }
                 if (reason === 'Other' && !notes) {
-                    Swal.showValidationMessage('Please provide details in the notes when selecting "Other".');
+                    Swal.showValidationMessage(__('please_provide_details_for_other'));
                     return false;
                 }
                 
                 let fullReason = reason;
                 if (notes) {
-                    fullReason += `. Notes: ${notes}`;
+                    fullReason += `. ${__('notes')}: ${notes}`;
                 }
                 return fullReason;
             }
@@ -290,7 +314,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     })
                 });
                 if (apiResult && apiResult.success) {
-                    Swal.fire('Rejected', 'The order has been returned to the assignment pool.', 'success');
+                    Swal.fire(__('rejected'), __('order_returned_to_pool'), 'success');
                     loadAllOrders();
                     orderDetailsArea.classList.add('d-none');
                     noOrderSelected.classList.remove('d-none');
@@ -301,31 +325,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function handleReportFailure() {
         const reasons = {
-            'Customer not available': 'Customer not available',
-            'Incorrect address': 'Incorrect address',
-            'Customer refused delivery': 'Customer refused delivery',
-            'Could not access location': 'Could not access location',
-            'Other': 'Other (specify in notes)'
+            'Customer not available': __('customer_not_available'),
+            'Incorrect address': __('incorrect_address'),
+            'Customer refused delivery': __('customer_refused_delivery'),
+            'Could not access location': __('could_not_access_location'),
+            'Other': __('other_specify_in_notes')
         };
     
         Swal.fire({
-            title: 'Report Failed Delivery Attempt',
+            title: __('report_failed_delivery_attempt'),
             html: `
                 <div class="text-start">
                     <div class="mb-3">
-                        <label for="swal-failure-reason" class="form-label">Reason for Failure</label>
+                        <label for="swal-failure-reason" class="form-label">${__('reason_for_failure')}</label>
                         <select id="swal-failure-reason" class="form-select">
-                            <option value="">-- Select a Reason --</option>
+                            <option value="">-- ${__('select_a_reason')} --</option>
                             ${Object.keys(reasons).map(key => `<option value="${key}">${reasons[key]}</option>`).join('')}
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label for="swal-failure-notes" class="form-label">Additional Notes</label>
-                        <textarea id="swal-failure-notes" class="form-control" placeholder="Provide more details..."></textarea>
+                        <label for="swal-failure-notes" class="form-label">${__('additional_notes')}</label>
+                        <textarea id="swal-failure-notes" class="form-control" placeholder="${__('provide_more_details')}"></textarea>
                     </div>
                 </div>`,
             showCancelButton: true,
-            confirmButtonText: 'Submit Report',
+            cancelButtonText: __('cancel'),
+            confirmButtonText: __('submit_report'),
             confirmButtonColor: '#d33',
             allowOutsideClick: false,
             preConfirm: () => {
@@ -333,17 +358,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 const notes = document.getElementById('swal-failure-notes').value.trim();
     
                 if (!reason) {
-                    Swal.showValidationMessage('You must select a reason for the failure!');
+                    Swal.showValidationMessage(__('must_select_reason_for_failure'));
                     return false;
                 }
                 if (reason === 'Other' && !notes) {
-                    Swal.showValidationMessage('Please provide details in the notes when selecting "Other".');
+                    Swal.showValidationMessage(__('please_provide_details_for_other'));
                     return false;
                 }
                 
                 let fullReason = reason;
                 if (notes) {
-                    fullReason += `. Notes: ${notes}`;
+                    fullReason += `. ${__('notes')}: ${notes}`;
                 }
                 return fullReason;
             }
@@ -358,7 +383,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     })
                 });
                 if (apiResult && apiResult.success) {
-                    Swal.fire('Reported', 'The failed delivery attempt has been logged.', 'success');
+                    Swal.fire(__('reported'), __('failed_delivery_logged'), 'success');
                     loadAllOrders();
                     orderDetailsArea.classList.add('d-none');
                     noOrderSelected.classList.remove('d-none');
@@ -369,35 +394,36 @@ document.addEventListener('DOMContentLoaded', () => {
     
     function handleConfirmDelivery() {
         Swal.fire({
-            title: 'Confirm Delivery',
+            title: __('confirm_delivery'),
             html: `
                 <form id="deliveryForm" class="text-start">
                     <div class="mb-3">
-                        <label for="swal-receiverName" class="form-label">Receiver's Name <span class="text-danger">*</span></label>
+                        <label for="swal-receiverName" class="form-label">${__('receiver_full_name')} <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="swal-receiverName" required>
                     </div>
                     <div class="mb-3">
-                        <label for="swal-receiverPhone" class="form-label">Receiver's Phone (Optional)</label>
-                        <input type="tel" class="form-control saudi-mobile-number" id="swal-receiverPhone" placeholder="Enter phone number">
+                        <label for="swal-receiverPhone" class="form-label">${__('receiver_phone_optional')}</label>
+                        <input type="tel" class="form-control saudi-mobile-number" id="swal-receiverPhone" placeholder="${__('enter_phone_number')}">
                     </div>
                     <div class="mb-3">
-                        <label for="swal-deliveryCode" class="form-label">Delivery Confirmation Code</label>
-                        <input type="text" class="form-control numeric-only" id="swal-deliveryCode" placeholder="Ask customer for code (if applicable)">
+                        <label for="swal-deliveryCode" class="form-label">${__('delivery_confirmation_code')}</label>
+                        <input type="text" class="form-control numeric-only" id="swal-deliveryCode" placeholder="${__('ask_customer_for_code')}">
                     </div>
                      <div class="mb-3">
-                        <label for="swal-deliveryPhoto" class="form-label">Proof of Delivery Photo <span class="text-danger">*</span></label>
+                        <label for="swal-deliveryPhoto" class="form-label">${__('pod_photo')} <span class="text-danger">*</span></label>
                         <input type="file" class="form-control" id="swal-deliveryPhoto" accept="image/*" required>
                     </div>
                 </form>`,
             showCancelButton: true,
-            confirmButtonText: 'Submit Confirmation',
+            cancelButtonText: __('cancel'),
+            confirmButtonText: __('submit_confirmation'),
             allowOutsideClick: false,
             preConfirm: async () => {
                 const receiverName = document.getElementById('swal-receiverName').value;
                 const deliveryPhoto = document.getElementById('swal-deliveryPhoto').files[0];
 
                 if (!receiverName || !deliveryPhoto) {
-                    Swal.showValidationMessage('Receiver Name and Photo are required.');
+                    Swal.showValidationMessage(__('receiver_name_and_photo_required'));
                     return false;
                 }
 
@@ -416,13 +442,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (result && result.success) {
                     return result;
                 } else {
-                    Swal.showValidationMessage(`Request failed: ${result ? result.message : 'Unknown error'}`);
+                    Swal.showValidationMessage(`${__('request_failed')}: ${result ? result.message : __('unknown_error')}`);
                     return false;
                 }
             }
         }).then((result) => {
             if (result.isConfirmed) {
-                Swal.fire('Success!', 'Delivery confirmed successfully.', 'success');
+                Swal.fire(__('success'), __('delivery_confirmed_successfully'), 'success');
                 loadAllOrders();
                 orderDetailsArea.classList.add('d-none');
                 noOrderSelected.classList.remove('d-none');
@@ -480,7 +506,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 `;
             });
         } else {
-            scanHistoryTableBody.innerHTML = '<tr><td colspan="3" class="text-center">No scans yet.</td></tr>';
+            scanHistoryTableBody.innerHTML = `<tr><td colspan="3" class="text-center">${__('no_scans_yet')}</td></tr>`;
         }
     }
 
@@ -495,12 +521,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                     });
                 } else {
-                    scanFeedback.innerHTML = '<div class="alert alert-warning">No camera found. Please use manual input.</div>';
+                    scanFeedback.innerHTML = `<div class="alert alert-warning">${__('no_camera_found')}</div>`;
                 }
             })
             .catch(err => {
                 console.error("Scanner Init Error:", err);
-                scanFeedback.innerHTML = '<div class="alert alert-danger">Could not initialize camera. Please check browser permissions.</div>';
+                scanFeedback.innerHTML = `<div class="alert alert-danger">${__('could_not_initialize_camera')}</div>`;
             });
     }
 
@@ -509,7 +535,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         manualScanInput.disabled = true;
         manualScanInput.value = '';
-        scanFeedback.innerHTML = `<div class="alert alert-info">Processing...</div>`;
+        scanFeedback.innerHTML = `<div class="alert alert-info">${__('processing')}...</div>`;
 
         const result = await fetchData('api/driver_api.php?action=scanOrderItem', {
             method: 'POST',
@@ -541,8 +567,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (new_order_status) {
                 toggleScanArea(false);
                 Swal.fire({
-                    title: 'Scan Complete!',
-                    text: 'All items scanned. The order is now Out for Delivery.',
+                    title: __('scan_complete'),
+                    text: __('all_items_scanned_out_for_delivery'),
                     icon: 'success',
                     timer: 2000,
                     showConfirmButton: false
@@ -551,7 +577,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
         } else {
-            scanFeedback.innerHTML = `<div class="alert alert-danger">${result ? result.message : 'An unknown error occurred.'}</div>`;
+            scanFeedback.innerHTML = `<div class="alert alert-danger">${result ? result.message : __('an_unknown_error_occurred')}</div>`;
         }
 
         setTimeout(() => {

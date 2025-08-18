@@ -1,4 +1,9 @@
-// public/js/locations.js
+/*
+* MODIFICATION SUMMARY:
+* 1. Replaced all hardcoded English strings in UI elements, alerts, and modals with the `__()` translation function.
+* 2. This includes placeholders, DataTable language settings, SweetAlert2 titles and messages, and error notifications.
+* 3. The entire JavaScript functionality for this page is now fully localizable.
+*/
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- Global Variables ---
@@ -30,10 +35,10 @@ document.addEventListener('DOMContentLoaded', () => {
     async function initializePage() {
         if (!currentWarehouseId) {
             Swal.fire({
-                title: 'No Warehouse Selected',
-                text: 'Please select a warehouse on the Dashboard.',
+                title: __('no_warehouse_selected'),
+                text: __('select_warehouse_on_dashboard'),
                 icon: 'warning',
-                confirmButtonText: 'Go to Dashboard',
+                confirmButtonText: __('go_to_dashboard'),
                 allowOutsideClick: false,
             }).then(() => { window.location.href = 'dashboard.php'; });
             if (addNewLocationBtn) addNewLocationBtn.style.display = 'none';
@@ -70,26 +75,45 @@ document.addEventListener('DOMContentLoaded', () => {
                 const row = document.createElement('tr');
                 let actionsHtml = '<div class="text-end">';
                 if (isManager) {
-                    actionsHtml += `<button data-id="${type.type_id}" class="btn btn-sm btn-outline-primary edit-type-btn" title="Edit"><i class="bi bi-pencil"></i></button>`;
-                    actionsHtml += `<button data-id="${type.type_id}" class="btn btn-sm btn-outline-danger delete-type-btn ms-2" title="Delete"><i class="bi bi-trash"></i></button>`;
+                    actionsHtml += `<button data-id="${type.type_id}" class="btn btn-sm btn-outline-primary edit-type-btn" title="${__('edit')}"><i class="bi bi-pencil"></i></button>`;
+                    actionsHtml += `<button data-id="${type.type_id}" class="btn btn-sm btn-outline-danger delete-type-btn ms-2" title="${__('delete')}"><i class="bi bi-trash"></i></button>`;
                 } else {
-                    actionsHtml += '<span class="text-muted">View Only</span>';
+                    actionsHtml += `<span class="text-muted">${__('view_only')}</span>`;
                 }
                 actionsHtml += '</div>';
 
                 row.innerHTML = `
                     <td>${type.type_name}</td>
-                    <td>${type.type_description || 'N/A'}</td>
+                    <td>${type.type_description || __('n_a')}</td>
                     <td>${actionsHtml}</td>`;
                 locationTypesTableBody.appendChild(row);
             });
         }
-        locationTypesDataTable = new DataTable('#locationTypesDataTable', { responsive: true, order: [[0, 'asc']] });
+        locationTypesDataTable = new DataTable('#locationTypesDataTable', { 
+            responsive: true, 
+            order: [[0, 'asc']],
+            language: {
+                search: `<span>${__('search')}:</span> _INPUT_`,
+                searchPlaceholder: `${__('search')}...`,
+                lengthMenu: `${__('show')} _MENU_ ${__('entries')}`,
+                info: `${__('showing')} _START_ ${__('to')} _END_ ${__('of')} _TOTAL_ ${__('entries')}`,
+                infoEmpty: `${__('showing')} 0 ${__('to')} 0 ${__('of')} 0 ${__('entries')}`,
+                infoFiltered: `(${__('filtered_from')} _MAX_ ${__('total_entries')})`,
+                paginate: {
+                    first: __('first'),
+                    last: __('last'),
+                    next: __('next'),
+                    previous: __('previous')
+                },
+                emptyTable: __('no_data_available_in_table'),
+                zeroRecords: __('no_matching_records_found')
+            }
+        });
     }
 
     async function populateTypeFilter() {
         if (!locationTypeFilter) return;
-        locationTypeFilter.innerHTML = '<option value="">All Types</option>';
+        locationTypeFilter.innerHTML = `<option value="">${__('all_types')}</option>`;
         locationTypes.forEach(type => {
             const option = document.createElement('option');
             option.value = type.type_name;
@@ -113,29 +137,48 @@ document.addEventListener('DOMContentLoaded', () => {
                 let actionsHtml = '<div class="text-end">';
                 if (isManager) {
                     const lockIcon = location.is_locked == 1 ? 'bi-unlock-fill' : 'bi-lock-fill';
-                    const lockTitle = location.is_locked == 1 ? 'Unlock' : 'Lock';
+                    const lockTitle = location.is_locked == 1 ? __('unlock') : __('lock');
                     const lockBtnClass = location.is_locked == 1 ? 'btn-outline-success' : 'btn-outline-warning';
                     actionsHtml += `<button data-id="${location.location_id}" data-locked="${location.is_locked}" class="btn btn-sm ${lockBtnClass} lock-btn" title="${lockTitle}"><i class="bi ${lockIcon}"></i></button>`;
                 }
-                if (canEdit) actionsHtml += `<button data-id="${location.location_id}" class="btn btn-sm btn-outline-primary edit-btn ms-2" title="Edit"><i class="bi bi-pencil"></i></button>`;
-                if (isManager) actionsHtml += `<button data-id="${location.location_id}" class="btn btn-sm btn-outline-danger delete-btn ms-2" title="Delete"><i class="bi bi-trash"></i></button>`;
-                if (!canEdit && !isManager) actionsHtml += '<span class="text-muted">View Only</span>';
+                if (canEdit) actionsHtml += `<button data-id="${location.location_id}" class="btn btn-sm btn-outline-primary edit-btn ms-2" title="${__('edit')}"><i class="bi bi-pencil"></i></button>`;
+                if (isManager) actionsHtml += `<button data-id="${location.location_id}" class="btn btn-sm btn-outline-danger delete-btn ms-2" title="${__('delete')}"><i class="bi bi-trash"></i></button>`;
+                if (!canEdit && !isManager) actionsHtml += `<span class="text-muted">${__('view_only')}</span>`;
                 actionsHtml += '</div>';
 
                 row.innerHTML = `
                     <td>${location.location_code}</td>
-                    <td>${location.location_type || 'N/A'}</td>
-                    <td>${location.max_capacity_units || 'N/A'}</td>
+                    <td>${location.location_type || __('n_a')}</td>
+                    <td>${location.max_capacity_units || __('n_a')}</td>
                     <td>${location.occupied_capacity || '0'}</td>
-                    <td>${location.available_capacity !== null ? location.available_capacity : 'N/A'}</td>
-                    <td><span class="badge ${location.is_full ? 'bg-danger' : 'bg-success'}">${location.is_full ? 'Yes' : 'No'}</span></td>
-                    <td><span class="badge ${location.is_active == 1 ? 'bg-success' : 'bg-secondary'}">${location.is_active == 1 ? 'Active' : 'Inactive'}</span></td>
-                    <td><span class="badge ${location.is_locked == 1 ? 'bg-danger' : 'bg-success'}">${location.is_locked == 1 ? 'Locked' : 'Unlocked'}</span></td>
+                    <td>${location.available_capacity !== null ? location.available_capacity : __('n_a')}</td>
+                    <td><span class="badge ${location.is_full ? 'bg-danger' : 'bg-success'}">${location.is_full ? __('yes') : __('no')}</span></td>
+                    <td><span class="badge ${location.is_active == 1 ? 'bg-success' : 'bg-secondary'}">${location.is_active == 1 ? __('active') : __('inactive')}</span></td>
+                    <td><span class="badge ${location.is_locked == 1 ? 'bg-danger' : 'bg-success'}">${location.is_locked == 1 ? __('locked') : __('unlocked')}</span></td>
                     <td>${actionsHtml}</td>`;
                 locationsTableBody.appendChild(row);
             });
         }
-        locationsDataTable = new DataTable('#locationsDataTable', { responsive: true, order: [[0, 'asc']] });
+        locationsDataTable = new DataTable('#locationsDataTable', { 
+            responsive: true, 
+            order: [[0, 'asc']],
+            language: {
+                search: `<span>${__('search')}:</span> _INPUT_`,
+                searchPlaceholder: `${__('search')}...`,
+                lengthMenu: `${__('show')} _MENU_ ${__('entries')}`,
+                info: `${__('showing')} _START_ ${__('to')} _END_ ${__('of')} _TOTAL_ ${__('entries')}`,
+                infoEmpty: `${__('showing')} 0 ${__('to')} 0 ${__('of')} 0 ${__('entries')}`,
+                infoFiltered: `(${__('filtered_from')} _MAX_ ${__('total_entries')})`,
+                paginate: {
+                    first: __('first'),
+                    last: __('last'),
+                    next: __('next'),
+                    previous: __('previous')
+                },
+                emptyTable: __('no_data_available_in_table'),
+                zeroRecords: __('no_matching_records_found')
+            }
+        });
     }
     
     function applyTypeFilter() {
@@ -169,15 +212,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleToggleLock(locationId, lockStatus) {
-        const action = lockStatus ? 'lock' : 'unlock';
+        const action = lockStatus ? __('lock') : __('unlock');
         Swal.fire({
-            title: `Confirm ${action}`,
-            text: `Are you sure you want to ${action} this location? This will prevent all inventory movements.`,
+            title: `${__('confirm')} ${action}`,
+            text: `${__('are_you_sure_you_want_to')} ${action.toLowerCase()} ${__('this_location')}? ${__('this_will_prevent_inventory_movements')}`,
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#3085d6',
             cancelButtonColor: '#d33',
-            confirmButtonText: `Yes, ${action} it!`,
+            confirmButtonText: `${__('yes')}, ${action.toLowerCase()} ${__('it')}!`,
+            cancelButtonText: __('cancel'),
             allowOutsideClick: false,
         }).then(async (result) => {
             if (result.isConfirmed) {
@@ -186,10 +230,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     is_locked: lockStatus
                 });
                 if (response.success) {
-                    Swal.fire('Success!', response.message, 'success');
+                    Swal.fire(__('success'), response.message, 'success');
                     await loadLocations();
                 } else {
-                    Swal.fire('Error!', response.message || 'Failed to update lock status.', 'error');
+                    Swal.fire(__('error'), response.message || __('failed_to_update_lock_status'), 'error');
                 }
             }
         });
@@ -200,25 +244,26 @@ document.addEventListener('DOMContentLoaded', () => {
         const typeData = isUpdating ? locationTypes.find(t => t.type_id == typeId) : null;
 
         Swal.fire({
-            title: isUpdating ? 'Edit Location Type' : 'Add New Location Type',
+            title: isUpdating ? __('edit_location_type') : __('add_new_location_type'),
             html: `
                 <form id="swalLocationTypeForm" class="text-start">
                     <div class="mb-3">
-                        <label for="swalTypeName" class="form-label">Type Name*</label>
+                        <label for="swalTypeName" class="form-label">${__('type_name')}*</label>
                         <input type="text" id="swalTypeName" class="form-control" value="${typeData ? typeData.type_name : ''}" required>
                     </div>
                     <div class="mb-3">
-                        <label for="swalTypeDescription" class="form-label">Description</label>
+                        <label for="swalTypeDescription" class="form-label">${__('description')}</label>
                         <textarea id="swalTypeDescription" class="form-control" rows="3">${typeData ? typeData.type_description : ''}</textarea>
                     </div>
                 </form>`,
             showCancelButton: true,
-            confirmButtonText: isUpdating ? 'Update' : 'Save',
+            confirmButtonText: isUpdating ? __('update') : __('save'),
+            cancelButtonText: __('cancel'),
             allowOutsideClick: false,
             preConfirm: () => {
                 const typeName = document.getElementById('swalTypeName').value;
                 if (!typeName) {
-                    Swal.showValidationMessage('Type Name is required');
+                    Swal.showValidationMessage(__('type_name_is_required'));
                     return false;
                 }
                 return {
@@ -234,10 +279,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const saveResult = await fetchData(url, method, result.value);
 
                 if (saveResult?.success) {
-                    await Swal.fire('Success!', saveResult.message, 'success');
+                    await Swal.fire(__('success'), saveResult.message, 'success');
                     await initializePage();
                 } else {
-                    Swal.fire('Error!', saveResult?.message || 'Failed to save location type.', 'error');
+                    Swal.fire(__('error'), saveResult?.message || __('failed_to_save_location_type'), 'error');
                 }
             }
         });
@@ -252,15 +297,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response?.success) {
                 locationData = response.data;
             } else {
-                return Swal.fire('Error', 'Could not fetch location details.', 'error');
+                return Swal.fire(__('error'), __('could_not_fetch_location_details'), 'error');
             }
         }
-
-        /*const typeOptions = locationTypes.map(type => 
-            `<option value="${type.type_id}" ${isUpdating && type.type_id == locationData.location_type_id ? 'selected' : ''}>
-                ${type.type_name.charAt(0).toUpperCase() + type.type_name.slice(1).replace(/_/g, ' ')}
-            </option>`
-        ).join('');*/
 
         const typeOptions = locationTypes.map(type => 
             `<option value="${type.type_id}" ${(isUpdating ? type.type_id == locationData.location_type_id : type.type_id == 2) ? 'selected' : ''}>
@@ -269,41 +308,42 @@ document.addEventListener('DOMContentLoaded', () => {
         ).join('');
 
         Swal.fire({
-            title: isUpdating ? 'Edit Location' : 'Add New Location',
+            title: isUpdating ? __('edit_location') : __('add_new_location'),
             html: `
                 <form id="swalLocationForm" class="text-start">
                     <div class="mb-3">
-                        <label for="swalLocationCode" class="form-label">Location Code*</label>
+                        <label for="swalLocationCode" class="form-label">${__('location_code')}*</label>
                         <input type="text" id="swalLocationCode" class="form-control" value="${locationData.location_code || ''}" required>
                     </div>
                     <div class="mb-3">
-                        <label for="swalLocationType" class="form-label">Location Type</label>
+                        <label for="swalLocationType" class="form-label">${__('location_type')}</label>
                         <select id="swalLocationType" class="form-select">${typeOptions}</select>
                     </div>
                     <div class="mb-3">
-                        <label for="swalMaxCapacityUnits" class="form-label">Max Capacity (Units)</label>
+                        <label for="swalMaxCapacityUnits" class="form-label">${__('max_capacity_units')}</label>
                         <input type="text" step="1" id="swalMaxCapacityUnits" min="0" class="form-control numeric-only" value="${locationData.max_capacity_units || '36'}">
                     </div>
                     <div class="mb-3">
-                        <label for="swalMaxCapacityWeight" class="form-label">Max Capacity (Weight, kg)</label>
+                        <label for="swalMaxCapacityWeight" class="form-label">${__('max_capacity_weight_kg')}</label>
                         <input type="text" step="0.01" id="swalMaxCapacityWeight" min="0" class="form-control numeric-only" value="${locationData.max_capacity_weight || ''}">
                     </div>
                     <div class="mb-3">
-                        <label for="swalMaxCapacityVolume" class="form-label">Max Capacity (Volume, m³)</label>
+                        <label for="swalMaxCapacityVolume" class="form-label">${__('max_capacity_volume_m3')}</label>
                         <input type="text" step="0.01" id="swalMaxCapacityVolume" min="0" class="form-control" value="${locationData.max_capacity_volume || ''}">
                     </div>
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="swalIsActive" ${isUpdating ? (locationData.is_active == 1 ? 'checked' : '') : 'checked'}>
-                        <label class="form-check-label" for="swalIsActive">Is Active</label>
+                        <label class="form-check-label" for="swalIsActive">${__('is_active')}</label>
                     </div>
                 </form>`,
             showCancelButton: true,
-            confirmButtonText: isUpdating ? 'Update' : 'Save',
+            confirmButtonText: isUpdating ? __('update') : __('save'),
+            cancelButtonText: __('cancel'),
             allowOutsideClick: false,
             preConfirm: () => {
                 const locationCode = document.getElementById('swalLocationCode').value;
                 if (!locationCode) {
-                    Swal.showValidationMessage('Location Code is required');
+                    Swal.showValidationMessage(__('location_code_is_required'));
                     return false;
                 }
                 return {
@@ -321,10 +361,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const url = isUpdating ? 'api/locations_api.php?action=update_location' : 'api/locations_api.php';
                 const saveResult = await fetchData(url, isUpdating ? 'PUT' : 'POST', result.value);
                 if (saveResult?.success) {
-                    await Swal.fire('Success!', saveResult.message, 'success');
+                    await Swal.fire(__('success'), saveResult.message, 'success');
                     await initializePage();
                 } else {
-                    Swal.fire('Error!', saveResult?.message || 'Failed to save location.', 'error');
+                    Swal.fire(__('error'), saveResult?.message || __('failed_to_save_location'), 'error');
                 }
             }
         });
@@ -332,21 +372,22 @@ document.addEventListener('DOMContentLoaded', () => {
     
     function handleDeleteTypeClick(typeId) {
         Swal.fire({
-            title: 'Are you sure?',
-            text: "Deleting this type will also affect locations using it. This action cannot be undone!",
+            title: __('are_you_sure'),
+            text: __('delete_location_type_warning'),
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#d33',
-            confirmButtonText: 'Yes, delete it!',
+            confirmButtonText: __('yes_delete_it'),
+            cancelButtonText: __('cancel'),
             allowOutsideClick: false,
         }).then(async (result) => {
             if (result.isConfirmed) {
                 const deleteResult = await fetchData(`api/locations_api.php?action=delete_type`, 'DELETE', {id: typeId});
                 if (deleteResult?.success) {
-                    await Swal.fire('Deleted!', 'The location type has been deleted.', 'success');
+                    await Swal.fire(__('deleted'), __('location_type_deleted_success'), 'success');
                     await initializePage();
                 } else {
-                    Swal.fire('Failed!', deleteResult?.message || 'Could not delete the location type.', 'error');
+                    Swal.fire(__('failed'), deleteResult?.message || __('could_not_delete_location_type'), 'error');
                 }
             }
         });
@@ -354,21 +395,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function handleDeleteClick(locationId) {
         Swal.fire({
-            title: 'Are you sure?',
-            text: "This action cannot be undone!",
+            title: __('are_you_sure'),
+            text: __('action_cannot_be_undone'),
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#d33',
-            confirmButtonText: 'Yes, delete it!',
+            confirmButtonText: __('yes_delete_it'),
+            cancelButtonText: __('cancel'),
             allowOutsideClick: false,
         }).then(async (result) => {
             if (result.isConfirmed) {
                 const deleteResult = await fetchData(`api/locations_api.php?action=delete_location`, 'DELETE', {id: locationId});
                 if (deleteResult?.success) {
-                    await Swal.fire('Deleted!', 'The location has been deleted.', 'success');
+                    await Swal.fire(__('deleted'), __('location_deleted_success'), 'success');
                     await initializePage();
                 } else {
-                    Swal.fire('Failed!', deleteResult?.message || 'Could not delete the location.', 'error');
+                    Swal.fire(__('failed'), deleteResult?.message || __('could_not_delete_location'), 'error');
                 }
             }
         });

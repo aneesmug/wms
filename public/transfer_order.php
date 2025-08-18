@@ -17,7 +17,9 @@ require_once __DIR__ . '/helpers/auth_helper.php';
     <link rel="icon" href="favicon.ico" type="image/x-icon">
     <?php if (($_SESSION['lang'] ?? 'en') === 'ar'): ?>
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
+        <link rel="stylesheet" href="css/style-rtl.css">
     <?php endif; ?>
+    <script> window.lang = <?php echo json_encode($translations, JSON_UNESCAPED_UNICODE); ?>; </script>
 </head>
 <body class="bg-light">
 
@@ -44,9 +46,9 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                                 <h5 class="card-title mb-0"><?php echo __('all_transfer_orders'); ?></h5>
                                 <div class="d-flex align-items-center gap-2">
                                     <div class="card-header-actions">
-                                        <button type="button" class="btn-card-header" data-action="refresh" title="Refresh"><i class="bi bi-arrow-counterclockwise"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="maximize" title="Maximize"><i class="bi bi-arrows-fullscreen"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="close" title="Close"><i class="bi bi-x-lg"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="refresh" title="<?php echo __('refresh'); ?>"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="maximize" title="<?php echo __('maximize'); ?>"><i class="bi bi-arrows-fullscreen"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="close" title="<?php echo __('close'); ?>"><i class="bi bi-x-lg"></i></button>
                                     </div>
                                 </div>
                             </div>
@@ -88,7 +90,6 @@ require_once __DIR__ . '/helpers/auth_helper.php';
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
-    <script src="js/notifications.js"></script>
     <script src="js/main.js"></script>
     <script src="js/transfer_order.js"></script>
 </body>

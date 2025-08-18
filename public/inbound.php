@@ -6,7 +6,7 @@ require_once __DIR__ . '/helpers/auth_helper.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo __('inbound_operations'); ?></title>
+    <title>WMS - <?php echo __('inbound_operations'); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
@@ -18,7 +18,9 @@ require_once __DIR__ . '/helpers/auth_helper.php';
     <link rel="stylesheet" href="css/style.css">
     <?php if (($_SESSION['lang'] ?? 'en') === 'ar'): ?>
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
+        <link rel="stylesheet" href="css/style-rtl.css">
     <?php endif; ?>
+    <script> window.lang = <?php echo json_encode($translations, JSON_UNESCAPED_UNICODE); ?>; </script>
 </head>
 <body class="bg-light">
 
@@ -49,13 +51,13 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                                     <div class="d-flex align-items-center">
                                         <label for="statusFilter" class="form-label me-2 mb-0 small text-nowrap text-white"><?php echo __('status'); ?>:</label>
                                         <select id="statusFilter" class="form-select form-select-sm" style="width: auto;">
-                                            <option value="">All</option>
-                                            <option value="Pending">Pending</option>
-                                            <option value="Received">Received</option>
-                                            <option value="Partially Received">Partially Received</option>
-                                            <option value="Partially Putaway">Partially Putaway</option>
-                                            <option value="Completed">Completed</option>
-                                            <option value="Cancelled">Cancelled</option>
+                                            <option value=""><?php echo __('all'); ?></option>
+                                            <option value="<?php echo __('pending'); ?>"><?php echo __('pending'); ?></option>
+                                            <option value="<?php echo __('received'); ?>"><?php echo __('received'); ?></option>
+                                            <option value="<?php echo __('partially_received'); ?>"><?php echo __('partially_received'); ?></option>
+                                            <option value="<?php echo __('partially_putaway'); ?>"><?php echo __('partially_putaway'); ?></option>
+                                            <option value="<?php echo __('completed'); ?>"><?php echo __('completed'); ?></option>
+                                            <option value="<?php echo __('cancelled'); ?>"><?php echo __('cancelled'); ?></option>
                                         </select>
                                     </div>
                                     <button id="showCreateReceiptBtn" class="btn btn-light btn-sm text-nowrap"><i class="bi bi-plus-circle me-1"></i> <?php echo __('create'); ?></button>
@@ -179,8 +181,6 @@ require_once __DIR__ . '/helpers/auth_helper.php';
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/vanillajs-datepicker@1.3.4/dist/js/datepicker-full.min.js"></script>
-    <script src="js/api.js"></script>
-    <script src="js/barcodeScanner.js"></script>
     <script src="js/main.js"></script>
     <script src="js/inbound.js" defer></script>
 </body>

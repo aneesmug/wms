@@ -161,7 +161,7 @@ $current_sticker = 0;
 <body>
     <?php foreach ($stickers as $sticker): $current_sticker++; ?>
     <div class="sticker">
-        <div class="return-header">RETURNED ITEM</div>
+        <!-- <div class="return-header">RETURNED ITEM</div> -->
 
         <div class="details-grid">
             <div><strong>Product:</strong></div>

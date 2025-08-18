@@ -1,12 +1,14 @@
-// js/inventory_transfer.js
-// --- MODIFICATION SUMMARY ---
-// 1. Updated the `loadLocations` function to filter the source locations. The "From Location" dropdown will now only display locations that have an occupied capacity greater than zero.
-// 2. The "To Location" dropdown will still show all valid destination locations (including empty ones).
-// 3. Added references for the new error message div and the submit button.
-// 4. Created a new comprehensive validation function `handleQuantityChange` that is called whenever the transfer quantity is modified.
-// 5. This function first checks if the entered quantity exceeds the available stock. If it does, it disables the "To Location" and "Submit" buttons and displays an error message.
-// 6. If the quantity is valid, it clears the error and proceeds to call `validateToLocationCapacity` to check destination space.
-// 7. The submit button is now enabled only when all conditions are met (valid quantity and a selected destination).
+/*
+* MODIFICATION SUMMARY:
+* 1. INTEGRATED TRANSLATION: Replaced all user-facing strings with the global `__` function to support multi-language capabilities. This includes modal titles, button texts, placeholders, and confirmation/error messages.
+* 2. Updated the `loadLocations` function to filter the source locations. The "From Location" dropdown will now only display locations that have an occupied capacity greater than zero.
+* 3. The "To Location" dropdown will still show all valid destination locations (including empty ones).
+* 4. Added references for the new error message div and the submit button.
+* 5. Created a new comprehensive validation function `handleQuantityChange` that is called whenever the transfer quantity is modified.
+* 6. This function first checks if the entered quantity exceeds the available stock. If it does, it disables the "To Location" and "Submit" buttons and displays an error message.
+* 7. If the quantity is valid, it clears the error and proceeds to call `validateToLocationCapacity` to check destination space.
+* 8. The submit button is now enabled only when all conditions are met (valid quantity and a selected destination).
+*/
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- Global Variables & DOM Elements ---
@@ -30,43 +32,40 @@ document.addEventListener('DOMContentLoaded', () => {
     fromLocationSelect.on('change', handleFromLocationChange);
     productSelect.on('change', handleProductChange);
     quantityInput.addEventListener('input', handleQuantityChange);
-    toLocationSelect.on('change', handleQuantityChange); // Also validate on destination change
+    toLocationSelect.on('change', handleQuantityChange);
     transferForm.addEventListener('submit', handleFormSubmit);
     clearFormBtn.addEventListener('click', resetForm);
 
     // --- Core Functions ---
 
-    /**
-     * Initializes the page, sets up Select2 dropdowns, and loads initial data.
-     */
     async function initializePage() {
         if (!currentWarehouseId) {
             return Swal.fire({
-                title: 'No Warehouse Selected',
-                text: 'Please select a warehouse on the Dashboard to continue.',
+                title: __('no_warehouse_selected'),
+                text: __('select_warehouse_on_dashboard'),
                 icon: 'warning',
-                confirmButtonText: 'Go to Dashboard',
+                confirmButtonText: __('go_to_dashboard'),
                 allowOutsideClick: false,
             }).then(() => { window.location.href = 'dashboard.php'; });
         }
 
         fromLocationSelect.select2({ 
             theme: 'bootstrap-5', 
-            placeholder: 'Select a source location',
+            placeholder: __('select_source_location'),
             templateResult: formatLocationOption,
             templateSelection: formatLocationOption,
             escapeMarkup: m => m
         });
         toLocationSelect.select2({ 
             theme: 'bootstrap-5', 
-            placeholder: 'Select a destination',
+            placeholder: __('select_a_destination'),
             templateResult: formatLocationOption,
             templateSelection: formatLocationOption,
             escapeMarkup: m => m
         });
         productSelect.select2({
             theme: 'bootstrap-5',
-            placeholder: 'Select a product to move',
+            placeholder: __('select_product_to_move'),
             templateResult: formatProductOption,
             templateSelection: formatProductSelection
         });
@@ -75,14 +74,10 @@ document.addEventListener('DOMContentLoaded', () => {
         resetForm();
     }
 
-    /**
-     * Loads all valid warehouse locations for transfers.
-     */
     async function loadLocations() {
         try {
             const response = await fetchData(`api/locations_api.php?warehouse_id=${currentWarehouseId}`);
             if (response.success && Array.isArray(response.data)) {
-                // allLocations stores all valid destinations
                 allLocations = response.data.filter(loc => 
                     loc.is_locked != 1 && 
                     loc.location_type !== 'block_area' &&
@@ -92,22 +87,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     available_capacity: loc.max_capacity_units === null ? null : loc.max_capacity_units - loc.occupied_capacity
                 }));
 
-                // fromLocations is a subset of allLocations, only containing locations with stock
                 const fromLocations = allLocations.filter(loc => loc.occupied_capacity > 0);
                 
                 updateLocationDropdown(fromLocationSelect, fromLocations);
             } else {
-                throw new Error(response.message || 'Failed to load locations.');
+                throw new Error(response.message || __('failed_to_load_locations'));
             }
         } catch (error) {
             console.error('Error loading locations:', error);
-            Swal.fire('Error', 'Could not load warehouse locations. Please try again.', 'error');
+            Swal.fire(__('error'), __('could_not_load_locations'), 'error');
         }
     }
 
-    /**
-     * Updates the options of an existing Select2 location dropdown.
-     */
     function updateLocationDropdown($selectElement, locations) {
         const currentValue = $selectElement.val();
         $selectElement.empty().append(new Option('', '', true, true));
@@ -125,9 +116,6 @@ document.addEventListener('DOMContentLoaded', () => {
         $selectElement.trigger('change.select2');
     }
 
-    /**
-     * Handles the user changing the 'From Location' dropdown.
-     */
     async function handleFromLocationChange() {
         const fromLocationId = fromLocationSelect.val();
         
@@ -143,9 +131,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /**
-     * Loads inventory items for a specific location and populates the product dropdown.
-     */
     async function loadProductsForLocation(locationId) {
         productSelect.prop('disabled', true).empty();
         try {
@@ -153,7 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.success && Array.isArray(response.data)) {
                 productSelect.append(new Option('', '', true, true));
                 if (response.data.length === 0) {
-                     Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'No stock at this location.', showConfirmButton: false, timer: 3000 });
+                     Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: __('no_stock_at_this_location'), showConfirmButton: false, timer: 3000 });
                 } else {
                     response.data.forEach(item => {
                         const optionText = `${item.article_no || item.sku} - ${item.product_name}`;
@@ -165,17 +150,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 productSelect.prop('disabled', false);
                 productSelect.val(null).trigger('change.select2');
             } else {
-                throw new Error(response.message || 'Failed to load products for this location.');
+                throw new Error(response.message || __('failed_to_load_products_for_location'));
             }
         } catch (error) {
             console.error('Error loading products:', error);
-            Swal.fire('Error', error.message, 'error');
+            Swal.fire(__('error'), error.message, 'error');
         }
     }
 
-    /**
-     * Handles the user changing the 'Product' dropdown.
-     */
     function handleProductChange() {
         const selectedOption = productSelect.find('option:selected');
         const item = $(selectedOption).data('itemData');
@@ -188,41 +170,31 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             resetAvailableAndTransferQty();
         }
-        handleQuantityChange(); // Validate after product change
+        handleQuantityChange();
     }
 
-    /**
-     * Central validation function for quantity changes.
-     */
     function handleQuantityChange() {
         const quantityToMove = parseInt(quantityInput.value, 10);
         const maxQuantity = parseInt(quantityInput.max, 10);
         let isStockValid = true;
 
-        // 1. Validate against available stock
         if (quantityToMove > maxQuantity) {
-            quantityErrorMessage.textContent = 'Quantity exceeds available stock at this location.';
+            quantityErrorMessage.textContent = __('quantity_exceeds_available_stock');
             toLocationSelect.prop('disabled', true);
             isStockValid = false;
         } else {
             quantityErrorMessage.textContent = '';
-            // Only re-enable 'To Location' if a 'From Location' is actually selected
             if (fromLocationSelect.val()) {
                 toLocationSelect.prop('disabled', false);
             }
         }
 
-        // 2. Validate destination capacity
         validateToLocationCapacity();
 
-        // 3. Set final state of submit button
         const isFormComplete = fromLocationSelect.val() && productSelect.val() && toLocationSelect.val() && quantityToMove > 0;
         submitTransferBtn.disabled = !isStockValid || !isFormComplete;
     }
 
-    /**
-     * Validates destination locations based on the quantity input.
-     */
     function validateToLocationCapacity() {
         const quantityToMove = parseInt(quantityInput.value, 10) || 0;
         let isSelectedDisabled = false;
@@ -249,10 +221,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-
-    /**
-     * Handles the form submission to perform the inventory transfer.
-     */
     async function handleFormSubmit(event) {
         event.preventDefault();
         const inventoryId = productSelect.val();
@@ -262,9 +230,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const selectedProductOption = productSelect.find('option:selected');
         const selectedToLocationOption = toLocationSelect.find('option:selected');
 
-        // Final check before submit, though button should be disabled
         if (!inventoryId || !toLocationId || !quantity || quantity <= 0 || quantity > maxQuantity) {
-            return Swal.fire('Invalid Input', 'Please correct the errors before submitting.', 'error');
+            return Swal.fire(__('invalid_input'), __('correct_errors_before_submit'), 'error');
         }
 
         const payload = {
@@ -275,26 +242,27 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         Swal.fire({
-            title: 'Confirm Transfer',
-            html: `Are you sure you want to transfer <strong>${quantity}</strong> unit(s) of <strong>${selectedProductOption.text()}</strong> to location <strong>${selectedToLocationOption.text()}</strong>?`,
+            title: __('confirm_transfer'),
+            html: `${__('are_you_sure_transfer')} <strong>${quantity}</strong> ${__('unit_s_of')} <strong>${selectedProductOption.text()}</strong> ${__('to_location')} <strong>${selectedToLocationOption.text()}</strong>?`,
             icon: 'question',
             showCancelButton: true,
-            confirmButtonText: 'Yes, transfer it!',
+            cancelButtonText: __('cancel'),
+            confirmButtonText: __('yes_transfer_it'),
             allowOutsideClick: false,
         }).then(async (result) => {
             if (result.isConfirmed) {
                 try {
                     const response = await fetchData('api/inventory_api.php', 'POST', payload);
                     if (response.success) {
-                        await Swal.fire('Success!', response.message, 'success');
+                        await Swal.fire(__('success'), response.message, 'success');
                         await loadLocations();
                         resetForm();
                     } else {
-                        throw new Error(response.message || 'An unknown error occurred.');
+                        throw new Error(response.message || __('an_unknown_error_occurred'));
                     }
                 } catch (error) {
                     console.error('Transfer failed:', error);
-                    Swal.fire('Transfer Failed', error.message, 'error');
+                    Swal.fire(__('transfer_failed'), error.message, 'error');
                 }
             }
         });
@@ -315,7 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function resetAvailableAndTransferQty() {
         availableQtyInput.value = '';
-        availableQtyInput.placeholder = 'Select a product';
+        availableQtyInput.placeholder = __('select_a_product');
         quantityInput.value = '';
         quantityInput.disabled = true;
         quantityErrorMessage.textContent = '';
@@ -333,11 +301,11 @@ document.addEventListener('DOMContentLoaded', () => {
         let badge = '';
 
         if (available === null) {
-            badge = `<span class="badge bg-secondary float-end">Space not set</span>`;
+            badge = `<span class="badge bg-secondary float-end">${__('space_not_set')}</span>`;
         } else if (quantityToMove > 0 && quantityToMove > available) {
-            badge = `<span class="badge bg-danger float-end">Space not available (Avail: ${available})</span>`;
+            badge = `<span class="badge bg-danger float-end">${__('space_not_available')} (${__('avail')}: ${available})</span>`;
         } else {
-            badge = `<span class="badge bg-success float-end">Available: ${available}</span>`;
+            badge = `<span class="badge bg-success float-end">${__('available')}: ${available}</span>`;
         }
         
         return `<div>${state.text}${badge}</div>`;
@@ -348,19 +316,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const item = $(state.element).data('itemData');
         if (!item) { return state.text; }
 
-        const batchInfo = item.batch_number ? `Batch: ${item.batch_number}` : '';
-        const dotInfo = item.dot_code ? `DOT: ${item.dot_code}` : '';
+        const batchInfo = item.batch_number ? `${__('batch')}: ${item.batch_number}` : '';
+        const dotInfo = item.dot_code ? `${__('dot')}: ${item.dot_code}` : '';
         const details = [batchInfo, dotInfo].filter(Boolean).join(', ');
 
         return $(`
             <div>
                 <div>${state.text}</div>
-                <small class="text-muted">Available: ${item.quantity} | ${details}</small>
+                <small class="text-muted">${__('available')}: ${item.quantity} | ${details}</small>
             </div>
         `);
     }
 
     function formatProductSelection(state) {
-        return state.text || 'Select a product to move';
+        return state.text || __('select_product_to_move');
     }
 });

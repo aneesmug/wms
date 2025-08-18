@@ -15,7 +15,9 @@ require_once __DIR__ . '/helpers/auth_helper.php';
     <link rel="stylesheet" href="css/style.css">
      <?php if (($_SESSION['lang'] ?? 'en') === 'ar'): ?>
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
+        <link rel="stylesheet" href="css/style-rtl.css">
     <?php endif; ?>
+    <script> window.lang = <?php echo json_encode($translations, JSON_UNESCAPED_UNICODE); ?>; </script>
     <style>
         .order-card {
             cursor: pointer;
@@ -50,8 +52,8 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                     </button>
                     <h1 class="h4 mb-0 text-dark"><?php echo __('order_picking_processing'); ?></h1>
                     <div id="managementActionsArea" class="d-none">
-                        <button id="printPickReportBtn" class="btn btn-sm btn-outline-secondary" disabled><i class="bi bi-file-earmark-text me-1"></i> <?php echo __('print_pick_report'); ?></button>
-                        <button id="printStickersBtn" class="btn btn-sm btn-outline-secondary" disabled><i class="bi bi-printer me-1"></i> Print Stickers</button>
+                        <button id="printPickReportBtn" class="btn btn-sm btn-outline-info" disabled><i class="bi bi-file-earmark-text me-1"></i> <?php echo __('print_pick_report'); ?></button>
+                        <button id="printStickersBtn" class="btn btn-sm btn-outline-danger" disabled><i class="bi bi-printer me-1"></i> <?= __('print_stickers') ?></button>
                     </div>
                 </div>
             </div>
@@ -70,12 +72,12 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                                 </div>
                                 <select id="pickingStatusFilter" class="form-select form-select-sm" style="width: auto;">
                                     <option value="all"><?php echo __('show_all'); ?></option>
-                                    <option value="Pending Pick">Pending Pick</option>
-                                    <option value="Partially Picked">Partially Picked</option>
-                                    <option value="Picked">Picked</option>
-                                    <option value="Staged">Staged</option>
-                                    <option value="Delivery Failed">Delivery Failed</option>
-                                    <option value="Assigned">Assigned</option>
+                                    <option value="Pending Pick"><?php echo __('pending_pick'); ?></option>
+                                    <option value="Partially Picked"><?php echo __('partially_picked'); ?></option>
+                                    <option value="Picked"><?php echo __('picked'); ?></option>
+                                    <option value="Staged"><?php echo __('staged'); ?></option>
+                                    <option value="Delivery Failed"><?php echo __('delivery_failed'); ?></option>
+                                    <option value="Assigned"><?php echo __('assigned'); ?></option>
                                 </select>
                                 <div class="card-header-actions">
                                     <button type="button" class="btn-card-header" data-action="refresh" title="Refresh"><i class="bi bi-arrow-counterclockwise"></i></button>
@@ -173,6 +175,7 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                                             <button id="stageOrderBtn" class="btn btn-warning d-none"><?php echo __('stage_for_pickup'); ?></button>
                                             <button id="assignDriverBtn" class="btn btn-primary d-none"><i class="bi bi-person-plus-fill me-1"></i> <?php echo __('assign_driver'); ?></button>
                                             <button id="changeDriverBtn" class="btn btn-info d-none"><i class="bi bi-person-vcard me-1"></i> <?php echo __('change_driver'); ?></button>
+                                            <button id="showThirdPartyLinksBtn" class="btn btn-secondary d-none"><i class="bi bi-link-45deg me-1"></i> <?php echo __('show_driver_links'); ?></button>
                                         </div>
                                     </div>
                                 </div>

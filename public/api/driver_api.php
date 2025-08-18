@@ -430,7 +430,7 @@ function handleScanOrderItem($conn, $driver_id) {
         
         $response_data = [
             'success' => true,
-            'message' => 'Item scan successful!',
+            'message' => __('item_scan_successful'),
             'data' => [
                 'product_id' => $product_id,
                 'new_scanned_quantity' => $total_scanned + 1

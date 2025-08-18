@@ -1,10 +1,10 @@
-// public/js/inventory.js
-// MODIFICATION SUMMARY:
-// 1. Added a "Reprint Stickers" button to each inventory row with a quantity greater than zero.
-// 2. Implemented the logic for the reprint button to open the print dialog for the selected item's stickers.
-// 3. Added a final validation check within the "Add Stock" modal to prevent submitting if the selected location's capacity is insufficient for the quantity being added.
-// 4. Ensured the inventory item's ID is passed correctly to enable the reprint functionality.
-// 5. Reordered the "Quantity to Add" and "To Location" fields in the "Add Stock" modal for a better user experience. Now, entering a quantity dynamically filters the location dropdown based on available capacity.
+/*
+* MODIFICATION SUMMARY:
+* 1. Replaced all hardcoded English strings in UI elements, alerts, and modals with the `__()` translation function.
+* 2. This includes placeholders, DataTable language settings, SweetAlert2 titles and messages, and error notifications.
+* 3. The entire JavaScript functionality for this page is now fully localizable.
+* 4. Ensured dynamic messages with variables are constructed correctly using translated strings.
+*/
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
@@ -46,25 +46,24 @@ document.addEventListener('DOMContentLoaded', () => {
     
     $('#searchLocationSelect').select2({
         theme: 'bootstrap-5',
-        placeholder: "Filter by Location",
+        placeholder: __('filter_by_location'),
         allowClear: true
     }).on('change', loadInventory);
 
     $('#searchTireTypeSelect').select2({
         theme: 'bootstrap-5',
-        placeholder: "Filter by Tire Type",
+        placeholder: __('filter_by_tire_type'),
         allowClear: true
     }).on('change', loadInventory);
 
 
     async function initializePage() {
-
         if (!currentWarehouseId) {
             Swal.fire({
-                title: 'No Warehouse Selected',
-                text: 'Please select a warehouse to continue.',
+                title: __('no_warehouse_selected'),
+                text: __('select_warehouse_continue'),
                 icon: 'error',
-                confirmButtonText: 'Select Warehouse',
+                confirmButtonText: __('select_warehouse'),
                 confirmButtonColor: '#dc3741',
                 allowOutsideClick: false
             }).then(() => {
@@ -74,17 +73,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const canManageInbound = ['operator', 'manager'].includes(currentWarehouseRole);
         if (!canManageInbound) {
-            // $('button').prop('disabled', true);
-            Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: 'View-only permissions.', showConfirmButton: false, timer: 3000, timerProgressBar: true });
+            Swal.fire({ toast: true, position: 'top-end', icon: 'info', title: __('view_only_permissions'), showConfirmButton: false, timer: 3000, timerProgressBar: true });
         }
 
         initializeDataTable();    
-            generateDotCodeOptions();
-            await loadProductsForDropdown();
-            await loadLocationsForFilterDropdown(currentWarehouseId);
-            await loadTireTypesForFilter();
-            await loadInventory();
-        }
+        generateDotCodeOptions();
+        await loadProductsForDropdown();
+        await loadLocationsForFilterDropdown(currentWarehouseId);
+        await loadTireTypesForFilter();
+        await loadInventory();
+    }
     
     function generateDotCodeOptions() {
         if (dotCodeOptions.length > 0) return;
@@ -104,12 +102,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const weekStr = String(w).padStart(2, '0');
                 const yearStr = String(y).padStart(2, '0');
                 const value = `${weekStr}${yearStr}`;
-                const text = `Week ${weekStr} / 20${yearStr}`;
+                const text = `${__('week')} ${weekStr} / 20${yearStr}`;
                 dotCodeOptions.push({ id: value, text: text });
             }
         }
     }
-
 
     function initializeDataTable() {
         if ($.fn.DataTable.isDataTable('#inventoryTable')) {
@@ -130,7 +127,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 { data: 'location_type', visible: false },
                 { data: 'is_active', visible: false }
             ],
-            processing: true, serverSide: false
+            processing: true, serverSide: false,
+            language: {
+                search: `<span>${__('search')}:</span> _INPUT_`,
+                searchPlaceholder: `${__('search')}...`,
+                lengthMenu: `${__('show')} _MENU_ ${__('entries')}`,
+                info: `${__('showing')} _START_ ${__('to')} _END_ ${__('of')} _TOTAL_ ${__('entries')}`,
+                infoEmpty: `${__('showing')} 0 ${__('to')} 0 ${__('of')} 0 ${__('entries')}`,
+                infoFiltered: `(${__('filtered_from')} _MAX_ ${__('total_entries')})`,
+                paginate: {
+                    first: __('first'),
+                    last: __('last'),
+                    next: __('next'),
+                    previous: __('previous')
+                },
+                emptyTable: __('no_data_available_in_table'),
+                zeroRecords: __('no_matching_records_found'),
+                processing: `<div class="spinner-border text-primary" role="status"><span class="visually-hidden">${__('loading')}...</span></div>`
+            }
         });
     }
 
@@ -140,7 +154,7 @@ document.addEventListener('DOMContentLoaded', () => {
             allProducts = productsResponse.data || [];
         } catch (error) {
             console.error('Error loading products:', error);
-            Toast.fire({ icon: 'error', title: 'Error loading product data.' });
+            Toast.fire({ icon: 'error', title: __('error_loading_product_data') });
         }
     }
 
@@ -150,7 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetchData(`api/locations_api.php?warehouse_id=${warehouseId}`);
             if (response.success && Array.isArray(response.data)) {
                 const $select = $('#searchLocationSelect');
-                $select.empty().append(new Option('All Locations', '', false, false));
+                $select.empty().append(new Option(__('all_locations'), '', false, false));
                 response.data
                     .filter(loc => loc.is_active)
                     .sort((a, b) => a.location_code.localeCompare(b.location_code))
@@ -171,7 +185,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetchData('api/products_api.php?action=get_tire_types');
             if (response.success && Array.isArray(response.data)) {
                 const $select = $('#searchTireTypeSelect');
-                $select.empty().append(new Option('All Tire Types', '', false, false));
+                $select.empty().append(new Option(__('all_tire_types'), '', false, false));
                 response.data.forEach(type => {
                     const option = new Option(type.tire_type_name, type.tire_type_id, false, false);
                     $select.append(option);
@@ -198,7 +212,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (product) {
                 queryParams.push(`product_id=${product.product_id}`);
             } else {
-                Toast.fire({ icon: 'warning', title: `Product "${product_search_article_no}" not found.` });
+                Toast.fire({ icon: 'warning', title: `${__('product')} "${product_search_article_no}" ${__('product_not_found')}` });
                 inventoryDataTable.clear().draw();
                 $('.dataTables_processing', inventoryDataTable.table().container()).hide();
                 return;
@@ -218,12 +232,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (response.success && Array.isArray(response.data)) {
                 populateDataTable(response.data);
             } else {
-                 Toast.fire({ icon: 'error', title: response.message || 'Failed to load inventory.' });
+                 Toast.fire({ icon: 'error', title: response.message || __('failed_to_load_inventory') });
                  inventoryDataTable.clear().draw();
             }
         } catch (error) {
             console.error('Error loading inventory:', error);
-            Toast.fire({ icon: 'error', title: 'An error occurred while loading inventory.' });
+            Toast.fire({ icon: 'error', title: __('error_loading_inventory') });
             inventoryDataTable.clear().draw();
         } finally {
             $('.dataTables_processing', inventoryDataTable.table().container()).hide();
@@ -232,7 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     function populateDataTable(inventoryItems) {
         const rows = inventoryItems.map(item => {
-            const lastMovedDate = item.last_moved_at ? new Date(item.last_moved_at).toLocaleDateString() : 'N/A';
+            const lastMovedDate = item.last_moved_at ? new Date(item.last_moved_at).toLocaleDateString() : __('n_a');
             const canAdjust = currentWarehouseRole === 'manager';
             let expiryHtml = '';
             if (item.dot_code) {
@@ -248,26 +262,26 @@ document.addEventListener('DOMContentLoaded', () => {
                         oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
                         if (expiryDate < oneMonthFromNow) badgeClass = 'bg-warning text-dark';
                     }
-                    expiryHtml += ` <span class="badge ${badgeClass}">Expires: ${item.calculated_expiry_date}</span>`;
+                    expiryHtml += ` <span class="badge ${badgeClass}">${__('expires')}: ${item.calculated_expiry_date}</span>`;
                 }
             } else {
-                expiryHtml = 'N/A';
+                expiryHtml = __('n_a');
             }
-            const batchExpiry = `<div>${item.batch_number || 'N/A'}</div><div>${expiryHtml}</div>`;
+            const batchExpiry = `<div>${item.batch_number || __('n_a')}</div><div>${expiryHtml}</div>`;
 
-            let actionButtons = '<small class="text-muted">View Only</small>';
+            let actionButtons = `<small class="text-muted">${__('view_only')}</small>`;
             if (canAdjust) {
                 if (item.quantity > 0) {
-                    actionButtons = `<button class="btn btn-sm btn-info text-white adjust-btn" title="Adjust/Transfer"><i class="bi bi-gear"></i></button>
-                                     <button class="btn btn-sm btn-secondary reprint-btn ms-1" title="Reprint Stickers"><i class="bi bi-printer"></i></button>`;
+                    actionButtons = `<button class="btn btn-sm btn-info text-white adjust-btn" title="${__('adjust_transfer')}"><i class="bi bi-gear"></i></button>
+                                     <button class="btn btn-sm btn-secondary reprint-btn ms-1" title="${__('reprint_stickers')}"><i class="bi bi-printer"></i></button>`;
                 } else {
-                    actionButtons = `<button class="btn btn-sm btn-success text-white add-stock-btn" title="Add Stock"><i class="bi bi-plus-circle"></i></button>`;
+                    actionButtons = `<button class="btn btn-sm btn-success text-white add-stock-btn" title="${__('add_stock')}"><i class="bi bi-plus-circle"></i></button>`;
                 }
             }
 
-            let productNameHtml = item.product_name || '<span class="text-danger">Missing Product</span>';
+            let productNameHtml = item.product_name || `<span class="text-danger">${__('missing_product')}</span>`;
             if (item.location_type === 'block_area') {
-                productNameHtml += ' <span class="badge bg-danger ms-2">Blocked</span>';
+                productNameHtml += ` <span class="badge bg-danger ms-2">${__('blocked')}</span>`;
             }
 
             return {
@@ -279,10 +293,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 dot_code: item.dot_code || '',
                 location_type: item.location_type,
                 is_active: item.is_active,
-                sku: item.sku || '<span class="text-danger">Missing Product</span>',
+                sku: item.sku || `<span class="text-danger">${__('missing_product')}</span>`,
                 product_name: productNameHtml,
-                article_no: item.article_no || 'N/A',
-                location: item.location_code || (item.quantity > 0 ? '<span class="text-danger">Missing Location</span>' : 'No Stock'),
+                article_no: item.article_no || __('n_a'),
+                location: item.location_code || (item.quantity > 0 ? `<span class="text-danger">${__('missing_location')}</span>` : __('no_stock')),
                 quantity: item.quantity,
                 batch_expiry: batchExpiry,
                 last_moved: lastMovedDate,
@@ -310,7 +324,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     style: 'display:none;'
                 }).appendTo('body');
             } else {
-                Swal.fire('Error', 'Could not find the inventory ID for this item.', 'error');
+                Swal.fire(__('error'), __('could_not_find_inventory_id'), 'error');
             }
         });
     }
@@ -321,52 +335,52 @@ document.addEventListener('DOMContentLoaded', () => {
         } = item;
 
         if (!location_code) {
-            Swal.fire('Action Denied', 'Cannot adjust an item with a missing or invalid location.', 'error');
+            Swal.fire(__('action_denied'), __('cannot_adjust_missing_location'), 'error');
             return;
         }
         
         const isBlocked = location_type === 'block_area';
 
         const { value: formValues } = await Swal.fire({
-            title: 'Inventory Adjustment / Transfer',
+            title: __('inventory_adjustment_transfer'),
             html: `
                 <form id="adjustForm" class="text-start">
                     <input type="hidden" id="swalProductId" value="${product_id}">
                     <div class="mb-3">
-                        <label for="swalAdjustmentType" class="form-label">Action</label>
+                        <label for="swalAdjustmentType" class="form-label">${__('action')}</label>
                         <select id="swalAdjustmentType" class="form-select">
-                            <option value="adjust_quantity">Adjust Quantity</option>
-                            <option value="transfer">Transfer / Unblock</option>
-                            <option value="block_item">Block Item</option>
+                            <option value="adjust_quantity">${__('adjust_quantity')}</option>
+                            <option value="transfer">${__('transfer_unblock')}</option>
+                            <option value="block_item">${__('block_item')}</option>
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label for="swalAdjustProductarticle_no" class="form-label">Product Article No</label>
+                        <label for="swalAdjustProductarticle_no" class="form-label">${__('article_no')}</label>
                         <input type="text" id="swalAdjustProductarticle_no" class="form-control" value="${product_article_no}" readonly>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label for="swalAdjustCurrentLocation" class="form-label">From Location</label>
+                            <label for="swalAdjustCurrentLocation" class="form-label">${__('from_location')}</label>
                             <input type="text" id="swalAdjustCurrentLocation" class="form-control" value="${location_code}" readonly>
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Current Qty at Location</label>
+                            <label class="form-label">${__('current_qty_at_location')}</label>
                             <input type="text" class="form-control" value="${quantity}" readonly style="font-weight: bold; background-color: #e9ecef;">
                         </div>
                     </div>
                     <div class="mb-3">
-                        <label for="swalAdjustQuantity" class="form-label">Quantity to Move</label>
-                        <input type="number" id="swalAdjustQuantity" class="form-control numeric-only" placeholder="e.g., 5 for add/transfer, -2 for remove" required>
+                        <label for="swalAdjustQuantity" class="form-label">${__('quantity_to_move')}</label>
+                        <input type="number" id="swalAdjustQuantity" class="form-control numeric-only" placeholder="${__('qty_move_placeholder_adjust')}" required>
                     </div>
                     <div class="row">
-                        <div class="col-md-6 mb-3"><label for="swalAdjustBatchNumber" class="form-label">Batch Number</label><input type="text" id="swalAdjustBatchNumber" class="form-control" value="${batch_number}" readonly></div>
-                        <div class="col-md-6 mb-3"><label for="swalAdjustDotCode" class="form-label">DOT Code</label><input type="text" id="swalAdjustDotCode" value="${dot_code}" class="form-control" readonly></div>
+                        <div class="col-md-6 mb-3"><label for="swalAdjustBatchNumber" class="form-label">${__('batch_number')}</label><input type="text" id="swalAdjustBatchNumber" class="form-control" value="${batch_number}" readonly></div>
+                        <div class="col-md-6 mb-3"><label for="swalAdjustDotCode" class="form-label">${__('dot_code')}</label><input type="text" id="swalAdjustDotCode" value="${dot_code}" class="form-control" readonly></div>
                     </div>
                     <div id="swalNewLocationContainer" class="d-none">
-                        <div class="mb-3"><label for="swalAdjustNewLocation" class="form-label">To Location</label><select id="swalAdjustNewLocation" class="form-select" style="width:100%;"></select></div>
+                        <div class="mb-3"><label for="swalAdjustNewLocation" class="form-label">${__('to_location')}</label><select id="swalAdjustNewLocation" class="form-select" style="width:100%;"></select></div>
                     </div>
                 </form>`,
-            confirmButtonText: 'Submit', showCancelButton: true, focusConfirm: false, allowOutsideClick: false,
+            confirmButtonText: __('submit'), showCancelButton: true, cancelButtonText: __('cancel'), focusConfirm: false, allowOutsideClick: false,
             didOpen: async () => {
                 const popup = Swal.getPopup();
                 const adjustmentTypeSelect = popup.querySelector('#swalAdjustmentType');
@@ -383,18 +397,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     let badge = '';
                     if (available === null || isNaN(available)) {
-                        badge = `<span class="badge bg-secondary float-end">Availability not set</span>`;
+                        badge = `<span class="badge bg-secondary float-end">${__('availability_not_set')}</span>`;
                     } else if (quantityToMove > 0 && quantityToMove > available) {
-                        badge = `<span class="badge bg-danger float-end">Space not available (Avail: ${available})</span>`;
+                        badge = `<span class="badge bg-danger float-end">${__('space_not_available_avail', { available: available })}</span>`;
                     } else {
-                        badge = `<span class="badge bg-success float-end">Available: ${available}</span>`;
+                        badge = `<span class="badge bg-success float-end">${__('available_space', { available: available })}</span>`;
                     }
                     return $(`<div>${location.text} ${badge}</div>`);
                 };
 
-                // FIX: Initialize Select2 immediately
                 newLocationSelect.select2({
-                    placeholder: 'Select destination location...',
+                    placeholder: __('select_destination_location'),
                     dropdownParent: $('.swal2-popup'),
                     theme: 'bootstrap-5',
                     templateResult: formatLocation,
@@ -445,7 +458,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 adjustmentTypeSelect.addEventListener('change', async (e) => {
                     const action = e.target.value;
                     newLocationContainer.classList.toggle('d-none', action === 'adjust_quantity');
-                    quantityInput.placeholder = (action === 'adjust_quantity') ? 'e.g., 5 for add, -2 for remove' : 'e.g., 5';
+                    quantityInput.placeholder = (action === 'adjust_quantity') ? __('qty_move_placeholder_adjust') : __('qty_placeholder_positive');
                     
                     newLocationSelect.empty().trigger('change');
 
@@ -465,11 +478,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const quantityChange = popup.querySelector('#swalAdjustQuantity').value;
 
                 if (!quantityChange || (actionType !== 'adjust_quantity' && parseInt(quantityChange) <= 0)) {
-                    Swal.showValidationMessage('A positive quantity is required for transfers or blocking.');
+                    Swal.showValidationMessage(__('positive_quantity_required_transfer'));
                     return false;
                 }
                 if ((actionType === 'transfer' || actionType === 'block_item') && !$('#swalAdjustNewLocation').val()) {
-                    Swal.showValidationMessage('A destination location is required.');
+                    Swal.showValidationMessage(__('destination_location_required'));
                     return false;
                 }
 
@@ -506,19 +519,17 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const result = await fetchData('api/inventory_api.php', 'POST', data);
             if (result && result.success) {
-                // Check if it was a positive adjustment and if an inventory_id was returned for printing
                 if (result.inventory_id && data.quantity_change > 0) {
                     Swal.fire({
                         icon: 'success',
-                        title: 'Stock Added Successfully!',
+                        title: __('stock_added_successfully'),
                         text: result.message,
                         showCancelButton: true,
-                        confirmButtonText: '<i class="bi bi-printer"></i> Print Stickers',
-                        cancelButtonText: 'Close',
+                        confirmButtonText: `<i class="bi bi-printer"></i> ${__('print_stickers')}`,
+                        cancelButtonText: __('close'),
                         allowOutsideClick: false,
                     }).then((dialogResult) => {
                         if (dialogResult.isConfirmed) {
-                            // The print_label.php page needs to exist and work.
                             $('#print-frame').remove(); 
                             $('<iframe>', {
                                 id: 'print-frame',
@@ -526,19 +537,18 @@ document.addEventListener('DOMContentLoaded', () => {
                                 style: 'display:none;'
                             }).appendTo('body');
                         }
-                        loadInventory(); // Reload inventory after closing the dialog or printing
+                        loadInventory();
                     });
                 } else {
-                    // For other adjustments (negative, transfer) just show a standard success message
-                    Swal.fire('Success!', result.message, 'success');
+                    Swal.fire(__('success'), result.message, 'success');
                     await loadInventory();
                 }
             } else {
-                 Swal.fire('Error!', result ? result.message : 'An unknown error occurred.', 'error');
+                 Swal.fire(__('error'), result ? result.message : __('an_unknown_error_occurred'), 'error');
             }
         } catch (error) {
             console.error('Error during inventory adjustment:', error);
-            Swal.fire('API Error', error.message || 'Failed to perform adjustment.', 'error');
+            Swal.fire(__('api_error'), error.message || __('failed_to_perform_adjustment'), 'error');
         }
     }
 
@@ -547,35 +557,36 @@ document.addEventListener('DOMContentLoaded', () => {
         let modalLocations = [];
 
         const { value: formValues } = await Swal.fire({
-            title: 'Add Stock to Inventory',
+            title: __('add_stock_to_inventory'),
             html: `
                 <form id="addStockForm" class="text-start">
                     <input type="hidden" id="swalProductId" value="${product_id}">
                     <div class="mb-3">
-                        <label for="swalAddProductArticleNo" class="form-label">Product Article No</label>
+                        <label for="swalAddProductArticleNo" class="form-label">${__('article_no')}</label>
                         <input type="text" id="swalAddProductArticleNo" class="form-control" value="${product_article_no}" readonly>
                     </div>
                     <div class="mb-3">
-                        <label for="swalAddQuantity" class="form-label">Quantity to Add</label>
-                        <input type="number" id="swalAddQuantity" class="form-control numeric-only" placeholder="e.g., 10" required min="1">
+                        <label for="swalAddQuantity" class="form-label">${__('quantity_to_add')}</label>
+                        <input type="number" id="swalAddQuantity" class="form-control numeric-only" placeholder="${__('qty_placeholder_10')}" required min="1">
                     </div>
                     <div class="mb-3">
-                        <label for="swalAddLocation" class="form-label">To Location</label>
+                        <label for="swalAddLocation" class="form-label">${__('to_location')}</label>
                         <select id="swalAddLocation" class="form-select" style="width:100%;" required></select>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label for="swalAddBatchNumber" class="form-label">Batch Number</label>
-                            <input type="text" id="swalAddBatchNumber" class="form-control" placeholder="Optional (Auto-generates)">
+                            <label for="swalAddBatchNumber" class="form-label">${__('batch_number')}</label>
+                            <input type="text" id="swalAddBatchNumber" class="form-control" placeholder="${__('optional_auto_generates')}">
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label for="swalAddDotCode" class="form-label">DOT Code</label>
+                            <label for="swalAddDotCode" class="form-label">${__('dot_code')}</label>
                             <select id="swalAddDotCode" class="form-select" style="width:100%;" required></select>
                         </div>
                     </div>
                 </form>`,
-            confirmButtonText: 'Add Stock',
+            confirmButtonText: __('add_stock'),
             showCancelButton: true,
+            cancelButtonText: __('cancel'),
             focusConfirm: false,
             allowOutsideClick: false,
             didOpen: async () => {
@@ -585,7 +596,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const dotCodeSelect = $('#swalAddDotCode');
 
                 dotCodeSelect.select2({
-                    placeholder: 'Select a DOT code...',
+                    placeholder: __('select_dot_code'),
                     dropdownParent: $('.swal2-popup'),
                     theme: 'bootstrap-5',
                     data: dotCodeOptions
@@ -600,18 +611,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     let badge = '';
                     if (available === null || isNaN(available)) {
-                        badge = `<span class="badge bg-secondary float-end">Availability not set</span>`;
+                        badge = `<span class="badge bg-secondary float-end">${__('availability_not_set')}</span>`;
                     } else if (quantityToMove > 0 && quantityToMove > available) {
-                        badge = `<span class="badge bg-danger float-end">Space not available (Avail: ${available})</span>`;
+                        badge = `<span class="badge bg-danger float-end">${__('space_not_available_avail', { available: available })}</span>`;
                     } else {
-                        badge = `<span class="badge bg-success float-end">Available: ${available}</span>`;
+                        badge = `<span class="badge bg-success float-end">${__('available_space', { available: available })}</span>`;
                     }
                     return $(`<div>${location.text} ${badge}</div>`);
                 };
                 
-                // FIX: Initialize Select2 immediately
                 locationSelect.select2({
-                    placeholder: 'Select destination location...',
+                    placeholder: __('select_destination_location'),
                     dropdownParent: $('.swal2-popup'),
                     theme: 'bootstrap-5',
                     templateResult: formatLocation,
@@ -663,21 +673,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (selectedLocationData) {
                     const available = selectedLocationData.available_capacity;
                     if (available !== null && quantity > available) {
-                        Swal.showValidationMessage(`Not enough space. Location only has space for ${available} units.`);
+                        Swal.showValidationMessage(`${__('not_enough_space')}. ${__('location')} ${__('only')} ${__('has_space_for')} ${available} ${__('units')}.`);
                         return false;
                     }
                 }
 
                 if (!location) {
-                    Swal.showValidationMessage('A destination location is required.');
+                    Swal.showValidationMessage(__('destination_location_required'));
                     return false;
                 }
                 if (!quantity || quantity <= 0) {
-                    Swal.showValidationMessage('A positive quantity is required.');
+                    Swal.showValidationMessage(__('positive_quantity_required'));
                     return false;
                 }
                 if (!dot_code) {
-                    Swal.showValidationMessage('DOT Code is a required field.');
+                    Swal.showValidationMessage(__('dot_code_required'));
                     return false;
                 }
                 

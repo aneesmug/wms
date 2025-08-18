@@ -1,4 +1,10 @@
 <?php
+/*
+* MODIFICATION SUMMARY:
+* 1. Replaced all hardcoded English text for titles, headers, buttons, and table columns with the `__()` translation function.
+* 2. Added the required script tag in the <head> to load translations with `JSON_UNESCAPED_UNICODE`.
+* 3. The entire page is now fully localizable.
+*/
 require_once __DIR__ . '/helpers/auth_helper.php';
 ?>
 <!DOCTYPE html>
@@ -14,7 +20,9 @@ require_once __DIR__ . '/helpers/auth_helper.php';
     <link rel="stylesheet" href="css/style.css">
     <?php if (($_SESSION['lang'] ?? 'en') === 'ar'): ?>
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
+        <link rel="stylesheet" href="css/style-rtl.css">
     <?php endif; ?>
+    <script> window.lang = <?php echo json_encode($translations, JSON_UNESCAPED_UNICODE); ?>; </script>
 </head>
 <body class="bg-light">
 
@@ -42,14 +50,14 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                                 <div class="d-flex align-items-center gap-2">
                                     <button id="editCustomerBtn" class="btn btn-outline-light btn-sm"><i class="bi bi-pencil"></i> <?php echo __('edit'); ?></button>
                                     <div class="card-header-actions">
-                                        <button type="button" class="btn-card-header" data-action="refresh" title="Refresh"><i class="bi bi-arrow-counterclockwise"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="maximize" title="Maximize"><i class="bi bi-arrows-fullscreen"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="close" title="Close"><i class="bi bi-x-lg"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="refresh" title="<?php echo __('refresh'); ?>"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="maximize" title="<?php echo __('maximize'); ?>"><i class="bi bi-arrows-fullscreen"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="close" title="<?php echo __('close'); ?>"><i class="bi bi-x-lg"></i></button>
                                     </div>
                                 </div>
                             </div>
                             <div class="card-body" id="customerInfoCard">
-                                <div class="text-center p-5"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>
+                                <div class="text-center p-5"><div class="spinner-border" role="status"><span class="visually-hidden"><?php echo __('loading'); ?>...</span></div></div>
                             </div>
                         </div>
                     </div>
@@ -61,9 +69,9 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                                 <div class="d-flex align-items-center gap-2">
                                     <button id="createReturnBtn" class="btn btn-warning btn-sm"><i class="bi bi-box-arrow-left me-1"></i> <?php echo __('create_return'); ?></button>
                                     <div class="card-header-actions">
-                                        <button type="button" class="btn-card-header" data-action="refresh" title="Refresh"><i class="bi bi-arrow-counterclockwise"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="maximize" title="Maximize"><i class="bi bi-arrows-fullscreen"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="close" title="Close"><i class="bi bi-x-lg"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="refresh" title="<?php echo __('refresh'); ?>"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="maximize" title="<?php echo __('maximize'); ?>"><i class="bi bi-arrows-fullscreen"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="close" title="<?php echo __('close'); ?>"><i class="bi bi-x-lg"></i></button>
                                     </div>
                                 </div>
                             </div>
@@ -94,9 +102,9 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                                 <h5 class="card-title mb-0"><i class="bi bi-cash-coin me-2"></i><?php echo __('financial_transactions'); ?></h5>
                                 <div class="d-flex align-items-center gap-2">
                                     <div class="card-header-actions">
-                                        <button type="button" class="btn-card-header" data-action="refresh" title="Refresh"><i class="bi bi-arrow-counterclockwise"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="maximize" title="Maximize"><i class="bi bi-arrows-fullscreen"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="close" title="Close"><i class="bi bi-x-lg"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="refresh" title="<?php echo __('refresh'); ?>"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="maximize" title="<?php echo __('maximize'); ?>"><i class="bi bi-arrows-fullscreen"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="close" title="<?php echo __('close'); ?>"><i class="bi bi-x-lg"></i></button>
                                     </div>
                                 </div>
                             </div>
@@ -126,10 +134,10 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                                             <div class="mb-3">
                                                 <label for="transactionType" class="form-label"><?php echo __('type'); ?></label>
                                                 <select id="transactionType" class="form-select" required>
-                                                    <option value="payment">Payment</option>
-                                                    <option value="refund">Refund</option>
-                                                    <option value="credit">Credit</option>
-                                                    <option value="debit">Debit</option>
+                                                    <option value="payment"><?php echo __('payment'); ?></option>
+                                                    <option value="refund"><?php echo __('refund'); ?></option>
+                                                    <option value="credit"><?php echo __('credit'); ?></option>
+                                                    <option value="debit"><?php echo __('debit'); ?></option>
                                                 </select>
                                             </div>
                                             <div class="mb-3">
@@ -139,7 +147,7 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                                             <div class="mb-3">
                                                 <label for="transactionOrder" class="form-label"><?php echo __('related_order_optional'); ?></label>
                                                 <select id="transactionOrder" class="form-select">
-                                                    <option value="">None</option>
+                                                    <option value=""><?php echo __('none'); ?></option>
                                                 </select>
                                             </div>
                                             <div class="mb-3">

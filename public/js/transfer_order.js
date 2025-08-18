@@ -1,14 +1,8 @@
-/*
-* MODIFICATION SUMMARY
-* --------------------
-* 2025-08-14:
-* - Added 'Article No.' column to the "Receive Items" modal to provide more product detail during receiving.
-* - Added 'Article No.' column to the "Edit Order" modal for better reference when editing quantities.
-*/
+// public/js/transfer_order.js
+
 $(document).ready(function() {
     // --- Global State & Config ---
     const currentWarehouseId = localStorage.getItem('current_warehouse_id');
-    const currentWarehouseName = localStorage.getItem('current_warehouse_name');
     const currentWarehouseRole = localStorage.getItem('current_warehouse_role');
     let ordersTable;
 
@@ -16,10 +10,10 @@ $(document).ready(function() {
     function initializePage() {
         if (!currentWarehouseId) {
             Swal.fire({
-                title: 'No Warehouse Selected',
-                text: 'Please select a warehouse to continue.',
+                title: __('no_warehouse_selected'),
+                text: __('select_warehouse_continue'),
                 icon: 'error',
-                confirmButtonText: 'Select Warehouse',
+                confirmButtonText: __('select_warehouse'),
                 confirmButtonColor: '#dc3741',
                 allowOutsideClick: false
             }).then(() => {
@@ -75,11 +69,12 @@ $(document).ready(function() {
                 { 
                     data: 'status',
                     render: function(data) {
+                        const statusKey = data.toLowerCase().replace(/\s+/g, '_');
                         let badgeClass = 'bg-secondary';
                         if (data === 'Completed') badgeClass = 'bg-success';
                         if (data === 'Pending') badgeClass = 'bg-warning text-dark';
                         if (data === 'Cancelled') badgeClass = 'bg-danger';
-                        return `<span class="badge ${badgeClass}">${data}</span>`;
+                        return `<span class="badge ${badgeClass}">${__(statusKey, data)}</span>`;
                     }
                 },
                 {
@@ -87,13 +82,13 @@ $(document).ready(function() {
                     orderable: false,
                     className: 'text-end',
                     render: function(data, type, row) {
-                        let buttons = `<button class="btn btn-sm btn-outline-secondary print-btn" data-id="${row.transfer_id}" title="Print Note"><i class="bi bi-printer"></i></button>`;
+                        let buttons = `<button class="btn btn-sm btn-outline-secondary print-btn" data-id="${row.transfer_id}" title="${__('print_note')}"><i class="bi bi-printer"></i></button>`;
                         if (row.status === 'Pending') {
                             if (row.destination_warehouse_id == currentWarehouseId && ['operator', 'manager', 'picker'].includes(currentWarehouseRole)) {
-                                buttons += ` <button class="btn btn-sm btn-outline-success receive-btn" data-id="${row.transfer_id}" title="Receive Items"><i class="bi bi-box-arrow-in-down"></i></button>`;
+                                buttons += ` <button class="btn btn-sm btn-outline-success receive-btn" data-id="${row.transfer_id}" title="${__('receive_items')}"><i class="bi bi-box-arrow-in-down"></i></button>`;
                             }
                             if (row.source_warehouse_id == currentWarehouseId && ['operator', 'manager'].includes(currentWarehouseRole)) {
-                                buttons += ` <button class="btn btn-sm btn-outline-primary edit-btn" data-id="${row.transfer_id}" title="Edit Order"><i class="bi bi-pencil"></i></button>`;
+                                buttons += ` <button class="btn btn-sm btn-outline-primary edit-btn" data-id="${row.transfer_id}" title="${__('edit_order')}"><i class="bi bi-pencil"></i></button>`;
                             }
                         }
                         return buttons;
@@ -101,12 +96,25 @@ $(document).ready(function() {
                 }
             ],
             order: [[3, 'desc']],
-            dom: "<'row'<'col-sm-12 col-md-6'l><'col-sm-12 col-md-6'f>>" +
-                 "<'row'<'col-sm-12'tr>>" +
-                 "<'row'<'col-sm-12 col-md-5'i><'col-sm-12 col-md-7'p>>",
+            language: {
+                search: `<span>${__('search')}:</span> _INPUT_`,
+                searchPlaceholder: `${__('search')}...`,
+                lengthMenu: `${__('show')} _MENU_ ${__('entries')}`,
+                info: `${__('showing')} _START_ ${__('to')} _END_ ${__('of')} _TOTAL_ ${__('entries')}`,
+                infoEmpty: `${__('showing')} 0 ${__('to')} 0 ${__('of')} 0 ${__('entries')}`,
+                infoFiltered: `(${__('filtered_from')} _MAX_ ${__('total_entries')})`,
+                paginate: {
+                    first: __('first'),
+                    last: __('last'),
+                    next: __('next'),
+                    previous: __('previous')
+                },
+                emptyTable: __('no_data_available_in_table'),
+                zeroRecords: __('no_matching_records_found')
+            },
             initComplete: function() {
                 if (['operator', 'manager'].includes(currentWarehouseRole)) {
-                    const buttonHtml = '<button class="btn btn-sm btn-primary ms-2" id="newOrderBtn"><i class="bi bi-plus-circle me-1"></i> New Transfer Order</button>';
+                    const buttonHtml = `<button class="btn btn-sm btn-primary ms-2" id="newOrderBtn"><i class="bi bi-plus-circle me-1"></i> ${__('new_transfer_order')}</button>`;
                     $('#transferOrdersTable_filter').append(buttonHtml);
                 }
             }
@@ -117,22 +125,23 @@ $(document).ready(function() {
     function openCreateTransferModal() {
         let transferItems = []; 
         Swal.fire({
-            title: 'Create New Warehouse Transfer',
+            title: __('create_new_warehouse_transfer'),
             html: getModalHtml(),
             width: '90%',
             showConfirmButton: true,
-            confirmButtonText: 'Create Transfer Order',
+            confirmButtonText: __('create_transfer_order'),
             showCancelButton: true,
+            cancelButtonText: __('cancel'),
             allowOutsideClick: false,
             didOpen: () => initializeModalLogic(Swal.getPopup(), transferItems),
             preConfirm: () => {
                 const destWarehouseId = $('#swal_destination_warehouse_id').val();
                 if (!destWarehouseId) {
-                    Swal.showValidationMessage('A destination warehouse is required.');
+                    Swal.showValidationMessage(__('destination_warehouse_is_required'));
                     return false;
                 }
                 if (transferItems.length === 0) {
-                    Swal.showValidationMessage('You must add at least one item to the transfer.');
+                    Swal.showValidationMessage(__('must_add_at_least_one_item'));
                     return false;
                 }
                 return {
@@ -144,7 +153,7 @@ $(document).ready(function() {
             }
         }).then((result) => {
             if (result.isConfirmed) {
-                handleFormSubmit('api/transfer_orders_api.php?action=create_transfer', 'POST', result.value, 'Transfer order created and is now pending receipt.');
+                handleFormSubmit('api/transfer_orders_api.php?action=create_transfer', 'POST', result.value, __('transfer_order_created_and_pending'));
             }
         });
     }
@@ -152,37 +161,37 @@ $(document).ready(function() {
     async function openReceiveModal(transferId) {
         const response = await fetchData(`api/transfer_orders_api.php?action=get_transfer_details_for_receiving&id=${transferId}`);
         if (!response.success) {
-            return Swal.fire('Error', response.message || 'Could not fetch transfer details.', 'error');
+            return Swal.fire(__('error'), response.message || __('could_not_fetch_transfer_details'), 'error');
         }
 
         const { header, items } = response;
         const itemsHtml = items.map(item => `
             <tr>
                 <td>${item.product_name} (${item.sku})</td>
-                <td>${item.article_no || 'N/A'}</td>
+                <td>${item.article_no || __('n_a')}</td>
                 <td class="text-end fw-bold">${item.quantity}</td>
                 <td>
                     <input type="number" class="form-control form-control-sm received-qty-input" 
                            data-item-id="${item.item_id}" 
                            data-sent-qty="${item.quantity}"
-                           placeholder="Enter Qty"
+                           placeholder="${__('enter_qty')}"
                            min="0">
                 </td>
             </tr>
         `).join('');
 
         Swal.fire({
-            title: `Receiving Transfer: ${header.transfer_order_number}`,
+            title: `${__('receiving_transfer')}: ${header.transfer_order_number}`,
             html: `
-                <p class="text-start">Enter the quantity received for each item from <strong>${header.source_warehouse}</strong>. The received quantity must exactly match the sent quantity to proceed.</p>
+                <p class="text-start">${__('enter_received_quantity_from')} <strong>${header.source_warehouse}</strong>. ${__('quantity_must_match')}</p>
                 <div class="table-responsive">
                     <table class="table table-sm table-bordered">
                         <thead class="table-light">
                             <tr>
-                                <th>Product</th>
-                                <th>Article No.</th>
-                                <th class="text-end">Sent Qty</th>
-                                <th>Received Qty</th>
+                                <th>${__('product')}</th>
+                                <th>${__('article_no')}</th>
+                                <th class="text-end">${__('sent_qty')}</th>
+                                <th>${__('received_qty')}</th>
                             </tr>
                         </thead>
                         <tbody>${itemsHtml}</tbody>
@@ -191,7 +200,8 @@ $(document).ready(function() {
             width: '800px',
             icon: 'info',
             showCancelButton: true,
-            confirmButtonText: '<i class="bi bi-check-circle-fill me-1"></i>Confirm Receipt',
+            cancelButtonText: __('cancel'),
+            confirmButtonText: `<i class="bi bi-check-circle-fill me-1"></i>${__('confirm_receipt')}`,
             confirmButtonColor: '#198754',
             allowOutsideClick: false,
             preConfirm: () => {
@@ -205,12 +215,12 @@ $(document).ready(function() {
                     const originalItem = items.find(i => i.item_id == itemId);
 
                     if (isNaN(receivedQty)) {
-                        validationError = 'Please enter a received quantity for all items.';
+                        validationError = __('please_enter_received_quantity_for_all_items');
                         return false; 
                     }
 
                     if (receivedQty !== sentQty) {
-                        validationError = `Quantity mismatch for ${originalItem.product_name}. Sent: ${sentQty}, Received: ${receivedQty}. Please correct the quantity or contact the source warehouse.`;
+                        validationError = `${__('quantity_mismatch_for')} ${originalItem.product_name}. ${__('sent')}: ${sentQty}, ${__('received')}: ${receivedQty}. ${__('please_correct_or_contact_source')}`;
                         return false; 
                     }
                     
@@ -230,7 +240,7 @@ $(document).ready(function() {
             }
         }).then(result => {
             if (result.isConfirmed) {
-                handleFormSubmit('api/transfer_orders_api.php?action=receive_transfer', 'POST', result.value, 'Transfer received successfully and order completed.');
+                handleFormSubmit('api/transfer_orders_api.php?action=receive_transfer', 'POST', result.value, __('transfer_received_successfully'));
             }
         });
     }
@@ -238,24 +248,25 @@ $(document).ready(function() {
     async function openEditModal(transferId) {
         const response = await fetchData(`api/transfer_orders_api.php?action=get_transfer_details_for_receiving&id=${transferId}`);
         if (!response.success) {
-            return Swal.fire('Error', response.message || 'Could not fetch transfer details.', 'error');
+            return Swal.fire(__('error'), response.message || __('could_not_fetch_transfer_details'), 'error');
         }
 
         const { header, items } = response;
         const itemsHtml = items.map(item => `
             <tr>
                 <td>${item.product_name} (${item.sku})</td>
-                <td>${item.article_no || 'N/A'}</td>
+                <td>${item.article_no || __('n_a')}</td>
                 <td><input type="number" class="form-control form-control-sm edit-qty-input" data-item-id="${item.item_id}" value="${item.quantity}" min="1"></td>
             </tr>
         `).join('');
 
         Swal.fire({
-            title: `Editing Transfer: ${header.transfer_order_number}`,
-            html: `<table class="table table-sm"><thead><tr><th>Product</th><th>Article No.</th><th>Quantity</th></tr></thead><tbody>${itemsHtml}</tbody></table>`,
+            title: `${__('editing_transfer')}: ${header.transfer_order_number}`,
+            html: `<table class="table table-sm"><thead><tr><th>${__('product')}</th><th>${__('article_no')}</th><th>${__('quantity')}</th></tr></thead><tbody>${itemsHtml}</tbody></table>`,
             width: '800px',
             showCancelButton: true,
-            confirmButtonText: 'Update Order',
+            cancelButtonText: __('cancel'),
+            confirmButtonText: __('update_order'),
             allowOutsideClick: false,
             preConfirm: () => {
                 const updatedItems = [];
@@ -269,7 +280,7 @@ $(document).ready(function() {
             }
         }).then(result => {
             if (result.isConfirmed) {
-                handleFormSubmit('api/transfer_orders_api.php?action=update_transfer', 'PUT', result.value, 'Transfer order updated successfully.');
+                handleFormSubmit('api/transfer_orders_api.php?action=update_transfer', 'PUT', result.value, __('transfer_order_updated_successfully'));
             }
         });
     }
@@ -277,10 +288,10 @@ $(document).ready(function() {
     async function handleFormSubmit(url, method, orderData, successMessage) {
         const data = await fetchData(url, method, orderData);
         if (data && data.success) {
-            Swal.fire('Success!', successMessage, 'success');
+            Swal.fire(__('success'), successMessage, 'success');
             ordersTable.ajax.reload();
         } else if (data) {
-            Swal.fire('Error!', data.message, 'error');
+            Swal.fire(__('error'), data.message, 'error');
         }
     }
 
@@ -295,9 +306,9 @@ $(document).ready(function() {
         const addItemBtn = $(modal).find('#swal_addItemBtn');
         const transferItemsTbody = $(modal).find('#swal_transferItemsTbody');
 
-        initSelect2(destWarehouseSelect, 'Select destination warehouse');
-        initSelect2WithBadges(sourceLocationSelect, 'Select source location', modal, quantityInput);
-        initSelect2WithBadges(destLocationSelect, 'Select destination location', modal, quantityInput);
+        initSelect2(destWarehouseSelect, __('select_destination_warehouse'));
+        initSelect2WithBadges(sourceLocationSelect, __('select_source_location'), modal, quantityInput);
+        initSelect2WithBadges(destLocationSelect, __('select_destination_location'), modal, quantityInput);
         initializeProductSearch(productSelect, modal);
 
         loadDestinationWarehouses(destWarehouseSelect);
@@ -332,7 +343,7 @@ $(document).ready(function() {
             };
 
             if (!newItem.productId || !newItem.sourceLocationId || !newItem.destLocationId || !(newItem.quantity > 0)) {
-                return Swal.fire('Incomplete Item', 'Please ensure all fields are correctly filled.', 'error');
+                return Swal.fire(__('incomplete_item'), __('please_fill_all_fields'), 'error');
             }
             transferItems.push(newItem);
             renderItemsTable(transferItemsTbody, transferItems);
@@ -373,7 +384,7 @@ $(document).ready(function() {
         const data = await fetchData(`api/transfer_orders_api.php?action=get_product_inventory&product_id=${productId}&warehouse_id=${currentWarehouseId}`);
         if (data && data.success) {
             data.data.forEach(inv => {
-                const option = new Option(`${inv.location_name} (Qty: ${inv.quantity})`, inv.location_id);
+                const option = new Option(`${inv.location_name} (${__('qty')}: ${inv.quantity})`, inv.location_id);
                 $(option).data({ 'available-capacity': inv.quantity, batch: inv.batch_number, dot: inv.dot_code });
                 selector.append(option);
             });
@@ -400,13 +411,13 @@ $(document).ready(function() {
     function renderItemsTable(tbody, items) {
         tbody.empty();
         if (items.length === 0) {
-            tbody.append('<tr><td colspan="6" class="text-center text-muted">No items added yet.</td></tr>');
+            tbody.append(`<tr><td colspan="6" class="text-center text-muted">${__('no_items_added_yet')}</td></tr>`);
         } else {
             items.forEach((item, index) => {
                 tbody.append(`
                     <tr>
                         <td>${item.productName}</td>
-                        <td>${item.productarticle_no || 'N/A'}</td>
+                        <td>${item.productarticle_no || __('n_a')}</td>
                         <td>${item.sourceLocationName}</td>
                         <td>${item.destLocationName}</td>
                         <td class="text-end">${item.quantity}</td>
@@ -441,7 +452,7 @@ $(document).ready(function() {
 
     function initializeProductSearch(selector, parent) {
         selector.select2({
-            theme: 'bootstrap-5', placeholder: "Search by Name, SKU, or Article No...", allowClear: true, dropdownParent: parent,
+            theme: 'bootstrap-5', placeholder: __('search_by_name_sku_article'), allowClear: true, dropdownParent: parent,
             templateResult: formatProductResult,
             templateSelection: (product) => product.text,
             matcher: customProductMatcher
@@ -451,8 +462,8 @@ $(document).ready(function() {
     function formatProductResult(product) {
         if (!product.id) return product.text;
         const { stock, article_no, sku } = $(product.element).data();
-        const stockBadge = `<span class="badge ${stock > 0 ? 'bg-success' : 'bg-danger'}">Stock: ${stock}</span>`;
-        return $(`<div><div class="fw-bold">${sku} - ${product.text}</div><div class="text-muted small">Article: ${article_no || 'N/A'}</div></div>`).add(stockBadge);
+        const stockBadge = `<span class="badge ${stock > 0 ? 'bg-success' : 'bg-danger'}">${__('stock')}: ${stock}</span>`;
+        return $(`<div><div class="fw-bold">${sku} - ${product.text}</div><div class="text-muted small">${__('article_no')}: ${article_no || __('n_a')}</div></div>`).add(stockBadge);
     }
 
     function customProductMatcher(params, data) {
@@ -469,14 +480,14 @@ $(document).ready(function() {
     function formatLocationResult(location, selector, quantityInput) {
         if (!location.id) return location.text;
         const available = $(location.element).data('available-capacity');
-        const quantity = parseInt(quantityInput.val(), 10) || 0;
+        const quantity = parseInt(quantityInput.value, 10) || 0;
         let badge = '';
         if (available !== undefined) {
             const isSource = selector.is($('#swal_source_location_id'));
             const hasEnough = isSource ? available >= quantity : (available === null || available >= quantity);
             const badgeClass = hasEnough ? 'bg-success' : 'bg-danger';
-            const label = isSource ? 'Stock' : 'Space';
-            const message = isSource && !hasEnough ? 'Not enough stock' : `${label}: ${available}`;
+            const label = isSource ? __('stock') : __('space');
+            const message = isSource && !hasEnough ? __('not_enough_stock') : `${label}: ${available}`;
             badge = `<span class="badge ${badgeClass}">${message}</span>`;
             if (isSource && !hasEnough) $(location.element).prop('disabled', true);
         }
@@ -488,26 +499,26 @@ $(document).ready(function() {
             <div class="container-fluid text-start">
                 <div class="row">
                     <div class="col-lg-5 border-end">
-                        <h5>Add Items</h5>
-                        <div class="mb-3"><label for="swal_destination_warehouse_id" class="form-label">To Warehouse (Destination)</label><select class="form-select" id="swal_destination_warehouse_id"></select></div><hr>
-                        <div class="mb-3"><label for="swal_product_id" class="form-label">Product</label><select class="form-select" id="swal_product_id"></select></div>
+                        <h5>${__('add_items')}</h5>
+                        <div class="mb-3"><label for="swal_destination_warehouse_id" class="form-label">${__('to_warehouse_destination')}</label><select class="form-select" id="swal_destination_warehouse_id"></select></div><hr>
+                        <div class="mb-3"><label for="swal_product_id" class="form-label">${__('product')}</label><select class="form-select" id="swal_product_id"></select></div>
                         <fieldset id="swal_detailsFieldset" disabled>
-                            <div class="mb-3"><label for="swal_quantity" class="form-label">Quantity</label><input type="number" class="form-control" id="swal_quantity" min="1"></div>
-                            <div class="mb-3"><label for="swal_source_location_id" class="form-label">From Location (Source)</label><select class="form-select" id="swal_source_location_id"></select></div>
-                            <div class="mb-3"><label for="swal_destination_location_id" class="form-label">To Location (Destination)</label><select class="form-select" id="swal_destination_location_id"></select></div>
-                            <div class="text-end"><button type="button" class="btn btn-success" id="swal_addItemBtn"><i class="bi bi-plus-circle"></i> Add Item</button></div>
+                            <div class="mb-3"><label for="swal_quantity" class="form-label">${__('quantity')}</label><input type="number" class="form-control" id="swal_quantity" min="1"></div>
+                            <div class="mb-3"><label for="swal_source_location_id" class="form-label">${__('from_location_source')}</label><select class="form-select" id="swal_source_location_id"></select></div>
+                            <div class="mb-3"><label for="swal_destination_location_id" class="form-label">${__('to_location_destination')}</label><select class="form-select" id="swal_destination_location_id"></select></div>
+                            <div class="text-end"><button type="button" class="btn btn-success" id="swal_addItemBtn"><i class="bi bi-plus-circle"></i> ${__('add_item')}</button></div>
                         </fieldset>
                     </div>
                     <div class="col-lg-7">
-                        <h5>Review Transfer</h5>
+                        <h5>${__('review_transfer')}</h5>
                         <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
                             <table class="table table-sm">
-                                <thead><tr><th>Product</th><th>Article No</th><th>From</th><th>To</th><th class="text-end">Qty</th><th></th></tr></thead>
+                                <thead><tr><th>${__('product')}</th><th>${__('article_no')}</th><th>${__('from')}</th><th>${__('to')}</th><th class="text-end">${__('qty')}</th><th></th></tr></thead>
                                 <tbody id="swal_transferItemsTbody"></tbody>
                             </table>
                         </div>
                         <hr>
-                        <div class="mt-3"><label for="swal_notes" class="form-label">Notes (Optional)</label><textarea class="form-control" id="swal_notes" rows="2"></textarea></div>
+                        <div class="mt-3"><label for="swal_notes" class="form-label">${__('notes_optional')}</label><textarea class="form-control" id="swal_notes" rows="2"></textarea></div>
                     </div>
                 </div>
             </div>`;

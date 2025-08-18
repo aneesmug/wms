@@ -2,11 +2,19 @@
 
 /*
    MODIFICATION SUMMARY:
-   1. Added a new section at the end for RTL (Right-to-Left) styles.
-   2. These styles are scoped with `html[dir="rtl"]` to only apply when the language is Arabic.
-   3. The rules adjust the main body padding and reposition the fixed sidebar from the left to the right.
-   4. The sidebar's dropdown menus are also adjusted to open correctly from right to left.
+   1. CORRECTED: The CSS rule that incorrectly positioned the user profile dropdown menu in RTL mode has been fixed. This prevents the menu from overflowing the page when the application is in Arabic.
+   2. The rule `left: 10px !important;` was forcing the menu off-screen. It has been changed to `right: 0 !important;` to correctly align it to its parent element in the sidebar.
 */
+
+/* Import Google Font - Inter */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* Basic Body Styles for Font and background */
+body {
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
 
 /* --- RTL (Right-to-Left) Styles --- */
 @media (min-width: 768px) {
@@ -27,21 +35,11 @@
 
     /* Adjust user profile dropdown position for RTL */
     html[dir="rtl"] .sidebar .dropdown .dropdown-menu {
-        left: 10px !important;
-        right: auto !important;
+        right: 0 !important; /* FIX: This aligns the dropdown to the right edge of the parent */
+        left: auto !important; /* This prevents it from being pushed off-screen */
     }
 }
 
-
-/* Import Google Font - Inter */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-
-/* Basic Body Styles for Font and background */
-body {
-    font-family: 'Inter', sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-}
 
 /* Custom Message Box Styles */
 .message-box {

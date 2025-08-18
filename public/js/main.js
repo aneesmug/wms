@@ -1,14 +1,41 @@
 /*
 * MODIFICATION SUMMARY:
-* 1. Added a new event listener for the card header action buttons (refresh, maximize, close) to the `setupCommonEventListeners` function. This makes the functionality global across all pages that use this script.
-* 2. CRITICAL FIX: Modified the global `fetchData` function to correctly handle both JSON data and FormData (for file uploads).
-* 3. The function now checks if the data being sent is a FormData object.
-* 4. If it is FormData, it omits the 'Content-Type' header (allowing the browser to set it automatically) and sends the data as-is.
-* 5. If it's not FormData, it behaves as before, setting the 'Content-Type' to 'application/json' and stringifying the data.
-* 6. This resolves the error when editing a driver and uploading new files.
+* 1. CRITICAL FIX: Rewrote the global `__` translation function to be more robust.
+* 2. The new function now explicitly checks if the `window.lang` object exists before trying to access a key.
+* 3. If `window.lang` is missing, it will log a clear error to the developer console, which is essential for debugging.
+* 4. This prevents silent failures and ensures that if translations aren't loading, there is a clear indication of why. This should resolve the issue with SweetAlert2 modals not showing translated text.
+* 5. Updated the `updateUserInfoDisplay` function to use the `__` function for role names, ensuring consistency.
+* 6. Added a warning to the `__` function to detect if the `lang` object is defined but empty, providing better debugging information.
 */
 
 // public/js/main.js
+
+// --- Global Translation Function ---
+// This function relies on a 'lang' object being defined in the global scope,
+// typically in a <script> tag in your main layout file, populated from PHP.
+// Example: <script>window.lang = <?php echo json_encode($translations); ?>;</script>
+function __(key, defaultText = '') {
+    // Check if the global language object has been defined by PHP.
+    if (typeof window.lang === 'undefined' || window.lang === null) {
+        // Log an error for easier debugging if the object is missing.
+        console.error("Translation Error: The global 'lang' object is not defined. Make sure it's included correctly in your PHP template.");
+        return defaultText || key;
+    }
+
+    // New check: Warn if the lang object seems empty.
+    if (Object.keys(window.lang).length < 5) {
+        console.warn("Translation Warning: The global 'lang' object is defined but appears to be empty or incomplete. Check the output of json_encode in your PHP template.", window.lang);
+    }
+
+    // Check if the specific key exists in the language object.
+    if (typeof window.lang[key] !== 'undefined') {
+        return window.lang[key];
+    }
+
+    // If the key is not found, return the default text or the key itself.
+    return defaultText || key;
+}
+
 
 // --- Inactivity Lock Screen Logic ---
 const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes
@@ -39,35 +66,35 @@ function resumeTimer() {
 }
 
 function showLockScreen() {
-    if (Swal.isVisible() && Swal.getTitle() === 'Session Locked') {
+    if (Swal.isVisible() && Swal.getTitle() === __('session_locked')) {
         return;
     }
     pauseTimer();
     Swal.fire({
-        title: 'Session Locked',
-        html: `<p>You've been inactive. Please enter your password to continue.</p><input type="password" id="reauth-password" class="swal2-input" placeholder="Password">`,
+        title: __('session_locked'),
+        html: `<p>${__('inactive_prompt')}</p><input type="password" id="reauth-password" class="swal2-input" placeholder="${__('password')}">`,
         icon: 'warning',
         allowOutsideClick: false,
         allowEscapeKey: false,
         showCancelButton: true,
-        confirmButtonText: 'Unlock',
-        cancelButtonText: 'Logout',
+        confirmButtonText: __('unlock'),
+        cancelButtonText: __('logout'),
         preConfirm: async () => {
             const password = document.getElementById('reauth-password').value;
             if (!password) {
-                Swal.showValidationMessage('Password is required');
+                Swal.showValidationMessage(__('password_required'));
                 return false;
             }
             const result = await fetchData('api/auth.php?action=reauthenticate', 'POST', { password });
             if (!result || !result.success) {
-                Swal.showValidationMessage(result.message || 'Incorrect password');
+                Swal.showValidationMessage(result.message || __('incorrect_password'));
                 return false;
             }
             return result;
         }
     }).then((result) => {
         if (result.isConfirmed) {
-            showMessageBox('Session unlocked!', 'success');
+            showMessageBox(__('session_unlocked'), 'success');
             resetInactivityTimer(); 
         } else if (result.dismiss === Swal.DismissReason.cancel) {
             handleLogout();
@@ -76,7 +103,7 @@ function showLockScreen() {
 }
 
 function resetInactivityTimer() {
-    if (Swal.isVisible() && Swal.getTitle() === 'Session Locked') {
+    if (Swal.isVisible() && Swal.getTitle() === __('session_locked')) {
         return;
     }
     clearTimeout(inactivityTimer);
@@ -110,12 +137,12 @@ function redirectToLogin() {
 }
 
 async function handleLogout() {
-    if (Swal.isVisible() && Swal.getTitle() === 'Session Locked') {
+    if (Swal.isVisible() && Swal.getTitle() === __('session_locked')) {
         const result = await fetchData('api/auth.php?action=logout', 'POST');
         if (result && result.success) redirectToLogin();
         return;
     }
-    showConfirmationModal('Confirm Logout', 'Are you sure you want to log out?', async () => {
+    showConfirmationModal(__('confirm_logout_title'), __('confirm_logout_text'), async () => {
         const result = await fetchData('api/auth.php?action=logout', 'POST');
         if (result && result.success) redirectToLogin();
     });
@@ -136,19 +163,19 @@ async function setCurrentWarehouse(id, name) {
 function promptWarehouseSelection(warehouses) {
     const warehouseOptions = warehouses.map(wh => `<option value="${wh.warehouse_id}">${wh.warehouse_name}</option>`).join('');
     Swal.fire({
-        title: 'Select Your Warehouse',
-        html: `<p>Please choose a warehouse to continue.</p><select id="swal-warehouse-select" class="form-select mt-3">${warehouseOptions}</select>`,
+        title: __('select_warehouse_title'),
+        html: `<p>${__('select_warehouse_prompt')}</p><select id="swal-warehouse-select" class="form-select mt-3">${warehouseOptions}</select>`,
         icon: 'info',
         allowOutsideClick: false,
         allowEscapeKey: false,
         showCancelButton: false,
-        confirmButtonText: 'Confirm & Continue',
+        confirmButtonText: __('confirm_and_continue'),
         preConfirm: () => {
             const select = document.getElementById('swal-warehouse-select');
             const warehouseId = select.value;
             const warehouseName = select.options[select.selectedIndex].text;
             if (!warehouseId) {
-                Swal.showValidationMessage('You must select a warehouse.');
+                Swal.showValidationMessage(__('must_select_warehouse'));
                 return false;
             }
             return { warehouseId, warehouseName };
@@ -174,12 +201,12 @@ function updateUserInfoDisplay(authStatus) {
         roleMobile: document.getElementById('userRoleMobile'),
         imageMobile: document.getElementById('userProfileImageMobile')
     };
-    const displayName = user.full_name || 'User';
-    let displayRole = 'No Role Assigned';
+    const displayName = user.full_name || __('user');
+    let displayRole = __('no_role_assigned');
     if (user.is_global_admin) {
-        displayRole = 'Global Admin';
+        displayRole = __('global_admin');
     } else if (current_warehouse_role) {
-        displayRole = current_warehouse_role.charAt(0).toUpperCase() + current_warehouse_role.slice(1);
+        displayRole = __(current_warehouse_role, current_warehouse_role.charAt(0).toUpperCase() + current_warehouse_role.slice(1));
     }
     if (elements.nameDesktop) elements.nameDesktop.textContent = displayName;
     if (elements.roleDesktop) elements.roleDesktop.textContent = displayRole;
@@ -227,8 +254,8 @@ async function fetchData(url, method = 'GET', data = null) {
         const result = await response.json();
 
         if (!response.ok) {
-            console.error(`API Error: ${response.status} - ${result.message || 'Unknown error'}`);
-            showMessageBox(result.message || `An error occurred (Status: ${response.status})`, 'error');
+            console.error(`API Error: ${response.status} - ${result.message || __('unknown_error')}`);
+            showMessageBox(result.message || `${__('error_occurred')} (Status: ${response.status})`, 'error');
             
             if (response.status === 401) {
                 const isLoginPage = window.location.pathname.endsWith('/') || window.location.pathname.endsWith('index.php');
@@ -241,7 +268,7 @@ async function fetchData(url, method = 'GET', data = null) {
         return result;
     } catch (error) {
         console.error('Network or parsing error:', error);
-        showMessageBox('Network error. Please check your internet connection.', 'error');
+        showMessageBox(__('network_error'), 'error');
         return null;
     }
 }
@@ -273,7 +300,9 @@ function showConfirmationModal(title, body, onConfirm) {
         showCancelButton: true,
         confirmButtonColor: '#3085d6',
         cancelButtonColor: '#d33',
-        confirmButtonText: 'Yes, confirm it!'
+        confirmButtonText: __('yes_confirm'),
+        cancelButtonText: __('cancel'),
+        allowOutsideClick: false,
     }).then((result) => {
         if (result.isConfirmed && typeof onConfirm === 'function') {
             onConfirm();
@@ -286,7 +315,7 @@ function initializeAdvancedFilter(table, filterContainerId, columnsConfig) {
     if (!container) return;
     container.addEventListener('click', (e) => e.stopPropagation());
     const render = () => {
-        container.innerHTML = `<div id="filter-rules-list" class="mb-2"></div><button id="add-filter-btn" class="btn btn-sm btn-outline-secondary w-100"><i class="bi bi-plus-lg"></i> Add Rule</button><hr class="my-2"><div class="d-flex justify-content-end"><button id="clear-filters-btn" class="btn btn-sm btn-light me-2">Clear</button><button id="apply-filters-btn" class="btn btn-sm btn-primary">Apply</button></div>`;
+        container.innerHTML = `<div id="filter-rules-list" class="mb-2"></div><button id="add-filter-btn" class="btn btn-sm btn-outline-secondary w-100"><i class="bi bi-plus-lg"></i> ${__('add_rule')}</button><hr class="my-2"><div class="d-flex justify-content-end"><button id="clear-filters-btn" class="btn btn-sm btn-light me-2">${__('clear')}</button><button id="apply-filters-btn" class="btn btn-sm btn-primary">${__('apply')}</button></div>`;
         addFilterRule();
     };
     const addFilterRule = () => {
@@ -294,7 +323,7 @@ function initializeAdvancedFilter(table, filterContainerId, columnsConfig) {
         const ruleDiv = document.createElement('div');
         ruleDiv.className = 'filter-rule p-2 mb-2 border rounded';
         const columnOptions = columnsConfig.map(c => `<option value="${c.columnIndex}">${c.title}</option>`).join('');
-        ruleDiv.innerHTML = `<div class="d-flex justify-content-between align-items-center mb-2"><select class="form-select form-select-sm filter-column">${columnOptions}</select><button class="btn btn-sm btn-outline-danger remove-rule-btn ms-2"><i class="bi bi-trash"></i></button></div><div class="d-flex"><select class="form-select form-select-sm filter-condition me-1" style="width: 100px;"><option value="contain">Contain</option><option value="exact">Exact</option><option value="startsWith">Starts with</option><option value="endsWith">Ends with</option></select><input type="text" class="form-control form-control-sm filter-value" placeholder="Keyword..."></div>`;
+        ruleDiv.innerHTML = `<div class="d-flex justify-content-between align-items-center mb-2"><select class="form-select form-select-sm filter-column">${columnOptions}</select><button class="btn btn-sm btn-outline-danger remove-rule-btn ms-2"><i class="bi bi-trash"></i></button></div><div class="d-flex"><select class="form-select form-select-sm filter-condition me-1" style="width: 100px;"><option value="contain">${__('contain')}</option><option value="exact">${__('exact')}</option><option value="startsWith">${__('starts_with')}</option><option value="endsWith">${__('ends_with')}</option></select><input type="text" class="form-control form-control-sm filter-value" placeholder="${__('keyword')}..."></div>`;
         list.appendChild(ruleDiv);
     };
     const applyFilters = () => {
@@ -404,12 +433,12 @@ async function enforceAuthentication() {
                 promptWarehouseSelection(warehouseData.warehouses);
             } else {
                 Swal.fire({
-                    title: 'No Warehouse Access',
-                    text: 'You do not have access to any active warehouses. Please contact an administrator.',
+                    title: __('no_warehouse_access_title'),
+                    text: __('no_warehouse_access_text'),
                     icon: 'error',
                     allowOutsideClick: false,
                     allowEscapeKey: false,
-                    confirmButtonText: 'Logout'
+                    confirmButtonText: __('logout')
                 }).then(handleLogout);
             }
         }
