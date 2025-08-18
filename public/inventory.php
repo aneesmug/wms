@@ -1,36 +1,37 @@
+<?php
+require_once __DIR__ . '/helpers/auth_helper.php';
+?>
 <!DOCTYPE html>
-<html lang="en" class="h-100">
+<html lang="<?php echo $_SESSION['lang'] ?? 'en'; ?>" dir="<?php echo ($_SESSION['lang'] ?? 'en') === 'ar' ? 'rtl' : 'ltr'; ?>" class="h-100">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WMS Inventory Control</title>
-    <!-- Stylesheets -->
+    <title>WMS <?php echo __('inventory_control'); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
     <link href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" />
-    <!-- SweetAlert2 CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
-    <!-- Custom CSS -->
     <link rel="stylesheet" href="css/style.css">
+    <?php if (($_SESSION['lang'] ?? 'en') === 'ar'): ?>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
+    <?php endif; ?>
 </head>
 <body class="bg-light">
 
     <?php include 'includes/menu.php'; ?>
 
-    <!-- Main Content -->
     <div id="content">
         
         <header class="bg-white shadow-sm border-bottom">
             <div class="container-fluid px-4">
                 <div class="d-flex justify-content-between align-items-center py-3">
-                    <!-- This button toggles the offcanvas menu on mobile -->
                     <button class="btn btn-outline-secondary d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
                         <i class="bi bi-list"></i>
                     </button>
-                    <h1 class="h4 mb-0 text-dark mx-auto mx-md-0">Inventory Control</h1>
+                    <h1 class="h4 mb-0 text-dark mx-auto mx-md-0"><?php echo __('inventory_control'); ?></h1>
                     <span id="currentWarehouseNameDisplay" class="text-muted"></span>
                 </div>
             </div>
@@ -38,50 +39,59 @@
 
             <main class="flex-grow-1 p-4 p-md-5 bg-light">
                 <div class="container-fluid">
-                    <!-- Inventory Search/Filter -->
                     <div class="card shadow-sm mb-4">
-                        <div class="card-header">
-                            <h5 class="card-title mb-0">Search Inventory</h5>
+                        <div class="card-header header-primary">
+                            <h5 class="card-title mb-0"><?php echo __('search_inventory'); ?></h5>
+                            <div class="card-header-actions">
+                                <button type="button" class="btn-card-header" data-action="refresh" title="Refresh"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                <button type="button" class="btn-card-header" data-action="maximize" title="Maximize"><i class="bi bi-arrows-fullscreen"></i></button>
+                                <button type="button" class="btn-card-header" data-action="close" title="Close"><i class="bi bi-x-lg"></i></button>
+                            </div>
                         </div>
                         <div class="card-body">
                             <div class="row g-3 align-items-end">
                                 <div class="col-md-4">
-                                    <label for="searchProductInput" class="form-label">Product Article No/SKU</label>
-                                    <input type="text" id="searchProductInput" name="searchProductInput" placeholder="Scan or type product..." class="form-control">
+                                    <label for="searchProductInput" class="form-label"><?php echo __('product_article_sku'); ?></label>
+                                    <input type="text" id="searchProductInput" name="searchProductInput" placeholder="<?php echo __('scan_or_type_product'); ?>" class="form-control">
                                 </div>
                                 <div class="col-md-3">
-                                    <label for="searchLocationSelect" class="form-label">Location Filter</label>
+                                    <label for="searchLocationSelect" class="form-label"><?php echo __('location_filter'); ?></label>
                                     <select id="searchLocationSelect" name="searchLocationSelect" class="form-select"></select>
                                 </div>
-                                <!-- MODIFICATION: Added Tire Type Filter -->
                                 <div class="col-md-3">
-                                    <label for="searchTireTypeSelect" class="form-label">Tire Type Filter</label>
+                                    <label for="searchTireTypeSelect" class="form-label"><?php echo __('tire_type_filter'); ?></label>
                                     <select id="searchTireTypeSelect" name="searchTireTypeSelect" class="form-select"></select>
                                 </div>
                                 <div class="col-md-2 d-flex gap-2">
-                                    <button id="searchBtn" class="btn btn-primary w-100">Search</button>
-                                    <button id="clearSearchBtn" type="button" class="btn btn-secondary w-100">Clear</button>
+                                    <button id="searchBtn" class="btn btn-primary w-100"><?php echo __('search'); ?></button>
+                                    <button id="clearSearchBtn" type="button" class="btn btn-secondary w-100"><?php echo __('clear'); ?></button>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Inventory List -->
                     <div class="card shadow-sm mb-4">
-                        <div class="card-header"><h5 class="card-title mb-0">Current Stock</h5></div>
+                        <div class="card-header header-primary">
+                            <h5 class="card-title mb-0"><?php echo __('current_stock'); ?></h5>
+                            <div class="card-header-actions">
+                                <button type="button" class="btn-card-header" data-action="refresh" title="Refresh"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                <button type="button" class="btn-card-header" data-action="maximize" title="Maximize"><i class="bi bi-arrows-fullscreen"></i></button>
+                                <button type="button" class="btn-card-header" data-action="close" title="Close"><i class="bi bi-x-lg"></i></button>
+                            </div>
+                        </div>
                         <div class="card-body">
                             <div class="table-responsive">
                                 <table id="inventoryTable" class="table table-hover" style="width:100%">
                                     <thead>
                                         <tr>
-                                            <th>SKU</th>
-                                            <th>Product Name</th>
-                                            <th>Article No</th>
-                                            <th>Location</th>
-                                            <th>Quantity</th>
-                                            <th>Batch/DOT/Expiry</th>
-                                            <th>Last Moved</th>
-                                            <th>Actions</th>
+                                            <th><?php echo __('sku'); ?></th>
+                                            <th><?php echo __('product_name'); ?></th>
+                                            <th><?php echo __('article_no'); ?></th>
+                                            <th><?php echo __('location'); ?></th>
+                                            <th><?php echo __('quantity'); ?></th>
+                                            <th><?php echo __('batch_dot_expiry'); ?></th>
+                                            <th><?php echo __('last_moved'); ?></th>
+                                            <th><?php echo __('actions'); ?></th>
                                         </tr>
                                     </thead>
                                     <tbody id="inventoryTableBody"></tbody>
@@ -94,21 +104,15 @@
         </div>
     </div>
     
-    <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- DataTables JS -->
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
-    <!-- SweetAlert2 JS -->
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <!-- Select2 JS -->
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-    <!-- Load utility scripts FIRST -->
     <script src="js/api.js"></script>
     <script src="js/barcodeScanner.js"></script>
     <script src="js/main.js"></script>
-    <!-- Then load page-specific script -->
     <script src="js/inventory.js" defer></script>
 </body>
 </html>

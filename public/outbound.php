@@ -1,22 +1,23 @@
 <?php
-// 002-outbound.php
+    require_once __DIR__ . '/helpers/auth_helper.php';
 ?>
 <!DOCTYPE html>
-<html lang="en" class="h-100">
+<html lang="<?php echo $_SESSION['lang'] ?? 'en'; ?>" dir="<?php echo ($_SESSION['lang'] ?? 'en') === 'ar' ? 'rtl' : 'ltr'; ?>" class="h-100">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WMS - Outbound Orders</title>
-    <!-- Stylesheets -->
+    <title>WMS - <?php echo __('outbound_orders'); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
-    <!-- Datepicker CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vanillajs-datepicker@1.3.4/dist/css/datepicker-bs5.min.css">
     <link rel="stylesheet" href="css/style.css">
+    <?php if (($_SESSION['lang'] ?? 'en') === 'ar'): ?>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
+    <?php endif; ?>
 </head>
 <body class="bg-light">
 
@@ -26,11 +27,10 @@
         <header class="bg-white shadow-sm border-bottom">
             <div class="container-fluid px-4">
                 <div class="d-flex justify-content-between align-items-center py-3">
-                    <!-- This button toggles the offcanvas menu on mobile -->
                     <button class="btn btn-outline-secondary d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
                         <i class="bi bi-list"></i>
                     </button>
-                    <h1 class="h4 mb-0 text-dark">Outbound Orders</h1>
+                    <h1 class="h4 mb-0 text-dark"><?php echo __('outbound_orders'); ?></h1>
                 </div>
             </div>
         </header>
@@ -38,12 +38,11 @@
         <main class="p-4 p-md-5">
             <div class="container-fluid">
                 <div class="row g-4">
-                    <!-- Orders List -->
                     <div class="col-12">
                         <div class="card shadow-sm">
-                            <div class="card-header d-flex justify-content-between align-items-center">
-                                <h5 class="card-title mb-0">All Orders</h5>
-                                <div class="d-flex align-items-center">
+                            <div class="card-header header-primary d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0"><?php echo __('all_orders'); ?></h5>
+                                <div class="d-flex align-items-center gap-2">
                                     <select id="statusFilter" class="form-select form-select-sm me-2" style="width: auto;">
                                         <option value="">All Statuses</option>
                                         <option value="New">New</option>
@@ -58,10 +57,14 @@
                                         <option value="Partially Returned">Partially Returned</option>
                                         <option value="Returned">Returned</option>
                                         <option value="Cancelled">Cancelled</option>
-                                        <!-- MODIFICATION: Added Scrapped status to filter -->
                                         <option value="Scrapped">Scrapped</option>
                                     </select>
-                                    <button id="showCreateOrderModalBtn" class="btn btn-primary btn-sm"><i class="bi bi-plus-circle me-1"></i> New Order</button>
+                                    <button id="showCreateOrderModalBtn" class="btn btn-light btn-sm text-nowrap"><i class="bi bi-plus-circle me-1"></i> <?php echo __('new_order'); ?></button>
+                                    <div class="card-header-actions">
+                                        <button type="button" class="btn-card-header" data-action="refresh" title="Refresh"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="maximize" title="Maximize"><i class="bi bi-arrows-fullscreen"></i></button>
+                                        <button type="button" class="btn-card-header" data-action="close" title="Close"><i class="bi bi-x-lg"></i></button>
+                                    </div>
                                 </div>
                             </div>
                             <div class="card-body">
@@ -69,15 +72,15 @@
                                     <table id="outboundOrdersTable" class="table table-hover" style="width:100%">
                                         <thead>
                                             <tr>
-                                                <th>Order #</th>
-                                                <th>Reference #</th>
-                                                <th>Customer / Type</th>
-                                                <th>Staged At</th>
-                                                <th>Assigned To</th>
-                                                <th>Tracking #</th>
-                                                <th>Ship By</th>
-                                                <th>Status</th>
-                                                <th class="text-end">Actions</th>
+                                                <th><?php echo __('order_no'); ?></th>
+                                                <th><?php echo __('reference_no'); ?></th>
+                                                <th><?php echo __('customer_type'); ?></th>
+                                                <th><?php echo __('staged_at'); ?></th>
+                                                <th><?php echo __('assigned_to'); ?></th>
+                                                <th><?php echo __('tracking_no'); ?></th>
+                                                <th><?php echo __('ship_by'); ?></th>
+                                                <th><?php echo __('status'); ?></th>
+                                                <th class="text-end"><?php echo __('actions'); ?></th>
                                             </tr>
                                         </thead>
                                         <tbody></tbody>
@@ -87,19 +90,24 @@
                         </div>
                     </div>
 
-                    <!-- Order Processing Area -->
                     <div class="col-12">
                         <div id="orderProcessingArea" class="card shadow-sm d-none">
-                            <div class="card-header">
+                            <div class="card-header header-warning d-flex justify-content-between align-items-center">
                                 <div class="d-flex justify-content-between align-items-center">
-                                    <h5 class="card-title mb-0">Order Details: <span id="selectedOrderNumberDisplay" class="text-primary"></span></h5>
+                                    <h5 class="card-title mb-0"><?php echo __('order_details'); ?>: <span id="selectedOrderNumberDisplay" class="text-primary"></span></h5>
                                     <div>
-                                        <button id="editOrderBtn" class="btn btn-sm btn-outline-secondary d-none"><i class="bi bi-pencil"></i> Edit Order</button>
-                                        <button id="printPickReportBtn" class="btn btn-sm btn-outline-info ms-2 d-none"><i class="bi bi-file-earmark-text me-1"></i> Print Pick Report</button>
-                                        <button id="printDeliveryReportBtn" class="btn btn-sm btn-outline-success ms-2 d-none"><i class="bi bi-receipt me-1"></i> Print Delivery Report</button>
+                                        <button id="editOrderBtn" class="btn btn-sm btn-outline-secondary d-none"><i class="bi bi-pencil"></i> <?php echo __('edit_order'); ?></button>
+                                        <button id="printPickReportBtn" class="btn btn-sm btn-outline-light ms-2 d-none"><i class="bi bi-file-earmark-text me-1"></i> <?php echo __('print_pick_report'); ?></button>
+                                        <button id="printDeliveryReportBtn" class="btn btn-sm btn-outline-success ms-2 d-none"><i class="bi bi-receipt me-1"></i> <?php echo __('print_delivery_report'); ?></button>
                                     </div>
+                                    
                                 </div>
                                 <input type="hidden" id="currentOrderId">
+                                <div class="card-header-actions">
+                                    <button type="button" class="btn-card-header" data-action="refresh" title="Refresh"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                    <button type="button" class="btn-card-header" data-action="maximize" title="Maximize"><i class="bi bi-arrows-fullscreen"></i></button>
+                                    <button type="button" class="btn-card-header" data-action="close" title="Close"><i class="bi bi-x-lg"></i></button>
+                                </div>
                             </div>
                             <div class="card-body">
                                 <div class="row mb-3">
@@ -115,15 +123,15 @@
                                     <table class="table table-bordered">
                                         <thead class="table-light">
                                             <tr>
-                                                <th>SKU</th>
-                                                <th>Product</th>
-                                                <th>Article No</th>
-                                                <th>Ordered</th>
-                                                <th>Picked</th>
-                                                <th>Batch</th>
-                                                <th>DOT</th>
-                                                <th>Location</th>
-                                                <th class="text-center">Actions</th>
+                                                <th><?php echo __('sku'); ?></th>
+                                                <th><?php echo __('product'); ?></th>
+                                                <th><?php echo __('article_no'); ?></th>
+                                                <th><?php echo __('ordered'); ?></th>
+                                                <th><?php echo __('picked'); ?></th>
+                                                <th><?php echo __('batch'); ?></th>
+                                                <th><?php echo __('dot'); ?></th>
+                                                <th><?php echo __('location'); ?></th>
+                                                <th class="text-center"><?php echo __('actions'); ?></th>
                                             </tr>
                                         </thead>
                                         <tbody id="orderItemsTableBody"></tbody>
@@ -133,8 +141,8 @@
                                 </div>
                             </div>
                             <div class="card-footer text-end" id="managementActionsArea" style="display: none;">
-                                <button id="cancelOrderBtn" class="btn btn-outline-danger me-2">Cancel Order</button>
-                                <button id="shipOrderBtn" class="btn btn-success d-none">Ship Order</button>
+                                <button id="cancelOrderBtn" class="btn btn-outline-danger me-2"><?php echo __('cancel_order'); ?></button>
+                                <button id="shipOrderBtn" class="btn btn-success d-none"><?php echo __('ship_order'); ?></button>
                             </div>
                         </div>
                     </div>
@@ -143,7 +151,6 @@
         </main>
     </div>
     
-    <!-- JavaScript Libraries -->
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
@@ -152,10 +159,7 @@
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-    <!-- Datepicker JS -->
     <script src="https://cdn.jsdelivr.net/npm/vanillajs-datepicker@1.3.4/dist/js/datepicker-full.min.js"></script>
-    
-    <!-- Custom Application Scripts -->
     <script src="js/main.js"></script>
     <script src="js/outbound.js" defer></script>
 </body>

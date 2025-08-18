@@ -1,10 +1,11 @@
 /*
 * MODIFICATION SUMMARY:
-* 1. CRITICAL FIX: Modified the global `fetchData` function to correctly handle both JSON data and FormData (for file uploads).
-* 2. The function now checks if the data being sent is a FormData object.
-* 3. If it is FormData, it omits the 'Content-Type' header (allowing the browser to set it automatically) and sends the data as-is.
-* 4. If it's not FormData, it behaves as before, setting the 'Content-Type' to 'application/json' and stringifying the data.
-* 5. This resolves the error when editing a driver and uploading new files.
+* 1. Added a new event listener for the card header action buttons (refresh, maximize, close) to the `setupCommonEventListeners` function. This makes the functionality global across all pages that use this script.
+* 2. CRITICAL FIX: Modified the global `fetchData` function to correctly handle both JSON data and FormData (for file uploads).
+* 3. The function now checks if the data being sent is a FormData object.
+* 4. If it is FormData, it omits the 'Content-Type' header (allowing the browser to set it automatically) and sends the data as-is.
+* 5. If it's not FormData, it behaves as before, setting the 'Content-Type' to 'application/json' and stringifying the data.
+* 6. This resolves the error when editing a driver and uploading new files.
 */
 
 // public/js/main.js
@@ -421,6 +422,34 @@ function setupCommonEventListeners() {
         if (btn) btn.addEventListener('click', handleLogout);
     });
     setupInputValidations();
+
+    // Card Actions (Refresh, Maximize, Close)
+    document.body.addEventListener('click', function(event) {
+        const button = event.target.closest('.btn-card-header');
+        if (!button) return;
+
+        const card = button.closest('.card');
+        if (!card) return;
+
+        const action = button.dataset.action;
+
+        switch (action) {
+            case 'refresh':
+                location.reload();
+                break;
+            case 'maximize':
+                card.classList.toggle('card-maximized');
+                const icon = button.querySelector('i');
+                if (icon) {
+                    icon.classList.toggle('bi-arrows-fullscreen');
+                    icon.classList.toggle('bi-arrows-angle-contract');
+                }
+                break;
+            case 'close':
+                card.style.display = 'none';
+                break;
+        }
+    });
 }
 
 document.addEventListener('DOMContentLoaded', () => {

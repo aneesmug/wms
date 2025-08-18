@@ -1,5 +1,10 @@
 // inbound.js
-// 015-inbound.js
+// MODIFICATION SUMMARY:
+// 1. CRITICAL FIX: Added a new event listener for the '#statusFilter' dropdown.
+// 2. This listener was missing, which is why the filter was not working.
+// 3. It now correctly uses the DataTables API (`table.column(4).search(...)`) to filter the table based on the selected status.
+// 4. The search is configured to be an exact match to prevent, for example, "Received" from matching "Partially Received".
+
 $(document).ready(function() {
     // --- DOM Elements ---
     const processingSection = $('#processingSection');
@@ -11,6 +16,7 @@ $(document).ready(function() {
     const receiveItemBtn = $('#receiveItemBtn');
     const putawayItemBtn = $('#putawayItemBtn');
     const addContainerBtn = $('#addContainerBtn');
+    const statusFilter = $('#statusFilter'); // Added selector for the filter
     
     const selectedReceiptNumberEl = $('#selectedReceiptNumber');
     const selectedContainerNumberEl = $('#selectedContainerNumber');
@@ -33,7 +39,7 @@ $(document).ready(function() {
     let availableLocationsData = [];
     let table;
     let dotCodeOptions = [];
-    let currentContainers = []; // Store container data for the selected receipt
+    let currentContainers = [];
 
     // --- Initialize Page & Event Listeners ---
     initializePage();
@@ -43,6 +49,15 @@ $(document).ready(function() {
     receiveItemBtn.on('click', handleReceiveItem);
     putawayItemBtn.on('click', handlePutawayItem);
     itemQuantityInput.on('input', updateLocationDropdownAvailability);
+
+    // --- FIX: Added Event Listener for Status Filter ---
+    statusFilter.on('change', function() {
+        if (table) {
+            const selectedStatus = $(this).val();
+            // Use regex for an exact match on the status column (index 4)
+            table.column(4).search(selectedStatus ? '^' + selectedStatus + '$' : '', true, false).draw();
+        }
+    });
 
     inboundReceiptsTable.on('click', '.select-receipt-btn', function() {
         selectReceipt($(this).data('receipt-id'), $(this).data('receipt-number'));

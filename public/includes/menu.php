@@ -1,33 +1,32 @@
 <?php
-/*
-* MODIFICATION SUMMARY:
-* 1. Added a new "User Activity" link to the 'Tools & Reports' submenu.
-* 2. This link points to `user_activity.php` and uses the 'bi-person-bounding-box' icon.
-* 3. Wrapped the new menu item in a conditional check `if (isset($_SESSION['is_global_admin']) && $_SESSION['is_global_admin'])`
-* to ensure it is only visible to users who are global administrators.
-* 4. Added "Delivery Companies" link to the 'Master Data' submenu, pointing to `delivery_companies.php`.
-* 5. Added `delivery_companies.php` to the 'manager' role permissions.
-*/
-
 // includes/menu.php
 
-// Ensure session is started, as we need to access session variables.
+// MODIFICATION SUMMARY:
+// 1. Added a check for the current language (`$is_rtl`).
+// 2. Conditionally changed Bootstrap classes for RTL support:
+//    - Desktop sidebar dropdowns are now `dropstart` instead of `dropend`.
+//    - Desktop icon tooltips are now placed on the `left` instead of the `right`.
+//    - The mobile offcanvas menu now opens from the `end` (right) instead of the `start` (left).
+// 3. This ensures the menu layout correctly adapts when switching to Arabic.
+
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// --- Role-Based Access Control (RBAC) Map ---
+$is_rtl = (isset($_SESSION['lang']) && $_SESSION['lang'] === 'ar');
+
 $permissions = [
     'manager' => [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
         'locations.php', 'products.php', 'customers.php', 'suppliers.php', 
         'reports.php', 'inbound_report.php', 'batch_search.php', 'users.php',
         'warehouses.php', 'picking.php', 'returns.php', 'transfer_order.php',
-        'delivery_companies.php' // <-- MODIFICATION: Added permission
+        'delivery_companies.php', 'inventory_transfer.php'
     ],
     'operator' => [
         'dashboard.php', 'inbound.php', 'outbound.php', 'inventory.php', 
-        'locations.php', 'batch_search.php', 'picking.php', 'returns.php', 'transfer_order.php'
+        'locations.php', 'batch_search.php', 'picking.php', 'returns.php', 'transfer_order.php',
+        'inventory_transfer.php'
     ],
     'picker' => [
         'dashboard.php', 'inventory.php', 'picking.php',
@@ -47,7 +46,6 @@ if (isset($_SESSION['is_global_admin']) && $_SESSION['is_global_admin'] === true
 }
 
 function can_access($page, $permissionMap, $role) {
-    // All logged-in users can access their own profile
     if ($page === 'profile.php') {
         return true;
     }
@@ -57,40 +55,40 @@ function can_access($page, $permissionMap, $role) {
 $current_page = basename($_SERVER['PHP_SELF']);
 
 $menu_items = [
-    'dashboard' => ['label' => 'Dashboard', 'url' => 'dashboard.php', 'icon' => 'bi-speedometer2'],
-    'delivery' => ['label' => 'My Deliveries', 'url' => 'delivery.php', 'icon' => 'bi-truck'],
+    'dashboard' => ['label' => __('dashboard'), 'url' => 'dashboard.php', 'icon' => 'bi-speedometer2'],
+    'delivery' => ['label' => __('my_deliveries'), 'url' => 'delivery.php', 'icon' => 'bi-truck'],
     'operations' => [
-        'label' => 'Operations', 'icon' => 'bi-arrows-angle-contract', 'submenu' => [
-            ['label' => 'Inbound', 'url' => 'inbound.php', 'icon' => 'bi-box-arrow-in-down'],
-            ['label' => 'Outbound', 'url' => 'outbound.php', 'icon' => 'bi-box-arrow-up-right'],
-            ['label' => 'Picking', 'url' => 'picking.php', 'icon' => 'bi-box-seam'],
-            ['label' => 'Returns', 'url' => 'returns.php', 'icon' => 'bi-arrow-return-left'],
-            ['label' => 'Transfer Order', 'url' => 'transfer_order.php', 'icon' => 'bi-arrows-expand']
+        'label' => __('operations'), 'icon' => 'bi-arrows-angle-contract', 'submenu' => [
+            ['label' => __('inbound'), 'url' => 'inbound.php', 'icon' => 'bi-box-arrow-in-down'],
+            ['label' => __('outbound'), 'url' => 'outbound.php', 'icon' => 'bi-box-arrow-up-right'],
+            ['label' => __('picking'), 'url' => 'picking.php', 'icon' => 'bi-box-seam'],
+            ['label' => __('returns'), 'url' => 'returns.php', 'icon' => 'bi-arrow-return-left'],
+            ['label' => __('transfer_order'), 'url' => 'transfer_order.php', 'icon' => 'bi-arrows-expand']
         ]
     ],
     'inventory' => [
-        'label' => 'Inventory', 'icon' => 'bi-boxes', 'submenu' => [
-            ['label' => 'Stock', 'url' => 'inventory.php', 'icon' => 'bi-box']
+        'label' => __('inventory'), 'icon' => 'bi-boxes', 'submenu' => [
+            ['label' => __('stock'), 'url' => 'inventory.php', 'icon' => 'bi-box'],
+            ['label' => __('internal_transfer'), 'url' => 'inventory_transfer.php', 'icon' => 'bi-arrows-move']
         ]
     ],
     'master_data' => [
-        'label' => 'Master Data', 'icon' => 'bi-database', 'submenu' => [
-            ['label' => 'Products', 'url' => 'products.php', 'icon' => 'bi-tag'],
-            ['label' => 'Locations', 'url' => 'locations.php', 'icon' => 'bi-geo-alt'],
-            ['label' => 'Warehouses', 'url' => 'warehouses.php', 'icon' => 'bi-buildings'],
-            ['label' => 'Customers', 'url' => 'customers.php', 'icon' => 'bi-people'],
-            ['label' => 'Suppliers', 'url' => 'suppliers.php', 'icon' => 'bi-truck'],
-            // <-- MODIFICATION: Added new menu item -->
-            ['label' => 'Delivery Companies', 'url' => 'delivery_companies.php', 'icon' => 'bi-truck-front']
+        'label' => __('master_data'), 'icon' => 'bi-database', 'submenu' => [
+            ['label' => __('products'), 'url' => 'products.php', 'icon' => 'bi-tag'],
+            ['label' => __('locations'), 'url' => 'locations.php', 'icon' => 'bi-geo-alt'],
+            ['label' => __('warehouses'), 'url' => 'warehouses.php', 'icon' => 'bi-buildings'],
+            ['label' => __('customers'), 'url' => 'customers.php', 'icon' => 'bi-people'],
+            ['label' => __('suppliers'), 'url' => 'suppliers.php', 'icon' => 'bi-truck'],
+            ['label' => __('delivery_companies'), 'url' => 'delivery_companies.php', 'icon' => 'bi-truck-front']
         ]
     ],
     'tools' => [
-        'label' => 'Tools & Reports', 'icon' => 'bi-tools', 'submenu' => [
-            ['label' => 'Reports', 'url' => 'reports.php', 'icon' => 'bi-file-earmark-bar-graph'],
-            ['label' => 'Inbound Report', 'url' => 'inbound_report.php', 'icon' => 'bi-printer'],
-            ['label' => 'Batch Search', 'url' => 'batch_search.php', 'icon' => 'bi-search'],
-            ['label' => 'Users', 'url' => 'users.php', 'icon' => 'bi-people'],
-            ['label' => 'User Activity', 'url' => 'user_activity.php', 'icon' => 'bi-person-bounding-box', 'admin_only' => true] // New Item
+        'label' => __('tools_reports'), 'icon' => 'bi-tools', 'submenu' => [
+            ['label' => __('reports'), 'url' => 'reports.php', 'icon' => 'bi-file-earmark-bar-graph'],
+            ['label' => __('inbound_report'), 'url' => 'inbound_report.php', 'icon' => 'bi-printer'],
+            ['label' => __('batch_search'), 'url' => 'batch_search.php', 'icon' => 'bi-search'],
+            ['label' => __('users'), 'url' => 'users.php', 'icon' => 'bi-people'],
+            ['label' => __('user_activity'), 'url' => 'user_activity.php', 'icon' => 'bi-person-bounding-box', 'admin_only' => true]
         ]
     ]
 ];
@@ -105,7 +103,7 @@ function is_submenu_active($submenu_items, $current_page) {
 
 <!-- Desktop Icon-only Sidebar -->
 <div class="sidebar d-none d-md-flex flex-column flex-shrink-0 bg-dark">
-    <a href="dashboard.php" class="d-block p-3 link-light text-decoration-none text-center" title="WMS Home" data-bs-toggle="tooltip" data-bs-placement="right">
+    <a href="dashboard.php" class="d-block p-3 link-light text-decoration-none text-center" title="WMS Home" data-bs-toggle="tooltip" data-bs-placement="<?php echo $is_rtl ? 'left' : 'right'; ?>">
         <i class="bi bi-box-seam fs-4"></i>
     </a>
     <hr class="mt-0">
@@ -127,8 +125,8 @@ function is_submenu_active($submenu_items, $current_page) {
             }
             ?>
             <?php if (isset($item['submenu'])): ?>
-                <li class="nav-item dropend">
-                    <a href="#" class="nav-link text-white <?php echo is_submenu_active($item['submenu'], $current_page) ? 'active' : ''; ?>" data-bs-toggle="dropdown" aria-expanded="false" title="<?php echo $item['label']; ?>" data-bs-placement="right">
+                <li class="nav-item <?php echo $is_rtl ? 'dropstart' : 'dropend'; ?>">
+                    <a href="#" class="nav-link text-white <?php echo is_submenu_active($item['submenu'], $current_page) ? 'active' : ''; ?>" data-bs-toggle="dropdown" aria-expanded="false" title="<?php echo $item['label']; ?>" data-bs-placement="<?php echo $is_rtl ? 'left' : 'right'; ?>">
                         <i class="bi <?php echo $item['icon']; ?>"></i>
                     </a>
                     <ul class="dropdown-menu">
@@ -147,7 +145,7 @@ function is_submenu_active($submenu_items, $current_page) {
                 </li>
             <?php else: ?>
                 <li class="nav-item">
-                    <a href="<?php echo $item['url']; ?>" class="nav-link text-white <?php echo $current_page == $item['url'] ? 'active' : ''; ?>" title="<?php echo $item['label']; ?>" data-bs-toggle="tooltip" data-bs-placement="right">
+                    <a href="<?php echo $item['url']; ?>" class="nav-link text-white <?php echo $current_page == $item['url'] ? 'active' : ''; ?>" title="<?php echo $item['label']; ?>" data-bs-toggle="tooltip" data-bs-placement="<?php echo $is_rtl ? 'left' : 'right'; ?>">
                         <i class="bi <?php echo $item['icon']; ?>"></i>
                     </a>
                 </li>
@@ -155,23 +153,21 @@ function is_submenu_active($submenu_items, $current_page) {
         <?php endforeach; ?>
     </ul>
     <hr>
-    <!-- User Info Dropdown (Desktop) -->
     <div class="dropdown pb-3 text-center">
         <a href="#" class="d-block link-light text-decoration-none dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
             <img id="userProfileImageDesktop" src="uploads/users/default.png" alt="User" width="32" height="32" class="rounded-circle">
         </a>
-        <ul class="dropdown-menu dropdown-menu-dark text-small shadow" style="left: auto; right: 10px;">
+        <ul class="dropdown-menu dropdown-menu-dark text-small shadow">
             <li><h6 id="userFullNameDesktop" class="dropdown-header">Loading...</h6></li>
             <li><span id="userRoleDesktop" class="dropdown-item-text text-white-50 px-3">Loading...</span></li>
             <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item" href="profile.php"><i class="bi bi-person-fill me-2"></i>My Profile</a></li>
-            <li><a id="logoutBtnDesktop" class="dropdown-item" href="#"><i class="bi bi-box-arrow-left me-2"></i>Logout</a></li>
+            <li><a class="dropdown-item" href="profile.php"><i class="bi bi-person-fill me-2"></i><?php echo __('my_profile'); ?></a></li>
+            <li><a id="logoutBtnDesktop" class="dropdown-item" href="#"><i class="bi bi-box-arrow-left me-2"></i><?php echo __('logout'); ?></a></li>
         </ul>
     </div>
 </div>
 
-<!-- Mobile Offcanvas Sidebar -->
-<div class="offcanvas offcanvas-start bg-dark text-white d-md-none" tabindex="-1" id="mobileSidebar" aria-labelledby="mobileSidebarLabel">
+<div class="offcanvas <?php echo $is_rtl ? 'offcanvas-end' : 'offcanvas-start'; ?> bg-dark text-white d-md-none" tabindex="-1" id="mobileSidebar" aria-labelledby="mobileSidebarLabel">
     <div class="offcanvas-header border-bottom border-secondary">
         <h5 class="offcanvas-title" id="mobileSidebarLabel"><i class="bi bi-box-seam me-2"></i>WMS Menu</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
@@ -185,7 +181,7 @@ function is_submenu_active($submenu_items, $current_page) {
             </div>
         </div>
         <ul class="nav nav-pills flex-column mb-auto">
-             <li><a class="nav-link text-white <?php echo $current_page == 'profile.php' ? 'active' : ''; ?>" href="profile.php"><i class="bi bi-person-fill me-2"></i>My Profile</a></li>
+             <li><a class="nav-link text-white <?php echo $current_page == 'profile.php' ? 'active' : ''; ?>" href="profile.php"><i class="bi bi-person-fill me-2"></i><?php echo __('my_profile'); ?></a></li>
             <?php foreach ($menu_items as $key => $item): ?>
                 <?php
                 if (isset($item['submenu'])) {
@@ -231,6 +227,6 @@ function is_submenu_active($submenu_items, $current_page) {
             <?php endforeach; ?>
         </ul>
         <hr>
-        <button id="logoutBtnMobile" class="btn btn-danger w-100"><i class="bi bi-box-arrow-left me-2"></i><span>Logout</span></button>
+        <button id="logoutBtnMobile" class="btn btn-danger w-100"><i class="bi bi-box-arrow-left me-2"></i><span><?php echo __('logout'); ?></span></button>
     </div>
 </div>

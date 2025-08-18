@@ -1,48 +1,30 @@
 <?php
-/*
-* MODIFICATION SUMMARY
-* --------------------
-* 2025-08-14:
-* - Fixed a bug in the JavaScript fetch call.
-* - The code was checking `data.status === 'success'`, but the API returns a boolean property named `success`.
-* - Changed the condition to `if (data.success)` to correctly parse the API response.
-* - This resolves the "Error: undefined" message and allows the print report to be rendered correctly.
-*/
-// This page is designed to be opened in a new tab for printing.
+require_once __DIR__ . '/config/config.php';
+require_once __DIR__ . '/helpers/language_helper.php';
+$lang = isset($_GET['lang']) && $_GET['lang'] === 'ar' ? 'ar' : 'en';
+load_language($lang);
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="<?php echo $lang; ?>" dir="<?php echo $lang === 'ar' ? 'rtl' : 'ltr'; ?>">
 <head>
     <meta charset="UTF-8">
-    <title>Print Transfer Note</title>
+    <title><?php echo __('print_transfer_note'); ?></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <?php if ($lang === 'ar'): ?>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
+    <?php endif; ?>
     <style>
         body { background-color: #fff; color: #000; }
         .container { max-width: 800px; }
         .header-logo { max-width: 160px; }
         .table th, .table td { vertical-align: middle; font-size: 0.8rem; padding: 0.4rem; }
         .footer { position: fixed; bottom: 20px; width: 100%; max-width: 800px; font-size: 0.8rem; }
-        
-        /* CORRECTED: Significantly reduced article_no font sizes for a professional look */
-        .header-article_no { 
-            font-family: 'Libre Barcode 39', cursive; 
-            font-size: 32pt; /* Using points for better print control */
-            line-height: 1; 
-        }
-        .item-article_no { 
-            font-family: 'Libre Barcode 39', cursive; 
-            font-size: 24pt; /* Using points for better print control */
-            line-height: 1; 
-        }
-
+        .header-article_no { font-family: 'Libre Barcode 39', cursive; font-size: 32pt; line-height: 1; }
+        .item-article_no { font-family: 'Libre Barcode 39', cursive; font-size: 24pt; line-height: 1; }
         @media print {
             .no-print { display: none; }
-            body {
-                -webkit-print-color-adjust: exact; /* Chrome, Safari, Edge */
-                -moz-print-color-adjust: exact;    /* Firefox */
-                print-color-adjust: exact;         /* Standard */
-            }
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
         @import url('https://fonts.googleapis.com/css2?family=Libre+Barcode+39&display=swap');
     </style>
@@ -56,12 +38,31 @@
             </div>
         </div>
         <div class="text-center mt-4 no-print">
-            <button class="btn btn-primary" onclick="window.print();"><i class="bi bi-printer"></i> Print</button>
-            <button class="btn btn-secondary" onclick="window.close();">Close</button>
+            <button class="btn btn-primary" onclick="window.print();"><i class="bi bi-printer"></i> <?php echo __('print'); ?></button>
+            <button class="btn btn-secondary" onclick="window.close();"><?php echo __('close'); ?></button>
         </div>
     </div>
 
     <script>
+        const translations = {
+            transferOrder: "<?php echo __('transfer_order'); ?>",
+            consignee: "<?php echo __('consignee'); ?>",
+            orderNumber: "<?php echo __('order_no'); ?>",
+            date: "<?php echo __('date'); ?>",
+            references: "<?php echo __('reference_no'); ?>",
+            itemNo: "<?php echo __('#'); ?>",
+            articleDescription: "<?php echo __('article_description'); ?>",
+            sku: "<?php echo __('sku'); ?>",
+            articleNo: "<?php echo __('article_no'); ?>",
+            qty: "<?php echo __('qty'); ?>",
+            fromLoc: "<?php echo __('from_location'); ?>",
+            toLoc: "<?php echo __('to_location'); ?>",
+            batch: "<?php echo __('batch'); ?>",
+            dot: "<?php echo __('dot'); ?>",
+            picker: "<?php echo __('picker'); ?>",
+            receiver: "<?php echo __('receiver'); ?>"
+        };
+
         document.addEventListener('DOMContentLoaded', function() {
             const urlParams = new URLSearchParams(window.location.search);
             const transferId = urlParams.get('id');
@@ -95,35 +96,35 @@
             const html = `
                 <header class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-4">
                     <img src="img/logo.png" alt="Continental Logo" class="header-logo" onerror="this.style.display='none'">
-                    <h2 class="mb-0">Transfer Order</h2>
+                    <h2 class="mb-0">${translations.transferOrder}</h2>
                 </header>
 
                 <div class="row mb-4">
                     <div class="col-6">
-                        <strong>Consignee:</strong><br>
+                        <strong>${translations.consignee}:</strong><br>
                         ${header.dest_warehouse}<br>
                         ${header.dest_address || ''}<br>
                         ${header.dest_city || ''}
                     </div>
                     <div class="col-6 text-end">
-                        <strong>Order Number:</strong> ${header.transfer_order_number}<br>
-                        <strong>Date:</strong> ${createdDate}<br>
-                        <strong>References:</strong> N/A<br>
+                        <strong>${translations.orderNumber}:</strong> ${header.transfer_order_number}<br>
+                        <strong>${translations.date}:</strong> ${createdDate}<br>
+                        <strong>${translations.references}:</strong> N/A<br>
                     </div>
                 </div>
 
                 <table class="table table-bordered">
                     <thead class="table-light">
                         <tr>
-                            <th>#</th>
-                            <th>Article Description</th>
-                            <th>SKU</th>
-                            <th>Article No</th>
-                            <th>Qty</th>
-                            <th>From Loc</th>
-                            <th>To Loc</th>
-                            <th>Batch</th>
-                            <th>DOT</th>
+                            <th>${translations.itemNo}</th>
+                            <th>${translations.articleDescription}</th>
+                            <th>${translations.sku}</th>
+                            <th>${translations.articleNo}</th>
+                            <th>${translations.qty}</th>
+                            <th>${translations.fromLoc}</th>
+                            <th>${translations.toLoc}</th>
+                            <th>${translations.batch}</th>
+                            <th>${translations.dot}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -145,9 +146,9 @@
 
                 <footer class="footer">
                     <div class="d-flex justify-content-between border-top pt-2">
-                        <span><strong>Picker:</strong> _________________________</span>
+                        <span><strong>${translations.picker}:</strong> _________________________</span>
                         <span>Page 1 of 1</span>
-                        <span><strong>Receiver:</strong> _________________________</span>
+                        <span><strong>${translations.receiver}:</strong> _________________________</span>
                     </div>
                 </footer>
             `;

@@ -6,6 +6,7 @@
 * 4. The "Apply Permissions" button in the new modal updates the `localAssignedRoles` array, which is then saved when the main form is submitted.
 * 5. Added `updatePermissionsCount` to provide immediate feedback on the main form about assigned roles.
 * 6. Removed all now-unused code related to the old dropdowns and list-based UI.
+* 7. Added logic to handle the new `preferred_language` dropdown in the user form.
 */
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM & Modal Selectors ---
@@ -189,12 +190,14 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('username').value = userData.username;
             document.getElementById('isGlobalAdmin').checked = userData.is_global_admin;
             document.getElementById('profileImagePreview').src = userData.profile_image_url || defaultImagePath;
+            document.getElementById('preferred_language').value = userData.preferred_language || 'en';
             localAssignedRoles = userData.warehouse_roles.map(role => ({
                 ...role,
                 warehouse_name: availableWarehouses.find(w => w.warehouse_id == role.warehouse_id)?.warehouse_name || 'Unknown'
             }));
         } else {
             document.getElementById('profileImagePreview').src = defaultImagePath;
+            document.getElementById('preferred_language').value = '';
         }
 
         updatePermissionsCount();
@@ -302,6 +305,7 @@ document.addEventListener('DOMContentLoaded', () => {
             full_name: document.getElementById('fullName').value,
             username: document.getElementById('username').value,
             is_global_admin: document.getElementById('isGlobalAdmin').checked,
+            preferred_language: document.getElementById('preferred_language').value,
             warehouse_roles: localAssignedRoles,
             profile_image: croppedImageData
         };

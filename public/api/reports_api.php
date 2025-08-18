@@ -1,10 +1,11 @@
 <?php
 // MODIFICATION SUMMARY
-// - Added a new report function `getProductMasterList` to provide a complete list of all products
-//   with their detailed attributes from the database.
-// - This function joins the `products` table with `tire_types` to include the tire type name.
-// - Registered the new report in the main switch statement under the `productMasterList` action.
-// - The function supports the advanced filtering UI, allowing users to search the product list.
+// - Updated `getInboundHistory` to include 'Tire Type' from the `tire_types` table.
+// - Updated `getOutboundHistory` to include 'Tire Type'.
+// - Updated `getReturnHistory` to include 'Tire Type'.
+// - Updated `getScrapHistory` to include 'Tire Type'.
+// - All updated functions now join with the `tire_types` table via the `products` table.
+// - The new 'Tire Type' column has been added to the SELECT statement in each of the four modified report queries.
 
 // api/reports_api.php
 
@@ -60,6 +61,13 @@ switch ($action) {
     case 'expiringStock': getExpiringStock($conn, $current_warehouse_id); break; 
     case 'productMovement': getProductMovement($conn, $current_warehouse_id); break;
     case 'scrapHistory': getScrapHistory($conn, $current_warehouse_id); break;
+
+    // Tire Type Reports
+    /*
+    case 'inboundByTireType': getInboundByTireType($conn, $current_warehouse_id); break;
+    case 'outboundByTireType': getOutboundByTireType($conn, $current_warehouse_id); break;
+    case 'returnsByTireType': getReturnsByTireType($conn, $current_warehouse_id); break;
+    */
 
     // Performance & User Activity
     case 'pickerPerformance': getPickerPerformance($conn, $current_warehouse_id); break;
@@ -530,6 +538,7 @@ function getReturnHistory($conn, $warehouse_id) {
             p.sku,
             p.product_name,
             p.article_no,
+            tt.tire_type_name AS 'Tire Type',
             ri.expected_quantity,
             ri.processed_quantity,
             ri.condition,
@@ -541,6 +550,7 @@ function getReturnHistory($conn, $warehouse_id) {
         JOIN outbound_orders oo ON r.order_id = oo.order_id
         JOIN customers c ON r.customer_id = c.customer_id
         JOIN products p ON ri.product_id = p.product_id
+        LEFT JOIN tire_types tt ON p.tire_type_id = tt.tire_type_id
         LEFT JOIN users u ON r.created_by = u.user_id
         WHERE oo.warehouse_id = ?
     ";
@@ -729,7 +739,7 @@ function getStockByLocation($conn, $warehouse_id) {
 }
 
 function getInboundHistory($conn, $warehouse_id) {
-    $sql = "SELECT ir.receipt_number, s.supplier_name, ir.actual_arrival_date, ir.status AS receipt_status, p.sku, p.product_name, p.article_no, ii.expected_quantity, ii.received_quantity, ii.putaway_quantity, wl.location_code AS final_location, u.full_name AS received_by_user FROM inbound_receipts ir JOIN inbound_items ii ON ir.receipt_id = ii.receipt_id JOIN products p ON ii.product_id = p.product_id JOIN suppliers s ON ir.supplier_id = s.supplier_id LEFT JOIN warehouse_locations wl ON ii.final_location_id = wl.location_id LEFT JOIN users u ON ir.received_by = u.user_id WHERE ir.warehouse_id = ?";
+    $sql = "SELECT ir.receipt_number, s.supplier_name, ir.actual_arrival_date, ir.status AS receipt_status, p.sku, p.product_name, p.article_no, tt.tire_type_name AS 'Tire Type', ii.expected_quantity, ii.received_quantity, ii.putaway_quantity, wl.location_code AS final_location, u.full_name AS received_by_user FROM inbound_receipts ir JOIN inbound_items ii ON ir.receipt_id = ii.receipt_id JOIN products p ON ii.product_id = p.product_id LEFT JOIN tire_types tt ON p.tire_type_id = tt.tire_type_id JOIN suppliers s ON ir.supplier_id = s.supplier_id LEFT JOIN warehouse_locations wl ON ii.final_location_id = wl.location_id LEFT JOIN users u ON ir.received_by = u.user_id WHERE ir.warehouse_id = ?";
     $params = [$warehouse_id];
     $types = "i";
     addDateFilter($sql, $params, $types, 'ir.actual_arrival_date');
@@ -744,7 +754,7 @@ function getInboundHistory($conn, $warehouse_id) {
 }
 
 function getOutboundHistory($conn, $warehouse_id) {
-    $sql = "SELECT oo.order_number, c.customer_name, oo.order_date, oo.actual_ship_date, oo.status AS order_status, p.sku, p.product_name, p.article_no, oi.ordered_quantity, oi.picked_quantity, oi.shipped_quantity, (SELECT wl.location_code FROM warehouse_locations wl JOIN outbound_item_picks oip ON wl.location_id = oip.location_id WHERE oip.outbound_item_id = oi.outbound_item_id LIMIT 1) as picked_from_location, u.full_name AS picked_by_user FROM outbound_orders oo JOIN outbound_items oi ON oo.order_id = oi.order_id JOIN products p ON oi.product_id = p.product_id JOIN customers c ON oo.customer_id = c.customer_id LEFT JOIN users u ON oo.picked_by = u.user_id WHERE oo.warehouse_id = ?";
+    $sql = "SELECT oo.order_number, c.customer_name, oo.order_date, oo.actual_ship_date, oo.status AS order_status, p.sku, p.product_name, p.article_no, tt.tire_type_name AS 'Tire Type', oi.ordered_quantity, oi.picked_quantity, oi.shipped_quantity, (SELECT wl.location_code FROM warehouse_locations wl JOIN outbound_item_picks oip ON wl.location_id = oip.location_id WHERE oip.outbound_item_id = oi.outbound_item_id LIMIT 1) as picked_from_location, u.full_name AS picked_by_user FROM outbound_orders oo JOIN outbound_items oi ON oo.order_id = oi.order_id JOIN products p ON oi.product_id = p.product_id LEFT JOIN tire_types tt ON p.tire_type_id = tt.tire_type_id JOIN customers c ON oo.customer_id = c.customer_id LEFT JOIN users u ON oo.picked_by = u.user_id WHERE oo.warehouse_id = ?";
     $params = [$warehouse_id];
     $types = "i";
     addDateFilter($sql, $params, $types, 'oo.order_date');
@@ -996,10 +1006,12 @@ function getScrapHistory($conn, $warehouse_id) {
             p.sku AS `SKU`,
             p.product_name AS `Product Name`,
             p.article_no AS `Article No`,
+            tt.tire_type_name AS 'Tire Type',
             oi.ordered_quantity AS `Quantity Scrapped`
         FROM outbound_orders oo
         JOIN outbound_items oi ON oo.order_id = oi.order_id
         JOIN products p ON oi.product_id = p.product_id
+        LEFT JOIN tire_types tt ON p.tire_type_id = tt.tire_type_id
         LEFT JOIN users u ON oo.picked_by = u.user_id
         WHERE oo.warehouse_id = ? 
           AND oo.order_type = 'Scrap' 
@@ -1019,4 +1031,106 @@ function getScrapHistory($conn, $warehouse_id) {
     
     sendJsonResponse(['success' => true, 'data' => $data]);
 }
+
+// --- NEW TIRE TYPE REPORT FUNCTIONS ---
+/*
+function getInboundByTireType($conn, $warehouse_id) {
+    $sql = "
+        SELECT
+            tt.tire_type_name AS 'Tire Type',
+            SUM(ii.received_quantity) AS 'Total Received Quantity',
+            COUNT(DISTINCT p.product_id) AS 'Unique Products'
+        FROM inbound_items ii
+        JOIN inbound_receipts ir ON ii.receipt_id = ir.receipt_id
+        JOIN products p ON ii.product_id = p.product_id
+        JOIN tire_types tt ON p.tire_type_id = tt.tire_type_id
+        WHERE ir.warehouse_id = ?
+    ";
+    $params = [$warehouse_id];
+    $types = "i";
+
+    addDateFilter($sql, $params, $types, 'ir.actual_arrival_date');
+    // For advanced filters, we need to map the title to the actual db column
+    // This is a simple example. A more robust solution might use a map.
+    if (isset($_GET['adv_filters'])) {
+        $_GET['adv_filters'] = str_replace('"field":"Tire Type"','"field":"tt.tire_type_name"', $_GET['adv_filters']);
+    }
+    addAdvancedFilters($sql, $params, $types);
+
+    $sql .= " GROUP BY tt.tire_type_name ORDER BY tt.tire_type_name ASC";
+
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+
+    sendJsonResponse(['success' => true, 'data' => $data]);
+}
+
+function getOutboundByTireType($conn, $warehouse_id) {
+    $sql = "
+        SELECT
+            tt.tire_type_name AS 'Tire Type',
+            SUM(oi.picked_quantity) AS 'Total Picked Quantity',
+            COUNT(DISTINCT p.product_id) AS 'Unique Products'
+        FROM outbound_items oi
+        JOIN outbound_orders oo ON oi.order_id = oo.order_id
+        JOIN products p ON oi.product_id = p.product_id
+        JOIN tire_types tt ON p.tire_type_id = tt.tire_type_id
+        WHERE oo.warehouse_id = ? AND oo.status NOT IN ('Cancelled', 'New')
+    ";
+    $params = [$warehouse_id];
+    $types = "i";
+
+    addDateFilter($sql, $params, $types, 'oo.order_date');
+    if (isset($_GET['adv_filters'])) {
+        $_GET['adv_filters'] = str_replace('"field":"Tire Type"','"field":"tt.tire_type_name"', $_GET['adv_filters']);
+    }
+    addAdvancedFilters($sql, $params, $types);
+
+    $sql .= " GROUP BY tt.tire_type_name ORDER BY tt.tire_type_name ASC";
+
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+
+    sendJsonResponse(['success' => true, 'data' => $data]);
+}
+
+
+function getReturnsByTireType($conn, $warehouse_id) {
+    $sql = "
+        SELECT
+            tt.tire_type_name AS 'Tire Type',
+            SUM(ri.processed_quantity) AS 'Total Returned Quantity',
+            COUNT(DISTINCT p.product_id) AS 'Unique Products'
+        FROM return_items ri
+        JOIN returns r ON ri.return_id = r.return_id
+        JOIN outbound_orders oo ON r.order_id = oo.order_id
+        JOIN products p ON ri.product_id = p.product_id
+        JOIN tire_types tt ON p.tire_type_id = tt.tire_type_id
+        WHERE oo.warehouse_id = ?
+    ";
+    $params = [$warehouse_id];
+    $types = "i";
+
+    addDateFilter($sql, $params, $types, 'r.created_at');
+    if (isset($_GET['adv_filters'])) {
+        $_GET['adv_filters'] = str_replace('"field":"Tire Type"','"field":"tt.tire_type_name"', $_GET['adv_filters']);
+    }
+    addAdvancedFilters($sql, $params, $types);
+
+    $sql .= " GROUP BY tt.tire_type_name ORDER BY tt.tire_type_name ASC";
+
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+
+    sendJsonResponse(['success' => true, 'data' => $data]);
+}*/
 ?>

@@ -1,10 +1,37 @@
 /* public/css/style.css */
 
 /*
-   Tailwind CSS is used via CDN in HTML for most styling.
-   This file is for custom styles not easily achieved with Tailwind
-   or for overriding/extending Tailwind defaults.
+   MODIFICATION SUMMARY:
+   1. Added a new section at the end for RTL (Right-to-Left) styles.
+   2. These styles are scoped with `html[dir="rtl"]` to only apply when the language is Arabic.
+   3. The rules adjust the main body padding and reposition the fixed sidebar from the left to the right.
+   4. The sidebar's dropdown menus are also adjusted to open correctly from right to left.
 */
+
+/* --- RTL (Right-to-Left) Styles --- */
+@media (min-width: 768px) {
+    html[dir="rtl"] body {
+        padding-left: 0;
+        padding-right: 80px;
+    }
+
+    html[dir="rtl"] .sidebar {
+        left: auto;
+        right: 0;
+    }
+
+    html[dir="rtl"] .sidebar .dropdown-menu {
+        margin-left: 0 !important;
+        margin-right: 12px !important;
+    }
+
+    /* Adjust user profile dropdown position for RTL */
+    html[dir="rtl"] .sidebar .dropdown .dropdown-menu {
+        left: 10px !important;
+        right: auto !important;
+    }
+}
+
 
 /* Import Google Font - Inter */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -103,6 +130,123 @@ tbody tr:hover {
     background-color: #eff6ff;
     /* blue-50 */
 }
+/* --- NEW RULES FOR COLORFUL CARD HEADERS --- */
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+}
+
+.card-header.header-primary {
+    background: linear-gradient(to right, #0d6efd, #0b5ed7);
+    color: #fff;
+}
+
+.card-header.header-success {
+    background: linear-gradient(to right, #198754, #157347);
+    color: #fff;
+}
+
+.card-header.header-danger {
+    background: linear-gradient(to right, #dc3545, #bb2d3b);
+    color: #fff;
+}
+
+.card-header.header-warning {
+    background: linear-gradient(to right, #ffc107, #ffb300);
+    color: #000;
+}
+.card-header.header-warning .btn-card-header,
+.card-header.header-warning .card-title {
+    color: #000;
+}
+.card-header.header-warning .btn-card-header:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.card-header.header-info {
+    background: linear-gradient(to right, #0dcaf0, #31d2f2);
+    color: #000;
+}
+.card-header.header-info .btn-card-header,
+.card-header.header-info .card-title {
+    color: #000;
+}
+.card-header.header-info .btn-card-header:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.card-header.header-dark {
+    background: linear-gradient(to right, #212529, #1c1f23);
+    color: #fff;
+}
+
+.card-header.header-light {
+    background: linear-gradient(to right, #f8f9fa, #e9ecef);
+    color: #000;
+    border-bottom: 1px solid #dee2e6;
+}
+.card-header.header-light .btn-card-header,
+.card-header.header-light .card-title {
+    color: #000;
+}
+.card-header.header-light .btn-card-header:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.card-header .card-title {
+    margin-bottom: 0;
+}
+
+.card-header-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.btn-card-header {
+    background: transparent;
+    border: none;
+    color: #fff; /* Default color */
+    opacity: 0.8;
+    font-size: 1rem;
+    padding: 0.25rem;
+    line-height: 1;
+    border-radius: 0.25rem;
+    transition: opacity 0.2s ease, background-color 0.2s ease;
+}
+
+.btn-card-header:hover {
+    opacity: 1;
+    background-color: rgba(255, 255, 255, 0.2); /* Default hover */
+}
+
+/* For maximized card */
+.card.card-maximized {
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 1050; /* Higher than most elements */
+    width: auto;
+    height: auto;
+    margin-left: 80px; /* Account for sidebar */
+    display: flex;
+    flex-direction: column;
+}
+.card.card-maximized .card-body {
+    flex-grow: 1;
+    overflow-y: auto;
+}
+
+@media (max-width: 767px) {
+    .card.card-maximized {
+        margin-left: 0; /* No sidebar on mobile */
+    }
+}
+
 
 /* Form element focus states (consistent with Tailwind's ring focus) */
 input:focus,
@@ -114,6 +258,13 @@ textarea:focus {
     box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.5);
     /* indigo-500 with opacity */
 }
+
+/* --- NEW RULE FOR READONLY INPUTS --- */
+input[readonly] {
+    font-weight: bold;
+    background-color: #e9ecef;
+}
+
 
 /* General button styling */
 button {
@@ -168,11 +319,6 @@ button:active {
         font-weight: 600;
         color: #4b5563;
     }
-
-    /* Example of data-label for responsive tables */
-    /* td:nth-of-type(1):before { content: "Receipt No."; } */
-    /* td:nth-of-type(2):before { content: "Supplier"; } */
-    /* You'd need to add data-label attributes to your HTML <td> tags for this to work */
 }
 
 
@@ -209,19 +355,16 @@ button:active {
 /* Desktop Submenu Styles */
 .sidebar .dropdown-menu {
     background-color: #343a40;
-    /* Dark background */
     border-radius: 0.5rem;
     border: none;
     box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.15);
     margin-left: 12px !important;
     padding: 0;
     overflow: hidden;
-    /* Ensures child elements conform to border-radius */
 }
 
 .sidebar .dropdown-header {
     background-color: #495057;
-    /* Lighter background for header */
     color: white;
     padding: 0.75rem 1.5rem;
     font-size: 1rem;
@@ -232,7 +375,6 @@ button:active {
     padding: 0.75rem 1.5rem;
     font-weight: 500;
     color: #adb5bd;
-    /* Lighter text color for dark background */
     display: flex;
     align-items: center;
 }
@@ -310,16 +452,19 @@ button:active {
     background-color: #e9ecef;
 }
 
+#availableQtyInput input[readonly] {
+    font-weight: bold;
+    background-color: #e9ecef;
+}
+
 .bg-purple {
     color: #fff;
     background-color: #6f42c1;
-    /* Bootstrap's purple */
 }
 
 .bg-orange {
     color: #000;
     background-color: #fd7e14;
-    /* Bootstrap's orange */
 }
 
 
@@ -343,29 +488,12 @@ button:active {
     border-left: none;
 }
 
-.status-new {
-    color: #007bff;
-}
-
-.status-picked {
-    color: #ffc107;
-}
-
-.status-shipped {
-    color: #17a2b8;
-}
-
-.status-out-for-delivery {
-    color: #fd7e14;
-}
-
-.status-delivered {
-    color: #28a745;
-}
-
-.status-cancelled {
-    color: #dc3545;
-}
+.status-new { color: #007bff; }
+.status-picked { color: #ffc107; }
+.status-shipped { color: #17a2b8; }
+.status-out-for-delivery { color: #fd7e14; }
+.status-delivered { color: #28a745; }
+.status-cancelled { color: #dc3545; }
 
 /* Timeline Component */
 .timeline {
@@ -401,7 +529,6 @@ button:active {
 
 .timeline-item.active .timeline-icon {
     background-color: #007bff;
-    /* Highlight color for the latest status */
 }
 
 .timeline-content {
@@ -416,7 +543,6 @@ button:active {
     color: #007bff;
 }
 
-/* Original Tracking Page Styles (kept for compatibility if needed) */
 .tracking-container {
     max-width: 600px;
     margin: auto;
@@ -424,4 +550,13 @@ button:active {
     background: #fff;
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* --- MISC --- */
+button {
+    transition: background-color 0.2s ease-in-out, transform 0.1s ease-in-out;
+}
+
+button:active {
+    transform: translateY(1px);
 }

@@ -3,6 +3,9 @@
 * MODIFICATION SUMMARY:
 * 1. `handleGetUserLoginActivity`: This function has been updated to select the new, stored geolocation fields (`city`, `country`, `latitude`, `longitude`) directly from the `user_login_activity` table.
 * 2. The API response now includes all the necessary data for the frontend, eliminating the need for client-side geolocation lookups.
+* 3. Added `preferred_language` to `handleGetUserDetails` so the edit form can be populated correctly.
+* 4. Updated `handleCreateUser` to accept and insert the `preferred_language`.
+* 5. Updated `handleUpdateUser` to accept and update the `preferred_language`.
 */
 
 // api/users_api.php
@@ -250,7 +253,7 @@ function handleGetUsers($conn) {
 function handleGetUserDetails($conn) {
     $user_id = filter_input(INPUT_GET, 'user_id', FILTER_VALIDATE_INT);
     if (!$user_id) sendJsonResponse(['success' => false, 'message' => 'Invalid User ID.'], 400);
-    $stmt = $conn->prepare("SELECT user_id, username, full_name, profile_image_url, is_global_admin FROM users WHERE user_id = ?");
+    $stmt = $conn->prepare("SELECT user_id, username, full_name, profile_image_url, is_global_admin, preferred_language FROM users WHERE user_id = ?");
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
     $user = $stmt->get_result()->fetch_assoc();
@@ -269,14 +272,18 @@ function handleCreateUser($conn) {
     $username = sanitize_input($input['username'] ?? '');
     $full_name = sanitize_input($input['full_name'] ?? '');
     $password = $input['password'] ?? '';
+    $preferred_language = sanitize_input($input['preferred_language'] ?? 'en');
+
     if (empty($username) || empty($full_name) || empty($password)) sendJsonResponse(['success' => false, 'message' => 'Required fields are missing.'], 400);
     if ($password !== ($input['confirm_password'] ?? '')) sendJsonResponse(['success' => false, 'message' => 'Passwords do not match.'], 400);
+    
     $password_hash = password_hash($password, PASSWORD_DEFAULT);
     $is_global_admin = !empty($input['is_global_admin']) ? 1 : 0;
+    
     $conn->begin_transaction();
     try {
-        $stmt = $conn->prepare("INSERT INTO users (username, full_name, password_hash, is_global_admin) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("sssi", $username, $full_name, $password_hash, $is_global_admin);
+        $stmt = $conn->prepare("INSERT INTO users (username, full_name, password_hash, is_global_admin, preferred_language) VALUES (?, ?, ?, ?, ?)");
+        $stmt->bind_param("sssis", $username, $full_name, $password_hash, $is_global_admin, $preferred_language);
         $stmt->execute();
         $user_id = $stmt->insert_id;
         $stmt->close();
@@ -300,8 +307,11 @@ function handleUpdateUser($conn) {
     $input = json_decode(file_get_contents('php://input'), true);
     $user_id = filter_var($input['user_id'] ?? null, FILTER_VALIDATE_INT);
     if (!$user_id) sendJsonResponse(['success' => false, 'message' => 'Invalid User ID.'], 400);
+    
     $full_name = sanitize_input($input['full_name'] ?? '');
     $is_global_admin = !empty($input['is_global_admin']) ? 1 : 0;
+    $preferred_language = sanitize_input($input['preferred_language'] ?? 'en');
+
     $conn->begin_transaction();
     try {
         $new_image_url = handleImageUpload($input['profile_image'] ?? null);
@@ -311,18 +321,20 @@ function handleUpdateUser($conn) {
             $stmt->execute();
             deleteOldImage($stmt->get_result()->fetch_object()->profile_image_url);
             $stmt->close();
-            $stmt = $conn->prepare("UPDATE users SET full_name = ?, profile_image_url = ?, is_global_admin = ? WHERE user_id = ?");
-            $stmt->bind_param("ssii", $full_name, $new_image_url, $is_global_admin, $user_id);
+            $stmt = $conn->prepare("UPDATE users SET full_name = ?, profile_image_url = ?, is_global_admin = ?, preferred_language = ? WHERE user_id = ?");
+            $stmt->bind_param("ssisi", $full_name, $new_image_url, $is_global_admin, $preferred_language, $user_id);
         } else {
-            $stmt = $conn->prepare("UPDATE users SET full_name = ?, is_global_admin = ? WHERE user_id = ?");
-            $stmt->bind_param("sii", $full_name, $is_global_admin, $user_id);
+            $stmt = $conn->prepare("UPDATE users SET full_name = ?, is_global_admin = ?, preferred_language = ? WHERE user_id = ?");
+            $stmt->bind_param("sisi", $full_name, $is_global_admin, $preferred_language, $user_id);
         }
         $stmt->execute();
         $stmt->close();
+        
         $stmt = $conn->prepare("DELETE FROM user_warehouse_roles WHERE user_id = ?");
         $stmt->bind_param("i", $user_id);
         $stmt->execute();
         $stmt->close();
+        
         if (!$is_global_admin && !empty($input['warehouse_roles'])) {
             $stmt = $conn->prepare("INSERT INTO user_warehouse_roles (user_id, warehouse_id, role) VALUES (?, ?, ?)");
             foreach ($input['warehouse_roles'] as $role_info) {

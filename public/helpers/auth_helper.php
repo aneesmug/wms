@@ -1,9 +1,28 @@
 <?php
 // helpers/auth_helper.php
 
+// MODIFICATION SUMMARY:
+// 1. CRITICAL FIX: Added a require_once for the main config.php file at the very top.
+// 2. This ensures that a database connection ($conn) is always available before the language helper is loaded.
+// 3. This resolves the "Call to undefined function __()" fatal error in users.php and other pages.
+
+// Ensure config is loaded first to establish DB connection
+require_once __DIR__ . '/../config/config.php';
+
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
+
+// Include the new language helper to make its functions available everywhere
+require_once __DIR__ . '/language_helper.php';
+
+// Initialize language from session if user is logged in
+if (isset($_SESSION['lang'])) {
+    load_language($_SESSION['lang']);
+} else {
+    load_language('en'); // Default to English if no language is set
+}
+
 
 if (!function_exists('sendJsonResponse')) {
     function sendJsonResponse($data, $statusCode = 200) {

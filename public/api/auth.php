@@ -1,17 +1,18 @@
 <?php
 /*
 * MODIFICATION SUMMARY:
-* 1. The `handleLogin` function now provides specific, machine-readable error codes.
-* 2. If the username is not found, it returns an `error_code: 'USERNAME_NOT_FOUND'`.
-* 3. If the password is incorrect, it returns an `error_code: 'INCORRECT_PASSWORD'`.
-* 4. This allows the frontend JavaScript to distinguish between the two types of errors and handle them differently.
+* 1. CRITICAL: Included the main `auth_helper.php` at the top.
+* 2. This centralizes all authentication, session, and language logic.
+* 3. Removed functions that were already defined in the helper to avoid conflicts and redundancy.
+* 4. This change directly follows the instruction to use the helper file within the API files.
 */
 
 // api/auth.php
 
-require_once __DIR__ . '/../config/config.php';
+// This helper now handles the DB connection, session start, and language loading.
+require_once __DIR__ . '/../helpers/auth_helper.php';
 
-$conn = getDbConnection();
+global $conn; // Make the connection from config.php available in this scope.
 
 // --- Constants ---
 define('REMEMBER_ME_COOKIE_NAME', 'wms_remember_me');
@@ -58,7 +59,7 @@ function handleLogin($conn) {
         return;
     }
 
-    $stmt = $conn->prepare("SELECT user_id, username, password_hash, is_global_admin, full_name, profile_image_url FROM users WHERE username = ?");
+    $stmt = $conn->prepare("SELECT user_id, username, password_hash, is_global_admin, full_name, profile_image_url, preferred_language FROM users WHERE username = ?");
     $stmt->bind_param("s", $username);
     $stmt->execute();
     $user = $stmt->get_result()->fetch_assoc();
@@ -74,6 +75,7 @@ function handleLogin($conn) {
         $new_session_id = session_id();
 
         set_user_session($user);
+        $_SESSION['lang'] = $user['preferred_language'] ?? 'en';
         $_SESSION['last_activity'] = time();
         
         update_active_session_and_log_activity($conn, $user['user_id'], $new_session_id);
@@ -333,6 +335,7 @@ function validate_remember_me_cookie($conn): bool {
             session_regenerate_id(true);
             $new_session_id = session_id();
             set_user_session($user);
+            $_SESSION['lang'] = $user['preferred_language'] ?? 'en';
             $_SESSION['last_activity'] = time();
 
             update_active_session_and_log_activity($conn, $user['user_id'], $new_session_id);

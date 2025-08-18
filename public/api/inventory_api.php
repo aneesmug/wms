@@ -1,14 +1,15 @@
 <?php
 // api/inventory_api.php
 // MODIFICATION SUMMARY:
-// 1. Added a `calculateExpiryDate` helper function (from inbound_api.php) to calculate expiry dates from DOT codes.
-// 2. Modified `adjustInventoryQuantity` to handle sticker generation when stock is added.
-//    - It now reliably gets the `inventory_id` for both new and existing stock.
-//    - It calculates and saves the `expiry_date` for new stock.
-//    - It programmatically finds or creates a "System Internal" supplier and a daily "MANUAL-YYYYMMDD" receipt to associate with the stock, which is required for sticker generation.
-//    - It generates sticker data in the `inbound_putaway_stickers` table for each unit added.
-//    - It returns the `inventory_id` of the affected stock.
-// 3. Updated `handleInventoryAdjustment` to include the new `inventory_id` in the API response, allowing the frontend to trigger the print dialog.
+// 1. Added a new GET action `get_inventory_by_location` to fetch all inventory items for a specific location ID. This is used to populate the product dropdown on the new transfer page.
+// 2. Added a new POST action `internal_transfer` to handle the logic for moving items between locations.
+// 3. Created the `handleInternalTransfer` function which performs critical server-side validation:
+//    - Checks that the source and destination locations are not locked.
+//    - Checks that the source and destination locations are not of the 'block_area' type.
+//    - Verifies sufficient stock quantity for the transfer.
+//    - Checks destination location capacity.
+// 4. The new transfer logic reuses the existing `transferInventory` function after performing all necessary checks, ensuring consistency with other inventory movements.
+// 5. Encapsulated the transfer logic within a database transaction to ensure data integrity.
 
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../helpers/auth_helper.php';
@@ -29,19 +30,55 @@ switch ($method) {
         if ($action === 'location_stock') {
             $warehouse_id_for_stock = filter_input(INPUT_GET, 'warehouse_id', FILTER_VALIDATE_INT) ?: $current_warehouse_id;
             handleGetLocationStock($conn, $warehouse_id_for_stock);
+        } elseif ($action === 'get_inventory_by_location') {
+            $location_id = filter_input(INPUT_GET, 'location_id', FILTER_VALIDATE_INT);
+            handleGetInventoryByLocation($conn, $location_id, $current_warehouse_id);
         } else {
             handleGetInventory($conn, $current_warehouse_id);
         }
         break;
     case 'POST':
-        authorize_user_role(['manager']);
         $input = json_decode(file_get_contents('php://input'), true);
-        handleInventoryAdjustment($conn, $input, $current_warehouse_id, $current_user_id);
+        $action_type = sanitize_input($input['action'] ?? $input['action_type'] ?? '');
+
+        if ($action_type === 'internal_transfer') {
+            authorize_user_role(['operator', 'manager']);
+            handleInternalTransfer($conn, $input, $current_warehouse_id, $current_user_id);
+        } else {
+            authorize_user_role(['manager']);
+            handleInventoryAdjustment($conn, $input, $current_warehouse_id, $current_user_id);
+        }
         break;
     default:
         sendJsonResponse(['success' => false, 'message' => 'Method Not Allowed'], 405);
         break;
 }
+
+function handleGetInventoryByLocation($conn, $location_id, $warehouse_id) {
+    if (!$location_id) {
+        sendJsonResponse(['success' => false, 'message' => 'Location ID is required.'], 400);
+        return;
+    }
+
+    $sql = "
+        SELECT 
+            i.inventory_id, i.quantity, i.batch_number, i.dot_code,
+            p.product_id, p.sku, p.product_name, p.article_no
+        FROM inventory i
+        JOIN products p ON i.product_id = p.product_id
+        WHERE i.location_id = ? AND i.warehouse_id = ? AND i.quantity > 0
+        ORDER BY p.product_name, p.article_no
+    ";
+
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("ii", $location_id, $warehouse_id);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+
+    sendJsonResponse(['success' => true, 'data' => $result]);
+}
+
 
 function checkLocationLock($conn, $location_code, $warehouse_id) {
     $stmt = $conn->prepare("SELECT is_locked FROM warehouse_locations WHERE location_code = ? AND warehouse_id = ?");
@@ -160,6 +197,98 @@ function handleGetInventory($conn, $warehouse_id) {
     unset($item);
     
     sendJsonResponse(['success' => true, 'data' => $inventory_data]);
+}
+
+function handleInternalTransfer($conn, $input, $warehouse_id, $user_id) {
+    $inventory_id = filter_var($input['inventory_id'] ?? 0, FILTER_VALIDATE_INT);
+    $to_location_id = filter_var($input['to_location_id'] ?? 0, FILTER_VALIDATE_INT);
+    $quantity = filter_var($input['quantity'] ?? 0, FILTER_VALIDATE_INT);
+
+    if (!$inventory_id || !$to_location_id || $quantity <= 0) {
+        sendJsonResponse(['success' => false, 'message' => 'Missing required transfer details.'], 400);
+        return;
+    }
+
+    $conn->begin_transaction();
+    try {
+        // 1. Get source inventory item and lock the row
+        $stmt_source = $conn->prepare("SELECT * FROM inventory WHERE inventory_id = ? AND warehouse_id = ? FOR UPDATE");
+        $stmt_source->bind_param("ii", $inventory_id, $warehouse_id);
+        $stmt_source->execute();
+        $source_item = $stmt_source->get_result()->fetch_assoc();
+        $stmt_source->close();
+
+        if (!$source_item) {
+            throw new Exception("Source inventory item not found.");
+        }
+        if ($source_item['quantity'] < $quantity) {
+            throw new Exception("Insufficient stock. Available: {$source_item['quantity']}, trying to move: {$quantity}.");
+        }
+
+        $from_location_id = $source_item['location_id'];
+        if ($from_location_id == $to_location_id) {
+            throw new Exception("Source and destination locations cannot be the same.");
+        }
+
+        // 2. Get details for both locations
+        $location_ids = [$from_location_id, $to_location_id];
+        $stmt_locs = $conn->prepare("
+            SELECT wl.location_id, wl.location_code, wl.is_locked, wl.max_capacity_units, lt.type_name,
+                   (SELECT COALESCE(SUM(inv.quantity), 0) FROM inventory inv WHERE inv.location_id = wl.location_id) AS occupied_capacity
+            FROM warehouse_locations wl
+            LEFT JOIN location_types lt ON wl.location_type_id = lt.type_id
+            WHERE wl.location_id IN (?, ?) AND wl.warehouse_id = ?
+        ");
+        $stmt_locs->bind_param("iii", $from_location_id, $to_location_id, $warehouse_id);
+        $stmt_locs->execute();
+        $locations_res = $stmt_locs->get_result();
+        $locations = [];
+        while($row = $locations_res->fetch_assoc()) {
+            $locations[$row['location_id']] = $row;
+        }
+        $stmt_locs->close();
+
+        if (count($locations) !== 2) {
+            throw new Exception("One or both locations are invalid.");
+        }
+
+        $from_location = $locations[$from_location_id];
+        $to_location = $locations[$to_location_id];
+
+        // 3. Perform validation checks
+        if ($from_location['is_locked'] == 1 || $to_location['is_locked'] == 1) {
+            throw new Exception("Cannot transfer. One or both locations are locked.");
+        }
+        if ($from_location['type_name'] === 'block_area' || $to_location['type_name'] === 'block_area') {
+            throw new Exception("Cannot transfer to or from a block area using this function.");
+        }
+        if ($to_location['max_capacity_units'] !== null) {
+            $available_capacity = $to_location['max_capacity_units'] - $to_location['occupied_capacity'];
+            if ($quantity > $available_capacity) {
+                throw new Exception("Transfer failed. Destination location '{$to_location['location_code']}' does not have enough capacity. Available space: {$available_capacity} units.");
+            }
+        }
+
+        // 4. Prepare data and call the existing transfer function
+        $transfer_data = [
+            'product_id' => $source_item['product_id'],
+            'current_location_article_no' => $from_location['location_code'],
+            'new_location_article_no' => $to_location['location_code'],
+            'quantity_change' => $quantity,
+            'batch_number' => $source_item['batch_number'],
+            'dot_code' => $source_item['dot_code']
+        ];
+        
+        transferInventory($conn, $transfer_data, $warehouse_id, $user_id);
+
+        $conn->commit();
+        sendJsonResponse(['success' => true, 'message' => 'Inventory transferred successfully.']);
+
+    } catch (Exception $e) {
+        $conn->rollback();
+        error_log("Internal transfer error: " . $e->getMessage());
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 400);
+    }
 }
 
 
