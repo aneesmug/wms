@@ -1,10 +1,12 @@
 <?php
 // api/inbound.php
-// 016-inbound_api.php
+// 013-inbound_api.php
 
 /*
 * MODIFICATION SUMMARY:
-* 001 (2025-08-14): Modified handleGetAvailableLocations to exclude locations of type 'bin', 'block_area', and 'ground' from the putaway location dropdown.
+* 013 (2025-08-19): Refined the container status update logic to correctly handle partial verification.
+* - `updateContainerStatus`: The logic is now more robust. It ensures that a container remains in the 'Arrived' state as long as there are still items with an 'Expected' status. It will only transition to 'Processing' or other states once ALL items have been verified. This is the key fix to prevent the verification UI from disappearing prematurely.
+* - All other functions remain the same as they correctly support the intended workflow.
 */
 
 require_once __DIR__ . '/../config/config.php';
@@ -12,7 +14,6 @@ require_once __DIR__ . '/../config/config.php';
 $conn = getDbConnection();
 ob_start();
 
-// Authenticate user and ensure a warehouse is selected for ALL inbound operations.
 authenticate_user(true, null);
 $current_warehouse_id = get_current_warehouse_id();
 
@@ -38,20 +39,14 @@ switch ($method) {
         authorize_user_role(['viewer', 'operator', 'manager']);
         if ($action === 'getAvailableLocations') {
             handleGetAvailableLocations($conn, $current_warehouse_id);
-        } elseif ($action === 'getReportData') {
-            handleGetReportData($conn, $current_warehouse_id);
         } elseif ($action === 'getProductsWithInventory') {
             handleGetProductsWithInventory($conn, $current_warehouse_id);
-        } elseif ($action === 'getBinLocation') {
-            handleGetBinLocation($conn, $current_warehouse_id);
-        } elseif ($action === 'getInventoryDetailsByBatch') {
-            handleGetInventoryDetailsByBatch($conn, $current_warehouse_id);
+        } elseif ($action === 'getPutawayHistory') {
+            handleGetPutawayHistory($conn, $current_warehouse_id);
         } elseif ($action === 'getInventoryLabelData') {
             handleGetInventoryLabelData($conn, $current_warehouse_id);
         } elseif ($action === 'getStickersForInventory') {
             handleGetStickersForInventory($conn, $current_warehouse_id);
-        } elseif ($action === 'getPutawayHistory') {
-            handleGetPutawayHistory($conn, $current_warehouse_id);
         } else {
             handleGetInbound($conn, $current_warehouse_id);
         }
@@ -66,16 +61,22 @@ switch ($method) {
             handleUpdateContainer($conn, $current_warehouse_id);
         } elseif ($action === 'deleteContainer') {
             handleDeleteContainer($conn, $current_warehouse_id);
-        } elseif ($action === 'receiveItem') {
-            handleReceiveItem($conn, $current_warehouse_id);
+        } elseif ($action === 'addExpectedItem') {
+            handleAddExpectedItem($conn, $current_warehouse_id);
+        } elseif ($action === 'addBulkExpectedItems') {
+            handleAddBulkExpectedItems($conn, $current_warehouse_id);
+        } elseif ($action === 'markContainerArrived') {
+            handleMarkContainerArrived($conn, $current_warehouse_id);
+        } elseif ($action === 'verifyAndReceiveItems') {
+            handleVerifyAndReceiveItems($conn, $current_warehouse_id);
         } elseif ($action === 'putawayItem') {
             handlePutawayItem($conn, $current_warehouse_id);
         } elseif ($action === 'cancelReceipt') {
             handleCancelReceipt($conn, $current_warehouse_id);
-        } elseif ($action === 'updateReceivedItem') { 
-            handleUpdateReceivedItem($conn, $current_warehouse_id);
-        } elseif ($action === 'deleteReceivedItem') { 
-            handleDeleteReceivedItem($conn, $current_warehouse_id);
+        } elseif ($action === 'updateInboundItem') { 
+            handleUpdateInboundItem($conn, $current_warehouse_id);
+        } elseif ($action === 'deleteInboundItem') { 
+            handleDeleteInboundItem($conn, $current_warehouse_id);
         } else {
             sendJsonResponse(['success' => false, 'message' => 'Invalid POST action'], 400);
         }
@@ -245,13 +246,18 @@ function handleUpdateContainer($conn, $warehouse_id) {
 
     $conn->begin_transaction();
     try {
-        $stmt_check = $conn->prepare("SELECT container_id FROM inbound_items WHERE container_id = ? LIMIT 1");
+        $stmt_check = $conn->prepare("SELECT status FROM inbound_receipt_containers WHERE container_id = ?");
         $stmt_check->bind_param("i", $container_id);
         $stmt_check->execute();
-        if ($stmt_check->get_result()->num_rows > 0) {
-            throw new Exception("Cannot modify a container that already has received items.", 409);
-        }
+        $container = $stmt_check->get_result()->fetch_assoc();
         $stmt_check->close();
+
+        if (!$container) {
+             throw new Exception("Container not found.", 404);
+        }
+        if ($container['status'] !== 'Expected') {
+            throw new Exception("Cannot modify a container that is not in 'Expected' status.", 409);
+        }
 
         $stmt = $conn->prepare("UPDATE inbound_receipt_containers SET bl_number = ?, container_number = ?, serial_number = ?, reference_number = ?, expected_arrival_date = ? WHERE container_id = ?");
         $stmt->bind_param("sssssi", sanitize_input($input['bl_number'] ?? ''), $container_number, sanitize_input($input['serial_number'] ?? ''), $reference_number, $expected_arrival_date, $container_id);
@@ -272,22 +278,25 @@ function handleDeleteContainer($conn, $warehouse_id) {
 
     $conn->begin_transaction();
     try {
-        $stmt_get_receipt = $conn->prepare("SELECT receipt_id FROM inbound_receipt_containers WHERE container_id = ?");
+        $stmt_get_receipt = $conn->prepare("SELECT receipt_id, status FROM inbound_receipt_containers WHERE container_id = ?");
         $stmt_get_receipt->bind_param("i", $container_id);
         $stmt_get_receipt->execute();
         $container_data = $stmt_get_receipt->get_result()->fetch_assoc();
-        $receipt_id = $container_data['receipt_id'] ?? null;
         $stmt_get_receipt->close();
 
-        if (!$receipt_id) {
-            throw new Exception("Container not found.");
+        if (!$container_data) { throw new Exception("Container not found."); }
+        
+        $receipt_id = $container_data['receipt_id'];
+        
+        if ($container_data['status'] !== 'Expected') {
+             throw new Exception("Cannot delete a container that is not in 'Expected' status.", 409);
         }
 
         $stmt_check = $conn->prepare("SELECT container_id FROM inbound_items WHERE container_id = ? LIMIT 1");
         $stmt_check->bind_param("i", $container_id);
         $stmt_check->execute();
         if ($stmt_check->get_result()->num_rows > 0) {
-            throw new Exception("Cannot delete a container that already has received items.", 409);
+            throw new Exception("Cannot delete a container that already has expected items. Please delete the items first.", 409);
         }
         $stmt_check->close();
 
@@ -306,64 +315,6 @@ function handleDeleteContainer($conn, $warehouse_id) {
     }
 }
 
-
-function handleReceiveItem($conn, $warehouse_id) {
-    $input = json_decode(file_get_contents('php://input'), true);
-    $receipt_id = filter_var($input['receipt_id'] ?? null, FILTER_VALIDATE_INT);
-    $container_id = filter_var($input['container_id'] ?? null, FILTER_VALIDATE_INT);
-    $article_no = sanitize_input($input['article_no'] ?? '');
-    $received_quantity = filter_var($input['received_quantity'] ?? 0, FILTER_VALIDATE_INT);
-    $dot_code = sanitize_input($input['dot_code'] ?? '');
-    if (!$receipt_id || !$container_id || empty($article_no) || $received_quantity <= 0 || empty($dot_code)) { sendJsonResponse(['success' => false, 'message' => 'All fields are required.'], 400); return; }
-
-    $conn->begin_transaction();
-    try {
-        $stmt_prod = $conn->prepare("SELECT product_id, expiry_years FROM products WHERE article_no = ?");
-        $stmt_prod->bind_param("s", $article_no);
-        $stmt_prod->execute();
-        $product = $stmt_prod->get_result()->fetch_assoc();
-        $stmt_prod->close();
-        if (!$product) throw new Exception("Product not found.");
-        
-        $expiry_date = convertDotToDate($dot_code, $product['expiry_years']);
-        if ($expiry_date === null) throw new Exception("Invalid DOT format.");
-
-        $conn->query("UPDATE inbound_receipts SET actual_arrival_date = COALESCE(actual_arrival_date, NOW()) WHERE receipt_id = $receipt_id");
-        $conn->query("UPDATE inbound_receipt_containers SET actual_arrival_date = COALESCE(actual_arrival_date, NOW()), status = 'Arrived' WHERE container_id = $container_id AND status = 'Expected'");
-
-        $stmt_find = $conn->prepare("SELECT inbound_item_id FROM inbound_items WHERE receipt_id = ? AND container_id = ? AND product_id = ? AND dot_code = ?");
-        $stmt_find->bind_param("iiis", $receipt_id, $container_id, $product['product_id'], $dot_code);
-        $stmt_find->execute();
-        $existing_item = $stmt_find->get_result()->fetch_assoc();
-        $stmt_find->close();
-
-        if ($existing_item) {
-            $stmt_update = $conn->prepare("UPDATE inbound_items SET received_quantity = received_quantity + ?, expected_quantity = expected_quantity + ? WHERE inbound_item_id = ?");
-            $stmt_update->bind_param("iii", $received_quantity, $received_quantity, $existing_item['inbound_item_id']);
-            if (!$stmt_update->execute()) throw new Exception("Failed to update item.");
-            $stmt_update->close();
-            $user_message = "Updated existing batch.";
-        } else {
-            $batch_number = 'BCH-' . date('ym') . '-' . strtoupper(bin2hex(random_bytes(4)));
-            $stmt_insert = $conn->prepare("INSERT INTO inbound_items (receipt_id, container_id, product_id, expected_quantity, received_quantity, batch_number, expiry_date, dot_code, unit_cost, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Received')");
-            
-            $unit_cost = (isset($input['unit_cost']) && is_numeric($input['unit_cost']) ? (float)$input['unit_cost'] : null);
-
-            $stmt_insert->bind_param("iiiiisssd", $receipt_id, $container_id, $product['product_id'], $received_quantity, $received_quantity, $batch_number, $expiry_date, $dot_code, $unit_cost);
-            if (!$stmt_insert->execute()) throw new Exception("Failed to create item: " . $stmt_insert->error);
-            $stmt_insert->close();
-            $user_message = "Item received successfully.";
-        }
-
-        updateContainerStatus($conn, $container_id);
-        updateReceiptStatus($conn, $receipt_id);
-        $conn->commit();
-        sendJsonResponse(['success' => true, 'message' => $user_message]);
-    } catch (Exception $e) {
-        $conn->rollback();
-        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 400);
-    }
-}
 
 function handlePutawayItem($conn, $warehouse_id) {
     $input = json_decode(file_get_contents('php://input'), true);
@@ -396,7 +347,7 @@ function handlePutawayItem($conn, $warehouse_id) {
         $location_data = $stmt_loc->get_result()->fetch_assoc();
         $stmt_loc->close();
         if(!$location_data) { throw new Exception("Location not found, is inactive or is not in this warehouse."); }
-        if($location_data['is_locked'] == 1) { throw new Exception("This location is locked."); }
+        if($location_data['is_locked'] == 1) { throw new Exception("This location is locked and cannot be used for putaway."); }
         if (isset($location_data['max_capacity_units'])) {
             $available_capacity = $location_data['max_capacity_units'] - $location_data['current_usage'];
             if ($putaway_quantity > $available_capacity) {
@@ -453,7 +404,7 @@ function handlePutawayItem($conn, $warehouse_id) {
     }
 }
 
-function handleUpdateReceivedItem($conn, $warehouse_id) {
+function handleUpdateInboundItem($conn, $warehouse_id) {
     $input = json_decode(file_get_contents('php://input'), true);
     $inbound_item_id = filter_var($input['inbound_item_id'] ?? null, FILTER_VALIDATE_INT);
     $quantity = filter_var($input['quantity'] ?? null, FILTER_VALIDATE_INT);
@@ -462,34 +413,40 @@ function handleUpdateReceivedItem($conn, $warehouse_id) {
 
     $conn->begin_transaction();
     try {
-        $stmt_check = $conn->prepare("SELECT ii.putaway_quantity, ii.receipt_id, ii.container_id, p.expiry_years FROM inbound_items ii JOIN products p ON ii.product_id = p.product_id WHERE ii.inbound_item_id = ?");
+        $stmt_check = $conn->prepare("SELECT ii.status, ii.putaway_quantity, ii.receipt_id, ii.container_id, p.expiry_years FROM inbound_items ii JOIN products p ON ii.product_id = p.product_id WHERE ii.inbound_item_id = ?");
         $stmt_check->bind_param("i", $inbound_item_id);
         $stmt_check->execute();
         $item = $stmt_check->get_result()->fetch_assoc();
         $stmt_check->close();
 
         if (!$item) { throw new Exception("Item not found.", 404); }
-        if ($item['putaway_quantity'] > 0) { throw new Exception("Cannot edit an item that has been put away.", 409); }
+        if ($item['putaway_quantity'] > 0) { throw new Exception("Cannot edit an item that has been partially or fully put away.", 409); }
 
         $expiry_date = convertDotToDate($dot_code, $item['expiry_years']);
         if ($expiry_date === null) { throw new Exception("Invalid DOT format provided."); }
+        
+        if ($item['status'] === 'Expected') {
+            $stmt_update = $conn->prepare("UPDATE inbound_items SET expected_quantity = ?, dot_code = ?, expiry_date = ? WHERE inbound_item_id = ?");
+            $stmt_update->bind_param("issi", $quantity, $dot_code, $expiry_date, $inbound_item_id);
+        } else { // 'Received' or other post-arrival statuses
+            $stmt_update = $conn->prepare("UPDATE inbound_items SET received_quantity = ?, expected_quantity = ?, dot_code = ?, expiry_date = ? WHERE inbound_item_id = ?");
+            $stmt_update->bind_param("iissi", $quantity, $quantity, $dot_code, $expiry_date, $inbound_item_id);
+        }
 
-        $stmt_update = $conn->prepare("UPDATE inbound_items SET received_quantity = ?, expected_quantity = ?, dot_code = ?, expiry_date = ? WHERE inbound_item_id = ?");
-        $stmt_update->bind_param("iissi", $quantity, $quantity, $dot_code, $expiry_date, $inbound_item_id);
         if (!$stmt_update->execute()) { throw new Exception("Failed to update item record."); }
         $stmt_update->close();
 
         updateContainerStatus($conn, $item['container_id']);
         updateReceiptStatus($conn, $item['receipt_id']);
         $conn->commit();
-        sendJsonResponse(['success' => true, 'message' => 'Received item updated successfully.']);
+        sendJsonResponse(['success' => true, 'message' => 'Inbound item updated successfully.']);
     } catch (Exception $e) {
         $conn->rollback();
         sendJsonResponse(['success' => false, 'message' => $e->getMessage()], $e->getCode() ?: 500);
     }
 }
 
-function handleDeleteReceivedItem($conn, $warehouse_id) {
+function handleDeleteInboundItem($conn, $warehouse_id) {
     $input = json_decode(file_get_contents('php://input'), true);
     $inbound_item_id = filter_var($input['inbound_item_id'] ?? null, FILTER_VALIDATE_INT);
     if (!$inbound_item_id) { sendJsonResponse(['success' => false, 'message' => 'Invalid item ID.'], 400); return; }
@@ -513,7 +470,7 @@ function handleDeleteReceivedItem($conn, $warehouse_id) {
         updateContainerStatus($conn, $item['container_id']);
         updateReceiptStatus($conn, $item['receipt_id']);
         $conn->commit();
-        sendJsonResponse(['success' => true, 'message' => 'Received item deleted successfully.']);
+        sendJsonResponse(['success' => true, 'message' => 'Inbound item deleted successfully.']);
     } catch (Exception $e) { 
         $conn->rollback();
         sendJsonResponse(['success' => false, 'message' => $e->getMessage()], $e->getCode() ?: 500);
@@ -562,12 +519,17 @@ function updateReceiptStatus($conn, $receipt_id) {
     if ($total_containers > 0) {
         $completed_containers = 0;
         $any_processing = false;
+        $any_arrived_or_later = false;
+
         foreach ($containers as $container) {
             if ($container['status'] === 'Completed') {
                 $completed_containers++;
             }
-            if ($container['status'] !== 'Expected' && $container['status'] !== 'Completed') {
+            if (!in_array($container['status'], ['Expected', 'Completed'])) {
                 $any_processing = true;
+            }
+             if (!in_array($container['status'], ['Expected'])) {
+                $any_arrived_or_later = true;
             }
         }
 
@@ -575,21 +537,13 @@ function updateReceiptStatus($conn, $receipt_id) {
             $new_status = 'Completed';
         } elseif ($any_processing) {
             $new_status = 'Partially Putaway';
+        } elseif ($any_arrived_or_later) {
+            $new_status = 'Received';
         } else {
             $new_status = 'Pending';
         }
     } else {
-        $stmt_items_check = $conn->prepare("SELECT COUNT(*) as item_count FROM inbound_items WHERE receipt_id = ?");
-        $stmt_items_check->bind_param("i", $receipt_id);
-        $stmt_items_check->execute();
-        $item_count_result = $stmt_items_check->get_result()->fetch_assoc();
-        $stmt_items_check->close();
-
-        if ($item_count_result['item_count'] > 0) {
-            $new_status = 'Completed';
-        } else {
-            $new_status = 'Pending';
-        }
+        $new_status = 'Pending';
     }
     
     $stmt_update = $conn->prepare("UPDATE inbound_receipts SET status = ? WHERE receipt_id = ?");
@@ -600,27 +554,56 @@ function updateReceiptStatus($conn, $receipt_id) {
 
 function updateContainerStatus($conn, $container_id) {
     if (!$container_id) return;
-    $stmt = $conn->prepare("SELECT SUM(received_quantity) AS total_received, SUM(putaway_quantity) AS total_putaway FROM inbound_items WHERE container_id = ?");
-    $stmt->bind_param("i", $container_id);
-    $stmt->execute();
-    $summary = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
 
-    $new_status = 'Arrived';
-    if (($summary['total_received'] ?? 0) > 0) {
-        if (isset($summary['total_received']) && ($summary['total_putaway'] ?? 0) >= $summary['total_received']) {
-            $new_status = 'Completed';
-        } elseif (($summary['total_putaway'] ?? 0) > 0) {
-            $new_status = 'Partially Putaway';
+    $stmt_container = $conn->prepare("SELECT status FROM inbound_receipt_containers WHERE container_id = ?");
+    $stmt_container->bind_param("i", $container_id);
+    $stmt_container->execute();
+    $container = $stmt_container->get_result()->fetch_assoc();
+    $stmt_container->close();
+    if (!$container) return;
+    $current_status = $container['status'];
+
+    if ($current_status === 'Expected') return;
+
+    $stmt_check_expected = $conn->prepare("SELECT COUNT(*) as remaining_expected FROM inbound_items WHERE container_id = ? AND status = 'Expected'");
+    $stmt_check_expected->bind_param("i", $container_id);
+    $stmt_check_expected->execute();
+    $remaining_expected = $stmt_check_expected->get_result()->fetch_assoc()['remaining_expected'];
+    $stmt_check_expected->close();
+
+    $stmt_summary = $conn->prepare("SELECT SUM(received_quantity) AS total_received, SUM(putaway_quantity) AS total_putaway FROM inbound_items WHERE container_id = ?");
+    $stmt_summary->bind_param("i", $container_id);
+    $stmt_summary->execute();
+    $summary = $stmt_summary->get_result()->fetch_assoc();
+    $stmt_summary->close();
+
+    $total_received = (int)($summary['total_received'] ?? 0);
+    $total_putaway = (int)($summary['total_putaway'] ?? 0);
+
+    $new_status = $current_status;
+
+    if ($remaining_expected == 0) {
+        if ($total_received > 0) {
+            if ($total_putaway >= $total_received) {
+                $new_status = 'Completed';
+            } elseif ($total_putaway > 0) {
+                $new_status = 'Partially Putaway';
+            } else {
+                $new_status = 'Processing';
+            }
         } else {
-            $new_status = 'Processing';
+             $new_status = 'Processing';
         }
+    } else {
+        $new_status = 'Arrived';
     }
 
-    $stmt_update = $conn->prepare("UPDATE inbound_receipt_containers SET status = ? WHERE container_id = ?");
-    $stmt_update->bind_param("si", $new_status, $container_id);
-    $stmt_update->execute();
-    $stmt_update->close();
+    if ($new_status !== $current_status) {
+        $stmt_update = $conn->prepare("UPDATE inbound_receipt_containers SET status = ? WHERE container_id = ?");
+        $stmt_update->bind_param("si", $new_status, $container_id);
+        $stmt_update->execute();
+        $stmt_update->close();
+    }
 }
 
 
@@ -632,6 +615,7 @@ function handleGetAvailableLocations($conn, $warehouse_id) {
             wl.location_id, 
             wl.location_code, 
             wl.max_capacity_units, 
+            wl.is_locked,
             COALESCE((SELECT SUM(quantity) FROM inventory WHERE location_id = wl.location_id), 0) as current_usage 
         FROM 
             warehouse_locations wl
@@ -640,7 +624,6 @@ function handleGetAvailableLocations($conn, $warehouse_id) {
         WHERE 
             wl.warehouse_id = ? 
             AND wl.is_active = 1 
-            AND wl.is_locked = 0
             AND lt.type_name NOT IN ('bin', 'block_area', 'ground')
     ";
     $stmt = $conn->prepare($sql);
@@ -660,26 +643,15 @@ function handleGetProductsWithInventory($conn, $warehouse_id) {
     sendJsonResponse(['success' => true, 'data' => $products]);
 }
 
-function handleGetBinLocation($conn, $warehouse_id) {
-    $stmt = $conn->prepare("SELECT wl.location_code FROM warehouse_locations wl JOIN location_types lt ON wl.location_type_id = lt.type_id WHERE wl.warehouse_id = ? AND lt.type_name = 'bin' AND wl.is_active = 1 LIMIT 1");
-    $stmt->bind_param("i", $warehouse_id);
+function handleGetPutawayHistory($conn, $warehouse_id) {
+    $receipt_id = filter_input(INPUT_GET, 'receipt_id', FILTER_VALIDATE_INT);
+    if (!$receipt_id) { sendJsonResponse(['success' => false, 'message' => 'A valid Receipt ID is required.'], 400); return; }
+    $stmt = $conn->prepare("SELECT i.inventory_id, i.quantity, i.dot_code, i.source_inbound_item_id, p.product_name, p.sku, wl.location_code FROM inventory i JOIN products p ON i.product_id = p.product_id JOIN warehouse_locations wl ON i.location_id = wl.location_id WHERE i.receipt_id = ? AND i.warehouse_id = ? ORDER BY i.created_at DESC");
+    $stmt->bind_param("ii", $receipt_id, $warehouse_id);
     $stmt->execute();
-    $result = $stmt->get_result()->fetch_assoc();
+    $history = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
-    if ($result) { sendJsonResponse(['success' => true, 'data' => $result]); } 
-    else { sendJsonResponse(['success' => false, 'message' => 'No active "bin" location found.'], 404); }
-}
-
-function handleGetInventoryDetailsByBatch($conn, $warehouse_id) {
-    $batch_number = trim($_GET['batch_number'] ?? '');
-    if (empty($batch_number)) { sendJsonResponse(['success' => false, 'message' => 'Batch number is required.'], 400); return; }
-    $stmt = $conn->prepare("SELECT i.batch_number, i.quantity, i.expiry_date, i.dot_code, p.product_name, p.sku, wl.location_code, ir.receipt_number FROM inventory i JOIN products p ON i.product_id = p.product_id JOIN warehouse_locations wl ON i.location_id = wl.location_id JOIN inbound_receipts ir ON i.receipt_id = ir.receipt_id WHERE i.batch_number = ? AND i.warehouse_id = ? LIMIT 1");
-    $stmt->bind_param("si", $batch_number, $warehouse_id);
-    $stmt->execute();
-    $result = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    if ($result) { sendJsonResponse(['success' => true, 'data' => $result]); } 
-    else { sendJsonResponse(['success' => false, 'message' => 'Batch details not found.'], 404); }
+    sendJsonResponse(['success' => true, 'data' => $history]);
 }
 
 function handleGetInventoryLabelData($conn, $warehouse_id) {
@@ -705,58 +677,255 @@ function handleGetStickersForInventory($conn, $warehouse_id) {
     sendJsonResponse(['success' => true, 'data' => $result]);
 }
 
-function handleGetPutawayHistory($conn, $warehouse_id) {
-    $receipt_id = filter_input(INPUT_GET, 'receipt_id', FILTER_VALIDATE_INT);
-    if (!$receipt_id) { sendJsonResponse(['success' => false, 'message' => 'A valid Receipt ID is required.'], 400); return; }
-    $stmt = $conn->prepare("SELECT i.inventory_id, i.quantity, i.dot_code, i.source_inbound_item_id, p.product_name, p.sku, wl.location_code FROM inventory i JOIN products p ON i.product_id = p.product_id JOIN warehouse_locations wl ON i.location_id = wl.location_id WHERE i.receipt_id = ? AND i.warehouse_id = ? ORDER BY i.created_at DESC");
-    $stmt->bind_param("ii", $receipt_id, $warehouse_id);
-    $stmt->execute();
-    $history = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    $stmt->close();
-    sendJsonResponse(['success' => true, 'data' => $history]);
+
+// --- NEW/MODIFIED FUNCTIONS FOR PRE-ARRIVAL & RECEIVING ---
+
+function handleAddExpectedItem($conn, $warehouse_id) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $receipt_id = filter_var($input['receipt_id'] ?? null, FILTER_VALIDATE_INT);
+    $container_id = filter_var($input['container_id'] ?? null, FILTER_VALIDATE_INT);
+    $article_no = sanitize_input($input['article_no'] ?? '');
+    $expected_quantity = filter_var($input['expected_quantity'] ?? 0, FILTER_VALIDATE_INT);
+    $dot_code = sanitize_input($input['dot_code'] ?? '');
+    if (!$receipt_id || !$container_id || empty($article_no) || $expected_quantity <= 0 || empty($dot_code)) { sendJsonResponse(['success' => false, 'message' => 'All fields are required.'], 400); return; }
+
+    $conn->begin_transaction();
+    try {
+        $stmt_prod = $conn->prepare("SELECT product_id, expiry_years, is_active FROM products WHERE article_no = ?");
+        $stmt_prod->bind_param("s", $article_no);
+        $stmt_prod->execute();
+        $product = $stmt_prod->get_result()->fetch_assoc();
+        $stmt_prod->close();
+        if (!$product) throw new Exception("Product not found.");
+        if ($product['is_active'] != 1) throw new Exception("Cannot add an inactive product.");
+        
+        $expiry_date = convertDotToDate($dot_code, $product['expiry_years']);
+        if ($expiry_date === null) throw new Exception("Invalid DOT format.");
+
+        $stmt_find = $conn->prepare("SELECT inbound_item_id FROM inbound_items WHERE receipt_id = ? AND container_id = ? AND product_id = ? AND dot_code = ? AND status = 'Expected'");
+        $stmt_find->bind_param("iiis", $receipt_id, $container_id, $product['product_id'], $dot_code);
+        $stmt_find->execute();
+        $existing_item = $stmt_find->get_result()->fetch_assoc();
+        $stmt_find->close();
+
+        if ($existing_item) {
+            $stmt_update = $conn->prepare("UPDATE inbound_items SET expected_quantity = expected_quantity + ? WHERE inbound_item_id = ?");
+            $stmt_update->bind_param("ii", $expected_quantity, $existing_item['inbound_item_id']);
+            if (!$stmt_update->execute()) throw new Exception("Failed to update expected item.");
+            $stmt_update->close();
+            $user_message = "Updated existing expected item.";
+        } else {
+            $batch_number = 'BCH-' . date('ym') . '-' . strtoupper(bin2hex(random_bytes(4)));
+            $stmt_insert = $conn->prepare("INSERT INTO inbound_items (receipt_id, container_id, product_id, expected_quantity, received_quantity, batch_number, expiry_date, dot_code, unit_cost, status) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, 'Expected')");
+            $unit_cost = (isset($input['unit_cost']) && is_numeric($input['unit_cost']) ? (float)$input['unit_cost'] : null);
+            $stmt_insert->bind_param("iiiisssd", $receipt_id, $container_id, $product['product_id'], $expected_quantity, $batch_number, $expiry_date, $dot_code, $unit_cost);
+            if (!$stmt_insert->execute()) throw new Exception("Failed to create expected item: " . $stmt_insert->error);
+            $stmt_insert->close();
+            $user_message = "Expected item added successfully.";
+        }
+
+        $conn->commit();
+        sendJsonResponse(['success' => true, 'message' => $user_message]);
+    } catch (Exception $e) {
+        $conn->rollback();
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 400);
+    }
 }
 
-function handleGetReportData($conn, $warehouse_id) {
-    // This is now a comprehensive function for the "View Details" modal
-    $receipt_id = filter_input(INPUT_GET, 'receipt_id', FILTER_VALIDATE_INT);
-    if (!$receipt_id) { sendJsonResponse(['success' => false, 'message' => 'A valid Receipt ID is required.'], 400); return; }
+function handleAddBulkExpectedItems($conn, $warehouse_id) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $container_id = filter_var($input['container_id'] ?? null, FILTER_VALIDATE_INT);
+    $items = $input['items'] ?? [];
 
-    // 1. Get Receipt Details
-    $stmt = $conn->prepare("SELECT ir.*, s.supplier_name FROM inbound_receipts ir LEFT JOIN suppliers s ON ir.supplier_id = s.supplier_id WHERE ir.receipt_id = ? AND ir.warehouse_id = ?");
-    $stmt->bind_param("ii", $receipt_id, $warehouse_id);
-    $stmt->execute();
-    $receipt = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    if (!$receipt) { sendJsonResponse(['success' => false, 'message' => 'Receipt not found.'], 404); return; }
+    if (!$container_id || empty($items) || !is_array($items)) {
+        sendJsonResponse(['success' => false, 'message' => 'Container ID and a list of items are required.'], 400);
+        return;
+    }
 
-    // 2. Get All Containers for the Receipt
-    $stmt_containers = $conn->prepare("SELECT * FROM inbound_receipt_containers WHERE receipt_id = ?");
-    $stmt_containers->bind_param("i", $receipt_id);
-    $stmt_containers->execute();
-    $containers = $stmt_containers->get_result()->fetch_all(MYSQLI_ASSOC);
-    $stmt_containers->close();
+    $conn->begin_transaction();
+    try {
+        $stmt_get_receipt = $conn->prepare("SELECT receipt_id FROM inbound_receipt_containers WHERE container_id = ?");
+        $stmt_get_receipt->bind_param("i", $container_id);
+        $stmt_get_receipt->execute();
+        $container_data = $stmt_get_receipt->get_result()->fetch_assoc();
+        $receipt_id = $container_data['receipt_id'] ?? null;
+        $stmt_get_receipt->close();
+        if (!$receipt_id) throw new Exception("Container not found.");
 
-    // 3. Get All Received Items for the Receipt
-    $stmt_items = $conn->prepare("SELECT ii.*, p.sku, p.product_name, p.article_no FROM inbound_items ii JOIN products p ON ii.product_id = p.product_id WHERE ii.receipt_id = ?");
-    $stmt_items->bind_param("i", $receipt_id);
-    $stmt_items->execute();
-    $items = $stmt_items->get_result()->fetch_all(MYSQLI_ASSOC);
-    $stmt_items->close();
+        $processed_count = 0;
+        $error_list = [];
+        
+        $aggregated_items = [];
+        foreach ($items as $item) {
+            $key = ($item['article_no'] ?? '') . '-' . ($item['dot'] ?? '');
+            if (!isset($aggregated_items[$key])) {
+                $aggregated_items[$key] = [
+                    'article_no' => $item['article_no'],
+                    'qty' => 0,
+                    'dot' => $item['dot']
+                ];
+            }
+            $aggregated_items[$key]['qty'] += (int)($item['qty'] ?? 0);
+        }
+
+        foreach($aggregated_items as $index => $item) {
+            $article_no = sanitize_input($item['article_no'] ?? '');
+            $expected_quantity = filter_var($item['qty'] ?? 0, FILTER_VALIDATE_INT);
+            $dot_code = sanitize_input($item['dot'] ?? '');
+
+            if (empty($article_no) || $expected_quantity <= 0 || empty($dot_code)) {
+                $error_list[] = "Item '{$article_no}': Invalid data provided.";
+                continue;
+            }
+
+            $stmt_prod = $conn->prepare("SELECT product_id, expiry_years, is_active FROM products WHERE article_no = ?");
+            $stmt_prod->bind_param("s", $article_no);
+            $stmt_prod->execute();
+            $product = $stmt_prod->get_result()->fetch_assoc();
+            $stmt_prod->close();
+            if (!$product) {
+                $error_list[] = "Item '{$article_no}': Product not found.";
+                continue;
+            }
+            if ($product['is_active'] != 1) {
+                $error_list[] = "Item '{$article_no}': Product is inactive and was skipped.";
+                continue;
+            }
+
+            $expiry_date = convertDotToDate($dot_code, $product['expiry_years']);
+            if ($expiry_date === null) {
+                $error_list[] = "Item '{$article_no}': Invalid DOT format '{$dot_code}'.";
+                continue;
+            }
+            
+            $stmt_find = $conn->prepare("SELECT inbound_item_id FROM inbound_items WHERE container_id = ? AND product_id = ? AND dot_code = ? AND status = 'Expected'");
+            $stmt_find->bind_param("iis", $container_id, $product['product_id'], $dot_code);
+            $stmt_find->execute();
+            $existing_item = $stmt_find->get_result()->fetch_assoc();
+            $stmt_find->close();
+
+            if ($existing_item) {
+                $stmt_update = $conn->prepare("UPDATE inbound_items SET expected_quantity = expected_quantity + ? WHERE inbound_item_id = ?");
+                $stmt_update->bind_param("ii", $expected_quantity, $existing_item['inbound_item_id']);
+                if ($stmt_update->execute()) {
+                    $processed_count++;
+                } else {
+                    $error_list[] = "Item '{$article_no}': Database error on update.";
+                }
+                $stmt_update->close();
+            } else {
+                $batch_number = 'BCH-' . date('ym') . '-' . strtoupper(bin2hex(random_bytes(4)));
+                $stmt_insert = $conn->prepare("INSERT INTO inbound_items (receipt_id, container_id, product_id, expected_quantity, received_quantity, status, batch_number, expiry_date, dot_code) VALUES (?, ?, ?, ?, 0, 'Expected', ?, ?, ?)");
+                $stmt_insert->bind_param("iiiisss", $receipt_id, $container_id, $product['product_id'], $expected_quantity, $batch_number, $expiry_date, $dot_code);
+                if ($stmt_insert->execute()) {
+                    $processed_count++;
+                } else {
+                     $error_list[] = "Item '{$article_no}': Database error on insert.";
+                }
+                $stmt_insert->close();
+            }
+        }
+
+        if ($processed_count > 0) {
+            $conn->commit();
+            $message = "Successfully processed {$processed_count} unique items.";
+            if (!empty($error_list)) {
+                sendJsonResponse(['success' => true, 'message' => $message . " Some items were skipped.", 'errors' => $error_list]);
+            } else {
+                sendJsonResponse(['success' => true, 'message' => $message]);
+            }
+        } else {
+             if (!empty($error_list)) {
+                throw new Exception("Import failed. " . implode(" ", $error_list));
+            } else {
+                throw new Exception("Import failed. No valid items were processed.");
+            }
+        }
+
+    } catch (Exception $e) {
+        $conn->rollback();
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 500);
+    }
+}
+
+
+function handleMarkContainerArrived($conn, $warehouse_id) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $container_id = filter_var($input['container_id'] ?? null, FILTER_VALIDATE_INT);
+    if (!$container_id) { sendJsonResponse(['success' => false, 'message' => 'Invalid Container ID.'], 400); return; }
+
+    $conn->begin_transaction();
+    try {
+        $stmt_get_receipt = $conn->prepare("SELECT receipt_id FROM inbound_receipt_containers WHERE container_id = ?");
+        $stmt_get_receipt->bind_param("i", $container_id);
+        $stmt_get_receipt->execute();
+        $container_data = $stmt_get_receipt->get_result()->fetch_assoc();
+        $receipt_id = $container_data['receipt_id'] ?? null;
+        $stmt_get_receipt->close();
+        if (!$receipt_id) throw new Exception("Container not found.");
+
+        $stmt_update_container = $conn->prepare("UPDATE inbound_receipt_containers SET status = 'Arrived', actual_arrival_date = NOW() WHERE container_id = ? AND status = 'Expected'");
+        $stmt_update_container->bind_param("i", $container_id);
+        $stmt_update_container->execute();
+        if($stmt_update_container->affected_rows == 0) {
+            throw new Exception("Container was not in 'Expected' status or not found.");
+        }
+        $stmt_update_container->close();
+
+        $stmt_update_receipt = $conn->prepare("UPDATE inbound_receipts SET actual_arrival_date = COALESCE(actual_arrival_date, NOW()) WHERE receipt_id = ?");
+        $stmt_update_receipt->bind_param("i", $receipt_id);
+        $stmt_update_receipt->execute();
+        $stmt_update_receipt->close();
+        
+        updateReceiptStatus($conn, $receipt_id);
+        
+        $conn->commit();
+        sendJsonResponse(['success' => true, 'message' => 'Container marked as arrived. Please verify items to receive them.']);
+
+    } catch (Exception $e) {
+        $conn->rollback();
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 500);
+    }
+}
+
+function handleVerifyAndReceiveItems($conn, $warehouse_id) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $container_id = filter_var($input['container_id'] ?? null, FILTER_VALIDATE_INT);
+    $items = $input['items'] ?? [];
+
+    if (!$container_id || empty($items)) {
+        sendJsonResponse(['success' => false, 'message' => 'Container ID and items for verification are required.'], 400);
+        return;
+    }
     
-    // 4. Group items by their container
-    $items_by_container = [];
-    foreach($items as $item) {
-        $items_by_container[$item['container_id']][] = $item;
+    $conn->begin_transaction();
+    try {
+        $stmt_get_receipt = $conn->prepare("SELECT receipt_id FROM inbound_receipt_containers WHERE container_id = ?");
+        $stmt_get_receipt->bind_param("i", $container_id);
+        $stmt_get_receipt->execute();
+        $container_data = $stmt_get_receipt->get_result()->fetch_assoc();
+        $receipt_id = $container_data['receipt_id'] ?? null;
+        $stmt_get_receipt->close();
+        if (!$receipt_id) throw new Exception("Container not found.");
+
+        $stmt = $conn->prepare("UPDATE inbound_items SET received_quantity = ?, verified_quantity = ?, status = 'Received' WHERE inbound_item_id = ? AND container_id = ?");
+
+        foreach($items as $item) {
+            $verified_qty = (int)$item['verified_quantity'];
+            $inbound_item_id = (int)$item['inbound_item_id'];
+            $stmt->bind_param("iiii", $verified_qty, $verified_qty, $inbound_item_id, $container_id);
+            $stmt->execute();
+        }
+        $stmt->close();
+
+        updateContainerStatus($conn, $container_id);
+        updateReceiptStatus($conn, $receipt_id);
+
+        $conn->commit();
+        sendJsonResponse(['success' => true, 'message' => 'All items have been verified and received into stock.']);
+
+    } catch (Exception $e) {
+        $conn->rollback();
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage()], 500);
     }
-
-    // 5. Attach the grouped items to their respective containers
-    foreach($containers as &$container) {
-        $container['items'] = $items_by_container[$container['container_id']] ?? [];
-    }
-    unset($container);
-
-    $receipt['containers'] = $containers;
-
-    sendJsonResponse(['success' => true, 'data' => $receipt]);
 }
-

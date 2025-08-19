@@ -123,47 +123,36 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                                 </div>
                             </div>
                             <div class="card-body">
-                                 <div id="itemForm" class="row g-3">
-                                    <fieldset id="itemFormFields" disabled>
-                                        <div class="row g-3">
-                                            <div class="col-12">
-                                                <label for="scanarticle_noInput" class="form-label"><?php echo __('product'); ?></label>
-                                                <select id="scanarticle_noInput" name="scanarticle_noInput" class="form-select" style="width: 100%;"></select>
-                                            </div>
-                                            <div class="col-md-6">
-                                                <label for="itemQuantity" class="form-label"><?php echo __('quantity'); ?></label>
-                                                <input type="text" id="itemQuantity" name="itemQuantity" value="1" min="1" class="form-control numeric-only" required>
-                                            </div>
-                                            <div class="col-md-6">
-                                                <label for="unitCost" class="form-label"><?php echo __('unit_cost'); ?></label>
-                                                <input type="text" id="unitCost" name="unitCost" placeholder="0.00" step="0.01" min="0" class="form-control amount-validation">
-                                            </div>
-                                            <div class="col-12">
-                                                <label for="inboundDotCode" class="form-label"><?php echo __('dot_manufacture_code'); ?></label>
-                                                <select id="inboundDotCode" name="inboundDotCode" class="form-select" style="width: 100%;" required></select>
-                                            </div>
-                                            <div class="col-12 d-grid">
-                                                <button id="receiveItemBtn" class="btn btn-info text-white"><?php echo __('receive_item'); ?></button>
-                                            </div>
-                                        </div>
-                                    </fieldset>
+                                 <div id="itemActionsContainer" class="mb-3 d-none">
+                                     <button id="showAddItemModalBtn" class="btn btn-primary"><i class="bi bi-plus-circle"></i> <?php echo __('add_single_item'); ?></button>
+                                     <button id="showBulkImportModalBtn" class="btn btn-outline-success ms-2"><i class="bi bi-file-earmark-spreadsheet"></i> <?php echo __('bulk_add_items'); ?></button>
                                  </div>
-                                 <hr>
-                                 <h6 class="card-subtitle mb-2 text-muted"><?php echo __('items_ready_for_putaway'); ?></h6>
-                                 <div id="putawayCandidatesList" class="list-group mb-3" style="max-height: 200px; overflow-y: auto;">
-                                     <div class="list-group-item">Select a container to see items to put away.</div>
+                                 <div id="arrivalActionContainer" class="d-none mt-3">
+                                    <div class="d-grid">
+                                        <button id="markArrivedBtn" class="btn btn-success"><i class="bi bi-truck me-2"></i><?php echo __('mark_container_as_arrived'); ?></button>
+                                    </div>
                                  </div>
-                                 <fieldset id="putawayFormFields" disabled>
-                                     <div class="row g-3">
-                                         <div class="col-12">
-                                             <label for="scanLocationInput" class="form-label"><?php echo __('location_for_putaway'); ?></label>
-                                             <select id="scanLocationInput" name="scanLocationInput" class="form-select" style="width: 100%;"></select>
-                                         </div>
-                                         <div class="col-12 d-grid">
-                                             <button id="putawayItemBtn" class="btn btn-secondary"><?php echo __('putaway_selected_item'); ?></button>
-                                         </div>
-                                     </div>
-                                 </fieldset>
+                                 <hr id="itemActionsSeparator" class="d-none">
+                                 <h6 id="itemsListHeader" class="card-subtitle mb-2 text-muted"><?php echo __('container_items'); ?></h6>
+                                 
+                                 <div id="verificationSearchContainer" class="mb-3 d-none">
+                                    <label for="verificationSearchInput" class="form-label"><?php echo __('search_item_to_verify'); ?></label>
+                                    <input type="text" id="verificationSearchInput" class="form-control" placeholder="<?php echo __('search_by_name_sku_article'); ?>">
+                                 </div>
+
+                                 <div id="containerItemsList" class="list-group mb-3" style="max-height: 350px; overflow-y: auto;">
+                                     <div class="list-group-item">Select a container to see items.</div>
+                                 </div>
+                                 <div id="verificationActionContainer" class="d-none mt-3">
+                                    <div class="d-grid">
+                                        <button id="confirmVerificationBtn" class="btn btn-primary"><i class="bi bi-check-circle-fill me-2"></i><?php echo __('confirm_verification_and_receive'); ?></button>
+                                    </div>
+                                 </div>
+                                 <div id="putawaySection" class="d-none">
+                                     <hr>
+                                     <h6 class="card-subtitle mb-2 text-muted"><?php echo __('putaway_items'); ?></h6>
+                                     <p id="putawayInstructions" class="small text-muted"><?php echo __('select_an_item_from_the_list_to_put_it_away'); ?></p>
+                                 </div>
                             </div>
                         </div>
                     </div>
@@ -181,6 +170,7 @@ require_once __DIR__ . '/helpers/auth_helper.php';
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/vanillajs-datepicker@1.3.4/dist/js/datepicker-full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="js/main.js"></script>
     <script src="js/inbound.js" defer></script>
 </body>
