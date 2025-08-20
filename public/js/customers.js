@@ -1,6 +1,8 @@
 /*
 * MODIFICATION SUMMARY:
 * 1. INTEGRATED TRANSLATION: Replaced all user-facing strings with the global `__` function to support multi-language capabilities. This includes modal titles, button texts, table headers (via PHP), and confirmation messages.
+* 2. REMOVED ADDRESS FIELDS: Took out all address-related fields from the customer creation/edit modal since addresses are now managed on the customer details page.
+* 3. Simplified the data columns in the DataTable to remove the city, as it's no longer part of the main customer data.
 */
 
 // public/js/customers.js
@@ -98,12 +100,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="col-md-6 mb-3"><label for="swal-email" class="form-label">${__('email')}</label><input type="email" id="swal-email" class="form-control email-validation" value="${isEditing ? customer.email || '' : ''}"></div>
                         <div class="col-md-6 mb-3"><label for="swal-phone" class="form-label">${__('phone')}*</label><input type="tel" id="swal-phone" class="form-control saudi-mobile-number" value="${isEditing ? customer.phone || '' : ''}" required></div>
                         <div class="col-md-6 mb-3"><label for="swal-phone2" class="form-label">${__('alt_phone')}</label><input type="tel" id="swal-phone2" class="form-control numeric-only" value="${isEditing ? customer.phone2 || '' : ''}"></div>
-                        <div class="col-12 mb-3"><label for="swal-addressLine1" class="form-label">${__('address_line_1')}*</label><input type="text" id="swal-addressLine1" class="form-control" value="${isEditing ? customer.address_line1 || '' : ''}" required></div>
-                        <div class="col-12 mb-3"><label for="swal-addressLine2" class="form-label">${__('address_line_2')}</label><input type="text" id="swal-addressLine2" class="form-control" value="${isEditing ? customer.address_line2 || '' : ''}"></div>
-                        <div class="col-md-4 mb-3"><label for="swal-city" class="form-label">${__('city')}*</label><input type="text" id="swal-city" class="form-control" value="${isEditing ? customer.city || '' : ''}" required></div>
-                        <div class="col-md-4 mb-3"><label for="swal-state" class="form-label">${__('state')}</label><input type="text" id="swal-state" class="form-control" value="${isEditing ? customer.state || '' : ''}"></div>
-                        <div class="col-md-4 mb-3"><label for="swal-zipCode" class="form-label">${__('zip_code')}</label><input type="text" id="swal-zipCode" class="form-control numeric-only" value="${isEditing ? customer.zip_code || '' : ''}"></div>
-                        <div class="col-12 mb-3"><label for="swal-country" class="form-label">${__('country')}*</label><input type="text" id="swal-country" class="form-control" value="${isEditing ? customer.country || '' : ''}" required></div>
                     </div>
                 </form>`,
             width: '800px', 
@@ -117,10 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     'swal-customerName': __('customer_name'),
                     'swal-customerCode': __('customer_code'),
                     'swal-contactPerson': __('contact_person'),
-                    'swal-phone': __('phone'),
-                    'swal-addressLine1': __('address_line_1'),
-                    'swal-city': __('city'),
-                    'swal-country': __('country')
+                    'swal-phone': __('phone')
                 };
                 const missingFields = [];
                 for (const [id, name] of Object.entries(requiredFields)) {
@@ -142,13 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     contact_person: document.getElementById('swal-contactPerson').value,
                     email: document.getElementById('swal-email').value,
                     phone: document.getElementById('swal-phone').value,
-                    phone2: document.getElementById('swal-phone2').value,
-                    address_line1: document.getElementById('swal-addressLine1').value,
-                    address_line2: document.getElementById('swal-addressLine2').value,
-                    city: document.getElementById('swal-city').value,
-                    state: document.getElementById('swal-state').value,
-                    zip_code: document.getElementById('swal-zipCode').value,
-                    country: document.getElementById('swal-country').value,
+                    phone2: document.getElementById('swal-phone2').value
                 };
             }
         }).then(async (result) => {

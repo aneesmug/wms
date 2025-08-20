@@ -1,9 +1,10 @@
 <?php
-// MODIFICATION SUMMARY:
-// 1. Included the main `auth_helper.php` to ensure the user is logged in and to load language functions.
-// 2. Set the HTML `lang` and `dir` attributes dynamically based on the session language.
-// 3. Added the RTL Bootstrap stylesheet for Arabic language support.
-// 4. Replaced all hardcoded English text with calls to the `__()` translation function.
+/*
+* MODIFICATION SUMMARY:
+* 1. Added a language switcher dropdown menu to the main header.
+* 2. The dropdown allows users to select between English and Arabic.
+* 3. The currently active language is highlighted in the dropdown.
+*/
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -42,6 +43,8 @@ if (!isset($_SESSION['user_id'])) {
                 <div class="container-fluid px-4">
                     <div class="d-flex justify-content-between align-items-center py-3">
                         <h1 class="h4 mb-0 text-dark"><?php echo __('my_profile'); ?></h1>
+                        <!-- Language Switcher Dropdown -->
+                        <?php require_once __DIR__ . '/helpers/lang_helper.php'; ?>
                     </div>
                 </div>
             </header>

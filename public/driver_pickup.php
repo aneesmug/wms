@@ -19,15 +19,17 @@ require_once __DIR__ . '/helpers/auth_helper.php';
     <?php include 'includes/menu.php'; ?>
 
     <div id="content">
+        
         <header class="bg-white shadow-sm border-bottom">
             <div class="container-fluid px-4">
-                <div class="d-flex align-items-center py-3">
+                <div class="d-flex justify-content-between align-items-center py-3">
                     <a href="delivery.php" class="btn btn-outline-secondary me-3"><i class="bi bi-arrow-left"></i></a>
                     <h1 class="h4 mb-0 text-dark"><?php echo __('verify_pickup_for'); ?> <span id="orderNumberDisplay" class="text-primary"></span></h1>
+                    <?php require_once __DIR__ . '/helpers/lang_helper.php'; ?>
                 </div>
             </div>
         </header>
-
+        
         <main class="p-4">
             <div class="container-fluid">
                 <div class="row g-4">

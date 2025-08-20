@@ -1,4 +1,23 @@
 // public/js/outbound.js
+/*
+* MODIFICATION SUMMARY:
+* 1. Added full translation support using the `__()` function.
+* 2. `handleShowCreateOrderModal` & `handleShowEditOrderModal`:
+* - Added a new 'Delivery Address' select dropdown.
+* - This dropdown is populated via an API call when a customer is selected.
+* - The address dropdown is disabled until a customer is chosen.
+* - Made the address selection mandatory for creating/updating customer orders.
+* 3. `loadOutboundOrders`:
+* - Updated the table columns to include the new 'Delivery Address' field from the API.
+* 4. API Payloads:
+* - The payloads for creating and updating orders now include the selected `customer_address_id`.
+* 5. Customer Dropdown (Select2):
+* - Now displays the Customer Code in a right-aligned primary badge instead of the Customer ID.
+* - The matcher function has been updated to allow searching by Customer Code.
+* 6. Address Dropdown (Select2):
+* - Is now a Select2 dropdown.
+* - The default address is highlighted with a success badge.
+*/
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
@@ -80,8 +99,8 @@ document.addEventListener('DOMContentLoaded', () => {
             responsive: true,
             "order": [[ 0, "desc" ]],
             "columnDefs": [
-                { "targets": [0, 1, 2, 3, 4, 5, 6, 7], "className": "align-middle" }, 
-                { "targets": 8, "className": "text-end align-middle" } 
+                { "targets": "_all", "className": "align-middle" }, 
+                { "targets": 7, "className": "text-end align-middle" } 
             ],
             language: {
                 search: `<span>${__('search')}:</span> _INPUT_`,
@@ -129,9 +148,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 order.order_number || __('n_a'), 
                 order.reference_number || __('n_a'),
                 order.customer_name || __('n_a'),
-                order.shipping_area_code || __('n_a'),
+                order.delivery_address || __('n_a'),
                 order.assigned_to || __('n_a'),
-                order.tracking_number || __('n_a'), 
                 order.required_ship_date, 
                 order.status, 
                 actionButtons 
@@ -142,16 +160,16 @@ document.addEventListener('DOMContentLoaded', () => {
         ordersTable.rows.add(tableData).draw();
         ordersTable.rows().every(function() {
             const row = this.node();
-            const status = this.data()[7];
+            const status = this.data()[6];
             const statusKey = status.toLowerCase().replace(/\s+/g, '_');
             const statusMap = { 'delivered': 'bg-success', 'out_for_delivery': 'bg-primary', 'shipped': 'bg-info', 'assigned': 'bg-orange', 'ready_for_pickup': 'bg-purple', 'picked': 'bg-primary', 'partially_picked': 'bg-warning text-dark', 'new': 'bg-secondary', 'pending_pick': 'bg-secondary', 'cancelled': 'bg-danger', 'scrapped': 'bg-dark', 'returned': 'bg-dark', 'partially_returned': 'bg-secondary', 'delivery_failed': 'bg-danger' };
             const statusClass = statusMap[statusKey] || 'bg-secondary';
-            $(row).find('td').eq(7).html(`<span class="badge ${statusClass}">${__(statusKey, status)}</span>`); 
+            $(row).find('td').eq(6).html(`<span class="badge ${statusClass}">${__(statusKey, status)}</span>`); 
         });
     }
 
     function filterOrdersByStatus() {
-        ordersTable.column(7).search(this.value ? '^' + this.value + '$' : '', true, false).draw();
+        ordersTable.column(6).search(this.value ? '^' + this.value + '$' : '', true, false).draw();
     }
 
     async function handleShowCreateOrderModal() {
@@ -160,24 +178,13 @@ document.addEventListener('DOMContentLoaded', () => {
             html: `<div class="p-2 text-start">
                     <div class="mb-3">
                         <label class="form-label">${__('order_type')}</label>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="swal-order-type" id="swal-order-type-customer" value="Customer" checked>
-                            <label class="form-check-label" for="swal-order-type-customer">${__('customer_order')}</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="swal-order-type" id="swal-order-type-scrap" value="Scrap">
-                            <label class="form-check-label" for="swal-order-type-scrap">${__('scrap_order')}</label>
-                        </div>
+                        <div class="form-check"><input class="form-check-input" type="radio" name="swal-order-type" id="swal-order-type-customer" value="Customer" checked><label class="form-check-label" for="swal-order-type-customer">${__('customer_order')}</label></div>
+                        <div class="form-check"><input class="form-check-input" type="radio" name="swal-order-type" id="swal-order-type-scrap" value="Scrap"><label class="form-check-label" for="swal-order-type-scrap">${__('scrap_order')}</label></div>
                     </div>
                     <div id="swal-customer-fields">
-                        <div id="swal-customer-container" class="mb-3">
-                            <label for="swal-customer" class="form-label">${__('customer')}</label>
-                            <select id="swal-customer" class="form-select" style="width: 100%;"></select>
-                        </div>
-                        <div class="mb-3" id="swal-ship-date-container">
-                            <label for="swal-ship-date" class="form-label">${__('required_ship_date')}</label>
-                            <input type="text" id="swal-ship-date" class="form-control datepicker-input">
-                        </div>
+                        <div class="mb-3"><label for="swal-customer" class="form-label">${__('customer')}</label><select id="swal-customer" class="form-select" style="width: 100%;"></select></div>
+                        <div class="mb-3"><label for="swal-address" class="form-label">${__('delivery_address')}</label><select id="swal-address" class="form-select" style="width: 100%;" disabled></select></div>
+                        <div class="mb-3"><label for="swal-ship-date" class="form-label">${__('required_ship_date')}</label><input type="text" id="swal-ship-date" class="form-control datepicker-input"></div>
                     </div>
                     <div class="mb-3"><label for="swal-reference-number" class="form-label">${__('reference_reason')}</label><input type="text" id="swal-reference-number" class="form-control" placeholder="${__('optional_reference_or_reason')}"></div>
                     <div class="mb-3"><label for="swal-delivery-note" class="form-label">${__('notes')}</label><textarea id="swal-delivery-note" class="form-control" rows="3" placeholder="${__('enter_special_instructions')}"></textarea></div>
@@ -187,8 +194,7 @@ document.addEventListener('DOMContentLoaded', () => {
             cancelButtonText: __('cancel'),
             allowOutsideClick: false,
             didOpen: () => {
-                const dateElement = document.getElementById('swal-ship-date');
-                initializeDatepicker(dateElement, Swal.getPopup());
+                initializeDatepicker(document.getElementById('swal-ship-date'), Swal.getPopup());
                 
                 const customerFields = document.getElementById('swal-customer-fields');
                 document.querySelectorAll('input[name="swal-order-type"]').forEach(radio => {
@@ -197,50 +203,97 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                 });
 
-                const $select = $('#swal-customer');
-                $select.select2({
+                const $customerSelect = $('#swal-customer');
+                const $addressSelect = $('#swal-address');
+
+                $customerSelect.select2({
                     placeholder: __('search_by_customer_name_or_code'),
                     theme: 'bootstrap-5',
                     dropdownParent: Swal.getPopup(),
                     data: allCustomers.map(c => ({ id: c.customer_id, text: c.customer_name, code: c.customer_code })),
                     templateResult: (data) => {
                         if (!data.id) { return data.text; }
-                        return $(`<div>${data.text}<br><small class="text-muted">${__('code')}: ${data.code || __('n_a')}</small></div>`);
+                        return $(`<div>${data.text}<span class="badge bg-primary float-end">${__('code')}: ${data.code || __('n_a')}</span></div>`);
                     },
-                    templateSelection: (data) => data.text,
+                    templateSelection: (data) => {
+                        if (!data.id) { return data.text; }
+                         return $(`<span>${data.text} <span class="badge bg-primary">${__('code')}: ${data.code || __('n_a')}</span></span>`);
+                    },
+                    escapeMarkup: m => m,
                     matcher: (params, data) => {
                         if ($.trim(params.term) === '') { return data; }
-                        if (typeof data.text === 'undefined' || data.id === '') { return null; }
+                        if (typeof data.text === 'undefined' || !data.id) { return null; }
                         const term = params.term.toUpperCase();
-                        const text = data.text.toUpperCase();
-                        const code = (data.code || '').toUpperCase();
-                        if (text.indexOf(term) > -1 || code.indexOf(term) > -1) {
+                        const textToSearch = `${data.text} ${data.code}`.toUpperCase();
+                        if (textToSearch.indexOf(term) > -1) {
                             return data;
                         }
                         return null;
                     }
+                }).on('select2:select', async (e) => {
+                    const customerId = e.params.data.id;
+                    $addressSelect.prop('disabled', true).html(`<option>${__('loading')}...</option>`).trigger('change');
+                    const response = await fetchData(`api/customers_api.php?action=get_addresses&customer_id=${customerId}`);
+                    if (response.success && response.data.length > 0) {
+                        const addressData = response.data.map(addr => {
+                            const addressText = [addr.address_line1, addr.city, addr.country].filter(Boolean).join(', ');
+                            return {
+                                id: addr.address_id,
+                                text: addressText,
+                                is_default: addr.is_default == 1
+                            };
+                        });
+                        $addressSelect.empty().select2({
+                            placeholder: __('select_an_address'),
+                            theme: 'bootstrap-5',
+                            dropdownParent: Swal.getPopup(),
+                            data: addressData,
+                            templateResult: (data) => {
+                                if (!data.id) { return data.text; }
+                                const defaultBadge = data.is_default ? `<span class="badge bg-success float-end">${__('default_address')}</span>` : '';
+                                return $(`<div>${data.text}${defaultBadge}</div>`);
+                            },
+                            templateSelection: (data) => data.text,
+                            escapeMarkup: m => m
+                        }).prop('disabled', false);
+                        
+                        const defaultAddress = addressData.find(a => a.is_default);
+                        if (defaultAddress) {
+                            $addressSelect.val(defaultAddress.id).trigger('change');
+                        }
+
+                    } else {
+                        $addressSelect.empty().select2({
+                            placeholder: __('no_addresses_found'),
+                            theme: 'bootstrap-5',
+                            dropdownParent: Swal.getPopup()
+                        });
+                    }
                 });
-                $select.val(null).trigger('change');
+
+                $customerSelect.val(null).trigger('change');
+                $addressSelect.select2({
+                    placeholder: __('select_a_customer_first'),
+                    theme: 'bootstrap-5',
+                    dropdownParent: Swal.getPopup()
+                });
             },
             preConfirm: () => {
                 const orderType = document.querySelector('input[name="swal-order-type"]:checked').value;
                 const customerId = document.getElementById('swal-customer').value;
+                const addressId = document.getElementById('swal-address').value;
                 const requiredShipDate = document.getElementById('swal-ship-date').value;
                 
                 if (orderType === 'Customer') {
-                    if (!customerId) {
-                        Swal.showValidationMessage(__('please_select_a_customer'));
-                        return false;
-                    }
-                    if (!requiredShipDate) {
-                        Swal.showValidationMessage(__('please_select_a_required_ship_date'));
-                        return false;
-                    }
+                    if (!customerId) { Swal.showValidationMessage(__('please_select_a_customer')); return false; }
+                    if (!addressId || isNaN(parseInt(addressId))) { Swal.showValidationMessage(__('customer_address_required')); return false; }
+                    if (!requiredShipDate) { Swal.showValidationMessage(__('please_select_a_required_ship_date')); return false; }
                 }
                 
                 return { 
                     order_type: orderType,
                     customer_id: orderType === 'Customer' ? customerId : null, 
+                    customer_address_id: orderType === 'Customer' ? addressId : null,
                     required_ship_date: orderType === 'Customer' ? requiredShipDate : null, 
                     delivery_note: document.getElementById('swal-delivery-note').value, 
                     reference_number: document.getElementById('swal-reference-number').value 
@@ -457,14 +510,11 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const customerOptions = allCustomers.map(customer =>
-            `<option value="${customer.customer_id}" ${customer.customer_id == selectedOrderDetails.customer_id ? 'selected' : ''}>${customer.customer_name}</option>`
-        ).join('');
-
         Swal.fire({
             title: `${__('edit_order')} #${selectedOrderDetails.order_number}`,
             html: `<div class="p-2 text-start">
-                    <div class="mb-3"><label for="swal-customer" class="form-label">${__('customer')}</label><select id="swal-customer" class="form-select">${customerOptions}</select></div>
+                    <div class="mb-3"><label for="swal-customer" class="form-label">${__('customer')}</label><select id="swal-customer" class="form-select" style="width:100%"></select></div>
+                    <div class="mb-3"><label for="swal-address" class="form-label">${__('delivery_address')}</label><select id="swal-address" class="form-select" style="width:100%"></select></div>
                     <div class="mb-3"><label for="swal-reference-number" class="form-label">${__('reference_no')}</label><input type="text" id="swal-reference-number" class="form-control" value="${selectedOrderDetails.reference_number || ''}"></div>
                     <div class="mb-3"><label for="swal-ship-date" class="form-label">${__('required_ship_date')}</label><input type="text" id="swal-ship-date" class="form-control datepicker-input" value="${selectedOrderDetails.required_ship_date || ''}"></div>
                     <div class="mb-3"><label for="swal-delivery-note" class="form-label">${__('delivery_note')}</label><textarea id="swal-delivery-note" class="form-control" rows="3">${selectedOrderDetails.delivery_note || ''}</textarea></div>
@@ -472,23 +522,112 @@ document.addEventListener('DOMContentLoaded', () => {
             showCancelButton: true,
             confirmButtonText: __('save_changes'),
             allowOutsideClick: false,
-            didOpen: () => {
-                const dateElement = document.getElementById('swal-ship-date');
-                initializeDatepicker(dateElement, Swal.getPopup());
+            didOpen: async () => {
+                initializeDatepicker(document.getElementById('swal-ship-date'), Swal.getPopup());
+                const $customerSelect = $('#swal-customer');
+                const $addressSelect = $('#swal-address');
+
+                $customerSelect.select2({
+                    placeholder: __('search_by_customer_name_or_code'),
+                    theme: 'bootstrap-5',
+                    dropdownParent: Swal.getPopup(),
+                    data: allCustomers.map(c => ({ id: c.customer_id, text: c.customer_name, code: c.customer_code })),
+                    templateResult: (data) => {
+                        if (!data.id) { return data.text; }
+                        return $(`<div>${data.text}<span class="badge bg-primary float-end">${__('code')}: ${data.code || __('n_a')}</span></div>`);
+                    },
+                    templateSelection: (data) => {
+                        if (!data.id) { return data.text; }
+                         return $(`<span>${data.text} <span class="badge bg-primary">${__('code')}: ${data.code || __('n_a')}</span></span>`);
+                    },
+                    escapeMarkup: m => m,
+                    matcher: (params, data) => {
+                        if ($.trim(params.term) === '') { return data; }
+                        if (typeof data.text === 'undefined' || !data.id) { return null; }
+                        const term = params.term.toUpperCase();
+                        const textToSearch = `${data.text} ${data.code}`.toUpperCase();
+                        if (textToSearch.indexOf(term) > -1) {
+                            return data;
+                        }
+                        return null;
+                    }
+                }).val(selectedOrderDetails.customer_id).trigger('change');
+
+                const response = await fetchData(`api/customers_api.php?action=get_addresses&customer_id=${selectedOrderDetails.customer_id}`);
+                if (response.success && response.data.length > 0) {
+                    const addressData = response.data.map(addr => ({
+                        id: addr.address_id,
+                        text: [addr.address_line1, addr.city, addr.country].filter(Boolean).join(', '),
+                        is_default: addr.is_default == 1
+                    }));
+
+                    $addressSelect.empty().select2({
+                        placeholder: __('select_an_address'),
+                        theme: 'bootstrap-5',
+                        dropdownParent: Swal.getPopup(),
+                        data: addressData,
+                        templateResult: (data) => {
+                            if (!data.id) { return data.text; }
+                            const defaultBadge = data.is_default ? `<span class="badge bg-success float-end">${__('default_address')}</span>` : '';
+                            return $(`<div>${data.text}${defaultBadge}</div>`);
+                        },
+                        templateSelection: (data) => data.text,
+                        escapeMarkup: m => m
+                    }).val(selectedOrderDetails.customer_address_id).trigger('change');
+                }
+
+                $customerSelect.on('select2:select', async (e) => {
+                    const customerId = e.params.data.id;
+                    $addressSelect.prop('disabled', true).html(`<option>${__('loading')}...</option>`).trigger('change');
+                    const response = await fetchData(`api/customers_api.php?action=get_addresses&customer_id=${customerId}`);
+                    if (response.success && response.data.length > 0) {
+                        const addressData = response.data.map(addr => ({
+                            id: addr.address_id,
+                            text: [addr.address_line1, addr.city, addr.country].filter(Boolean).join(', '),
+                            is_default: addr.is_default == 1
+                        }));
+                        $addressSelect.empty().select2({
+                            placeholder: __('select_an_address'),
+                            theme: 'bootstrap-5',
+                            dropdownParent: Swal.getPopup(),
+                            data: addressData,
+                            templateResult: (data) => {
+                                if (!data.id) { return data.text; }
+                                const defaultBadge = data.is_default ? `<span class="badge bg-success float-end">${__('default_address')}</span>` : '';
+                                return $(`<div>${data.text}${defaultBadge}</div>`);
+                            },
+                            templateSelection: (data) => data.text,
+                            escapeMarkup: m => m
+                        }).prop('disabled', false);
+
+                        const defaultAddress = addressData.find(a => a.is_default);
+                        if (defaultAddress) {
+                            $addressSelect.val(defaultAddress.id).trigger('change');
+                        }
+                    } else {
+                         $addressSelect.empty().select2({
+                            placeholder: __('no_addresses_found'),
+                            theme: 'bootstrap-5',
+                            dropdownParent: Swal.getPopup()
+                        });
+                    }
+                });
             },
             preConfirm: () => {
                 const customerId = document.getElementById('swal-customer').value;
+                const addressId = document.getElementById('swal-address').value;
                 const requiredShipDate = document.getElementById('swal-ship-date').value;
-                if (!customerId) Swal.showValidationMessage(__('please_select_a_customer'));
-                else if (!requiredShipDate) Swal.showValidationMessage(__('please_select_a_required_ship_date'));
-                else return {
+                if (!customerId) { Swal.showValidationMessage(__('please_select_a_customer')); return false; }
+                if (!addressId || isNaN(parseInt(addressId))) { Swal.showValidationMessage(__('customer_address_required')); return false; }
+                if (!requiredShipDate) { Swal.showValidationMessage(__('please_select_a_required_ship_date')); return false; }
+                return {
                     order_id: selectedOrderId,
                     customer_id: customerId,
+                    customer_address_id: addressId,
                     required_ship_date: requiredShipDate,
                     delivery_note: document.getElementById('swal-delivery-note').value,
                     reference_number: document.getElementById('swal-reference-number').value
                 };
-                return false;
             }
         }).then(async (result) => {
             if (result.isConfirmed && result.value) {

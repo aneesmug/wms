@@ -7,6 +7,7 @@
 */
 require_once __DIR__ . '/helpers/auth_helper.php';
 require_global_admin();
+$pageTitle = $pageTitle ?? __('user_login_activity');
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo $_SESSION['lang'] ?? 'en'; ?>" dir="<?php echo ($_SESSION['lang'] ?? 'en') === 'ar' ? 'rtl' : 'ltr'; ?>" class="h-100">
@@ -31,16 +32,7 @@ require_global_admin();
         <?php include 'includes/menu.php'; ?>
 
         <div class="flex-grow-1 d-flex flex-column">
-            <header class="bg-white shadow-sm border-bottom">
-                <div class="container-fluid px-4">
-                    <div class="d-flex justify-content-between align-items-center py-3">
-                        <button class="btn btn-outline-secondary d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
-                            <i class="bi bi-list"></i>
-                        </button>
-                        <h1 class="h4 mb-0 text-dark"><?php echo __('user_login_activity'); ?></h1>
-                    </div>
-                </div>
-            </header>
+            <?php require_once __DIR__ . '/includes/header.php'; ?>
 
             <main class="flex-grow-1 p-4 p-md-5 bg-light">
                 <div class="container-fluid">

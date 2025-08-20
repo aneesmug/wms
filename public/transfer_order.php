@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/helpers/auth_helper.php';
+$pageTitle = $pageTitle ?? __('transfer_orders_management');
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo $_SESSION['lang'] ?? 'en'; ?>" dir="<?php echo ($_SESSION['lang'] ?? 'en') === 'ar' ? 'rtl' : 'ltr'; ?>">
@@ -26,16 +27,8 @@ require_once __DIR__ . '/helpers/auth_helper.php';
     <?php include 'includes/menu.php'; ?>
 
     <div id="content">
-        <header class="bg-white shadow-sm border-bottom">
-            <div class="container-fluid px-4">
-                <div class="d-flex justify-content-between align-items-center py-3">
-                    <button class="btn btn-outline-secondary d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
-                        <i class="bi bi-list"></i>
-                    </button>
-                    <h1 class="h4 mb-0 text-dark"><?php echo __('transfer_orders_management'); ?></h1>
-                </div>
-            </div>
-        </header>
+        
+    <?php require_once __DIR__ . '/includes/header.php'; ?>
 
         <main class="p-4 p-md-5">
             <div class="container-fluid">

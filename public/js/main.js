@@ -1,11 +1,8 @@
 /*
 * MODIFICATION SUMMARY:
-* 1. CRITICAL FIX: Rewrote the global `__` translation function to be more robust.
-* 2. The new function now explicitly checks if the `window.lang` object exists before trying to access a key.
-* 3. If `window.lang` is missing, it will log a clear error to the developer console, which is essential for debugging.
-* 4. This prevents silent failures and ensures that if translations aren't loading, there is a clear indication of why. This should resolve the issue with SweetAlert2 modals not showing translated text.
-* 5. Updated the `updateUserInfoDisplay` function to use the `__` function for role names, ensuring consistency.
-* 6. Added a warning to the `__` function to detect if the `lang` object is defined but empty, providing better debugging information.
+* 1. Added an event listener to handle clicks on the new language switcher.
+* 2. When a new language is selected, it calls the `update_preferred_language` API endpoint.
+* 3. Upon a successful API response, it displays a confirmation message and reloads the page to apply the language change.
 */
 
 // public/js/main.js
@@ -451,6 +448,40 @@ function setupCommonEventListeners() {
         if (btn) btn.addEventListener('click', handleLogout);
     });
     setupInputValidations();
+
+    // Language Switcher Logic
+    document.body.addEventListener('click', async (event) => {
+        const langLink = event.target.closest('[data-lang]');
+        if (!langLink) return;
+
+        event.preventDefault();
+        const selectedLang = langLink.dataset.lang;
+        const currentLang = document.documentElement.lang;
+
+        if (selectedLang === currentLang) {
+            return; // Do nothing if already selected
+        }
+
+        const result = await fetchData('api/users_api.php?action=update_preferred_language', 'POST', { lang: selectedLang });
+
+        if (result && result.success) {
+            const message = selectedLang === 'ar' 
+                ? 'تم تحديث اللغة. سيتم تحديث الصفحة...' 
+                : 'Language updated. The page will now refresh...';
+
+            const Toast = Swal.mixin({
+                toast: true,
+                position: 'top-end',
+                showConfirmButton: false,
+                timer: 2000,
+                timerProgressBar: true,
+            });
+
+            await Toast.fire({ icon: 'success', title: message });
+            window.location.reload();
+        }
+        // Error case is handled by fetchData which shows a message.
+    });
 
     // Card Actions (Refresh, Maximize, Close)
     document.body.addEventListener('click', function(event) {

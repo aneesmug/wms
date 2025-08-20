@@ -1,12 +1,11 @@
 // public/js/inbound.js
-// 014-inbound.js
+// 016-inbound.js
 
 /*
 * MODIFICATION SUMMARY:
-* 014 (2025-08-19): Implemented specific, sequential validation for the "Add Single Item" modal.
-* - The `preConfirm` logic in `showAddItemModal` now checks each required field (Product, Quantity, DOT) one by one.
-* - It will now display a unique error message for the first empty field it finds, rather than a single generic message.
-* - This provides clearer feedback to the user about what information is missing.
+* 016 (2025-08-20): Refined the item verification display logic.
+* - In `loadContainerItems`, when the container status is 'Arrived', the code now filters the items to only show those with a status of 'Expected'.
+* - This prevents items that have already been verified and received in a previous step from reappearing in the verification list with a checkbox, resolving the issue of already-processed items still showing.
 */
 
 $(document).ready(function() {
@@ -220,6 +219,7 @@ $(document).ready(function() {
             `,
             confirmButtonText: __('putaway'),
             showCancelButton: true,
+            allowOutsideClick: false,
             didOpen: () => {
                 const locationSelect = $('#swal-putaway-location');
                 const quantityInput = $('#swal-putaway-quantity');
@@ -378,20 +378,24 @@ $(document).ready(function() {
             if (container && Array.isArray(container.items) && container.items.length > 0) {
                 
                 if (containerStatus === 'Arrived') {
-                    // Render verification table
-                    let tableHtml = `<table class="table table-sm"><thead><tr><th><input class="form-check-input" type="checkbox" id="verifyCheckAll"></th><th>${__('product')}</th><th>${__('article_no')}</th><th>${__('expected')}</th><th>${__('verified')}</th></tr></thead><tbody>`;
-                    container.items.forEach(item => {
-                        tableHtml += `
-                            <tr data-item-id="${item.inbound_item_id}">
-                                <td><input class="form-check-input verify-item-check" type="checkbox"></td>
-                                <td>${item.product_name} (${item.sku})<br><small>${__('dot')}: ${item.dot_code}</small></td>
-                                <td>${item.article_no}</td>
-                                <td>${item.expected_quantity}</td>
-                                <td><input type="number" class="form-control form-control-sm verified-qty-input" value="${item.expected_quantity}" min="0"></td>
-                            </tr>`;
-                    });
-                    tableHtml += '</tbody></table>';
-                    containerItemsList.html(tableHtml);
+                    const itemsToVerify = container.items.filter(item => item.status === 'Expected');
+                    if (itemsToVerify.length > 0) {
+                        let tableHtml = `<table class="table table-sm"><thead><tr><th><input class="form-check-input" type="checkbox" id="verifyCheckAll"></th><th>${__('product')}</th><th>${__('article_no')}</th><th>${__('expected')}</th><th>${__('verified')}</th></tr></thead><tbody>`;
+                        itemsToVerify.forEach(item => {
+                            tableHtml += `
+                                <tr data-item-id="${item.inbound_item_id}">
+                                    <td><input class="form-check-input verify-item-check" type="checkbox"></td>
+                                    <td>${item.product_name} (${item.sku})<br><small>${__('dot')}: ${item.dot_code}</small></td>
+                                    <td>${item.article_no}</td>
+                                    <td>${item.expected_quantity}</td>
+                                    <td><input type="number" class="form-control form-control-sm verified-qty-input" value="${item.expected_quantity}" min="0"></td>
+                                </tr>`;
+                        });
+                        tableHtml += '</tbody></table>';
+                        containerItemsList.html(tableHtml);
+                    } else {
+                         containerItemsList.html(`<div class="list-group-item">${__('no_items_awaiting_verification')}</div>`);
+                    }
                 } else {
                     // Render simple list for 'Expected' or putaway candidates for other statuses
                     container.items.forEach(item => {
@@ -436,8 +440,8 @@ $(document).ready(function() {
         const result = await fetchData('api/inbound_api.php?action=putawayItem', 'POST', data);
         if (result?.success) {
             Swal.fire({
-                icon: 'success', title: __('putaway_successful'), text: result.message, showCancelButton: true,
-                confirmButtonText: `<i class="bi bi-printer"></i> ${__('print_stickers')}`, cancelButtonText: __('close'), allowOutsideClick: false,
+                icon: 'success', title: __('putaway_successful'), text: result.message, showCancelButton: false,
+                confirmButtonText: `<i class="bi bi-printer"></i> ${__('print_stickers')}`, allowOutsideClick: false,
             }).then((dialogResult) => {
                 if (dialogResult.isConfirmed) {
                     $('#print-frame').remove(); 
@@ -514,11 +518,19 @@ $(document).ready(function() {
 
         if (response.success) {
             showMessageBox(response.message, 'success');
+            // First, reload the main receipts table which might have a status change
             await loadInboundReceipts();
-            const container = currentContainers.find(c => c.container_id === currentContainerId);
-            const updatedContainerData = { ...container, status: 'Processing' };
-            selectContainer(updatedContainerData);
+            // Then, reload the container data for the current receipt. This updates the global 'currentContainers' array.
             await loadContainerData(currentReceiptId);
+            // Now find the container with its NEW status from the re-fetched data.
+            const updatedContainerFromServer = currentContainers.find(c => c.container_id === currentContainerId);
+            // If the container is found, re-select it to refresh the UI correctly based on its true status.
+            if (updatedContainerFromServer) {
+                selectContainer(updatedContainerFromServer);
+            } else {
+                // If the container somehow disappeared (unlikely), reset the view.
+                resetContainerSelection();
+            }
         } else {
             showMessageBox(response.message, 'error');
         }

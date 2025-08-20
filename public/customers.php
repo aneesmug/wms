@@ -4,8 +4,10 @@
 * 1. Replaced all hardcoded English text for titles, headers, buttons, and table columns with the `__()` translation function.
 * 2. Added the required script tag in the <head> to load translations with `JSON_UNESCAPED_UNICODE`.
 * 3. The entire page is now fully localizable.
+* 4. Removed the 'City' column from the table as address is no longer stored directly in the customers table.
 */
 require_once __DIR__ . '/helpers/auth_helper.php';
+$pageTitle = $pageTitle ?? __('customer_management');
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo $_SESSION['lang'] ?? 'en'; ?>" dir="<?php echo ($_SESSION['lang'] ?? 'en') === 'ar' ? 'rtl' : 'ltr'; ?>" class="h-100">
@@ -33,17 +35,7 @@ require_once __DIR__ . '/helpers/auth_helper.php';
 
     <div id="content">
         
-        <header class="bg-white shadow-sm border-bottom">
-            <div class="container-fluid px-4">
-                <div class="d-flex justify-content-between align-items-center py-3">
-                    <button class="btn btn-outline-secondary d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
-                        <i class="bi bi-list"></i>
-                    </button>
-                    <h1 class="h4 mb-0 text-dark mx-auto mx-md-0"><?php echo __('customer_management'); ?></h1>
-                    <span id="currentWarehouseNameDisplay" class="text-muted"></span>
-                </div>
-            </div>
-        </header>
+        <?php require_once __DIR__ . '/includes/header.php'; ?>
 
             <main class="flex-grow-1 p-4 p-md-5 bg-light">
                 <div class="container-fluid">

@@ -350,7 +350,7 @@ function getWeeklyActivity($conn, $warehouse_id) {
     $result_outbound = $stmt_outbound->get_result();
     while ($row = $result_outbound->fetch_assoc()) { if (isset($dates[$row['date']])) { $dates[$row['date']]['outbound'] = (int)$row['count']; } }
     $stmt_outbound->close();
-    $chart_data = ['labels' => array_keys($dates), 'datasets' => [['label' => 'Receipts Completed', 'data' => array_column($dates, 'inbound'), 'backgroundColor' => 'rgba(23, 162, 184, 0.6)', 'borderColor' => 'rgb(23, 162, 184)', 'borderWidth' => 1], ['label' => 'Orders Shipped', 'data' => array_column($dates, 'outbound'), 'backgroundColor' => 'rgba(255, 193, 7, 0.6)', 'borderColor' => 'rgb(255, 193, 7)', 'borderWidth' => 1]]];
+    $chart_data = ['labels' => array_keys($dates), 'datasets' => [['label' => __('receipts_completed'), 'data' => array_column($dates, 'inbound'), 'backgroundColor' => 'rgba(23, 162, 184, 0.6)', 'borderColor' => 'rgb(23, 162, 184)', 'borderWidth' => 1], ['label' => __('orders_shipped'), 'data' => array_column($dates, 'outbound'), 'backgroundColor' => 'rgba(255, 193, 7, 0.6)', 'borderColor' => 'rgb(255, 193, 7)', 'borderWidth' => 1]]];
     sendJsonResponse(['success' => true, 'data' => $chart_data]);
 }
 

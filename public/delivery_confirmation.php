@@ -56,7 +56,7 @@ $other_lang_text = ($lang === 'ar') ? 'English' : 'العربية';
                         </div>
                         <div class="mb-3">
                             <label for="confirmationCodeInput" class="form-label"><?php echo __('delivery_confirmation_code'); ?></label>
-                            <input type="text" id="confirmationCodeInput" class="form-control form-control-lg" placeholder="Enter 6-digit code if provided">
+                            <input type="text" id="confirmationCodeInput" class="form-control form-control-lg" placeholder="<?php echo __('enter_6_digit_code_if_provided');?>" required>
                         </div>
                         <hr>
                         <div class="mb-3">

@@ -1,5 +1,11 @@
 <?php
+    /*
+    * MODIFICATION SUMMARY:
+    * 1. Added translation support for all static text using the `__()` function.
+    * 2. Added a new column 'Delivery Address' to the main orders table.
+    */
     require_once __DIR__ . '/helpers/auth_helper.php';
+    $pageTitle = $pageTitle ?? __('outbound_orders');
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo $_SESSION['lang'] ?? 'en'; ?>" dir="<?php echo ($_SESSION['lang'] ?? 'en') === 'ar' ? 'rtl' : 'ltr'; ?>" class="h-100">
@@ -26,16 +32,8 @@
     <?php include 'includes/menu.php'; ?>
 
     <div id="content">
-        <header class="bg-white shadow-sm border-bottom">
-            <div class="container-fluid px-4">
-                <div class="d-flex justify-content-between align-items-center py-3">
-                    <button class="btn btn-outline-secondary d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
-                        <i class="bi bi-list"></i>
-                    </button>
-                    <h1 class="h4 mb-0 text-dark"><?php echo __('outbound_orders'); ?></h1>
-                </div>
-            </div>
-        </header>
+        
+       <?php require_once __DIR__ . '/includes/header.php'; ?>
 
         <main class="p-4 p-md-5">
             <div class="container-fluid">
@@ -63,11 +61,6 @@
                                         <option value="Scrapped"><?php echo __('scrapped'); ?></option>
                                     </select>
                                     <button id="showCreateOrderModalBtn" class="btn btn-light btn-sm text-nowrap"><i class="bi bi-plus-circle me-1"></i> <?php echo __('new_order'); ?></button>
-                                    <div class="card-header-actions">
-                                        <button type="button" class="btn-card-header" data-action="refresh" title="Refresh"><i class="bi bi-arrow-counterclockwise"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="maximize" title="Maximize"><i class="bi bi-arrows-fullscreen"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="close" title="Close"><i class="bi bi-x-lg"></i></button>
-                                    </div>
                                 </div>
                             </div>
                             <div class="card-body">
@@ -78,9 +71,8 @@
                                                 <th><?php echo __('order_no'); ?></th>
                                                 <th><?php echo __('reference_no'); ?></th>
                                                 <th><?php echo __('customer_type'); ?></th>
-                                                <th><?php echo __('staged_at'); ?></th>
+                                                <th><?php echo __('delivery_address'); ?></th>
                                                 <th><?php echo __('assigned_to'); ?></th>
-                                                <th><?php echo __('tracking_no'); ?></th>
                                                 <th><?php echo __('ship_by'); ?></th>
                                                 <th><?php echo __('status'); ?></th>
                                                 <th class="text-end"><?php echo __('actions'); ?></th>
@@ -106,11 +98,6 @@
                                     
                                 </div>
                                 <input type="hidden" id="currentOrderId">
-                                <div class="card-header-actions">
-                                    <button type="button" class="btn-card-header" data-action="refresh" title="Refresh"><i class="bi bi-arrow-counterclockwise"></i></button>
-                                    <button type="button" class="btn-card-header" data-action="maximize" title="Maximize"><i class="bi bi-arrows-fullscreen"></i></button>
-                                    <button type="button" class="btn-card-header" data-action="close" title="Close"><i class="bi bi-x-lg"></i></button>
-                                </div>
                             </div>
                             <div class="card-body">
                                 <div class="row mb-3">

@@ -1,15 +1,16 @@
 <?php
 /*
 * MODIFICATION SUMMARY:
-* 1. Replaced all hardcoded English text for titles, headers, buttons, and form labels with the `__()` translation function.
-* 2. Added the required script tag in the <head> to load translations with `JSON_UNESCAPED_UNICODE`.
-* 3. The entire page, including modals and dynamic content, is now fully localizable.
+* 1. Added a language switcher dropdown menu to the main header.
+* 2. The dropdown allows users to select between English and Arabic.
+* 3. The currently active language is highlighted in the dropdown.
 */
     if (session_status() === PHP_SESSION_NONE) {
         session_start();
     }
     
     require_once __DIR__ . '/helpers/auth_helper.php';
+    $pageTitle = $pageTitle ?? __('user_management');
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo $_SESSION['lang'] ?? 'en'; ?>" dir="<?php echo ($_SESSION['lang'] ?? 'en') === 'ar' ? 'rtl' : 'ltr'; ?>" class="h-100">
@@ -34,16 +35,7 @@
         <?php include 'includes/menu.php'; ?>
 
         <div class="flex-grow-1 d-flex flex-column">
-            <header class="bg-white shadow-sm border-bottom">
-                <div class="container-fluid px-4">
-                    <div class="d-flex justify-content-between align-items-center py-3">
-                        <button class="btn btn-outline-secondary d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
-                            <i class="bi bi-list"></i>
-                        </button>
-                        <h1 class="h4 mb-0 text-dark"><?php echo __('user_management'); ?></h1>
-                    </div>
-                </div>
-            </header>
+            <?php require_once __DIR__ . '/includes/header.php'; ?>
 
             <main class="flex-grow-1 p-4 p-md-5 bg-light">
                 <div class="container-fluid">

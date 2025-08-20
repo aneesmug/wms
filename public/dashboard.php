@@ -1,5 +1,12 @@
 <?php
+    /*
+    * MODIFICATION SUMMARY:
+    * 1. Added a language switcher dropdown menu to the main header.
+    * 2. The dropdown allows users to select between English and Arabic.
+    * 3. The currently active language is highlighted in the dropdown.
+    */
     require_once __DIR__ . '/helpers/auth_helper.php';
+    $pageTitle = $pageTitle ?? __('dashboard');
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo $_SESSION['lang'] ?? 'en'; ?>" dir="<?php echo ($_SESSION['lang'] ?? 'en') === 'ar' ? 'rtl' : 'ltr'; ?>" class="h-100">
@@ -22,20 +29,9 @@
     <div id="content">
     <?php include 'includes/menu.php'; ?>
         <div class="flex-grow-1 d-flex flex-column">
-            <header class="bg-white shadow-sm border-bottom">
-                <div class="container-fluid px-4">
-                    <div class="d-flex justify-content-between align-items-center py-3">
-                        <button class="btn btn-outline-secondary d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
-                            <i class="bi bi-list"></i>
-                        </button>
-                        <h1 class="h4 mb-0 text-dark"><?php echo __('dashboard'); ?></h1>
-                        <div class="d-flex align-items-center">
-                            <label for="warehouseSelector" class="form-label me-2 mb-0"><?php echo __('warehouse'); ?>:</label>
-                            <select id="warehouseSelector" class="form-select form-select-sm" style="width: auto;"></select>
-                        </div>
-                    </div>
-                </div>
-            </header>
+            
+            <?php require_once __DIR__ . '/includes/header.php'; ?>
+
             <main class="flex-grow-1 p-4 p-md-5 bg-light">
                 <div class="container-fluid">
                     <div class="row row-cols-1 row-cols-sm-2 row-cols-xl-3 g-4 mb-4">
@@ -211,7 +207,7 @@
                             <div class="card shadow-sm">
                                 <div class="card-header">
                                     <h5 class="card-title mb-0"><i class="bi bi-graph-up-arrow me-2"></i><?php echo __('top_10_fast_moving'); ?></h5>
-                                    <small class="text-muted">Based on units picked in the last 30 days.</small>
+                                    <small class="text-muted"><?=__('based_on_units_picked_in_last_30_days')?></small>
                                 </div>
                                 <div class="card-body">
                                     <div class="table-responsive">

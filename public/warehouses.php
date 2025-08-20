@@ -6,6 +6,7 @@
 * 3. The entire page is now fully localizable.
 */
 require_once __DIR__ . '/helpers/auth_helper.php';
+$pageTitle = $pageTitle ?? __('warehouse_management');
 ?>
 <!DOCTYPE html>
 <html lang="<?php echo $_SESSION['lang'] ?? 'en'; ?>" dir="<?php echo ($_SESSION['lang'] ?? 'en') === 'ar' ? 'rtl' : 'ltr'; ?>" class="h-100">
@@ -30,17 +31,7 @@ require_once __DIR__ . '/helpers/auth_helper.php';
 
     <div id="content">
         
-        <header class="bg-white shadow-sm border-bottom">
-            <div class="container-fluid px-4">
-                <div class="d-flex justify-content-between align-items-center py-3">
-                    <button class="btn btn-outline-secondary d-md-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileSidebar" aria-controls="mobileSidebar">
-                        <i class="bi bi-list"></i>
-                    </button>
-                    <h1 class="h4 mb-0 text-dark mx-auto mx-md-0"><?php echo __('warehouse_management'); ?></h1>
-                    <span id="currentWarehouseNameDisplay" class="text-muted"></span>
-                </div>
-            </div>
-        </header>
+        <?php require_once __DIR__ . '/includes/header.php'; ?>
 
         <main class="flex-grow-1 p-4 p-md-5 bg-light">
             <div class="container-fluid">

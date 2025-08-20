@@ -1,6 +1,13 @@
 <?php
 // api/outbound_api.php
 
+// MODIFICATION SUMMARY:
+// 1. `handleCreateOutboundOrder`: Added `customer_address_id` as a required parameter for 'Customer' type orders.
+// 2. `handleUpdateOrder`: Added `customer_address_id` to the update logic.
+// 3. `handleGetDeliveryReport`: Modified to join with `customer_addresses` table to fetch the specific delivery address for the order.
+// 4. `handleGetPickReport`: Modified to join with `customer_addresses` to get the correct shipping address.
+// 5. `handleGetOutbound`: When fetching a single order, it now includes the full address details from `customer_addresses`.
+
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../helpers/auth_helper.php';
 require_once __DIR__ . '/../helpers/order_helper.php';
@@ -81,10 +88,11 @@ function handleGetDeliveryReport($conn, $warehouse_id) {
         SELECT 
             oo.order_number, oo.reference_number, oo.actual_delivery_date, oo.delivered_to_name, oo.status,
             COALESCE(c.customer_name, 'Scrap Order') as customer_name, 
-            c.address_line1, c.address_line2, c.city, c.phone,
+            ca.address_line1, ca.address_line2, ca.city, c.phone,
             w.warehouse_name
         FROM outbound_orders oo
         LEFT JOIN customers c ON oo.customer_id = c.customer_id
+        LEFT JOIN customer_addresses ca ON oo.customer_address_id = ca.address_id
         JOIN warehouses w ON oo.warehouse_id = w.warehouse_id
         WHERE oo.order_id = ? AND oo.warehouse_id = ?
     ");
@@ -166,25 +174,25 @@ function handleCreateOutboundOrder($conn, $warehouse_id, $user_id) {
     
     $order_type = sanitize_input($input['order_type'] ?? 'Customer');
     $customer_id = filter_var($input['customer_id'] ?? null, FILTER_VALIDATE_INT);
+    $customer_address_id = filter_var($input['customer_address_id'] ?? null, FILTER_VALIDATE_INT);
     $required_ship_date = sanitize_input($input['required_ship_date'] ?? null);
     $delivery_note = sanitize_input($input['delivery_note'] ?? null);
     $reference_number = sanitize_input($input['reference_number'] ?? null);
 
-    if ($order_type === 'Customer' && (empty($customer_id) || empty($required_ship_date))) {
-        sendJsonResponse(['success' => false, 'message' => 'Customer and Required Ship Date are required for Customer Orders.'], 400);
+    if ($order_type === 'Customer' && (empty($customer_id) || empty($customer_address_id) || empty($required_ship_date))) {
+        sendJsonResponse(['success' => false, 'message' => 'Customer, Customer Address, and Required Ship Date are required for Customer Orders.'], 400);
         return;
     }
 
     if ($order_type === 'Scrap') {
         $customer_id = null;
+        $customer_address_id = null;
         $required_ship_date = null;
     }
     
     $conn->begin_transaction();
     try {
-        // --- MODIFICATION START: Warehouse-specific and race-condition-safe order number generation ---
         $date_prefix = 'ORD-' . date('Ymd');
-        // Lock the table for reading to prevent race conditions
         $sql = "SELECT order_number FROM outbound_orders WHERE order_number LIKE ? AND warehouse_id = ? ORDER BY order_number DESC LIMIT 1 FOR UPDATE";
         $stmt_num = $conn->prepare($sql);
         if (!$stmt_num) {
@@ -203,17 +211,15 @@ function handleCreateOutboundOrder($conn, $warehouse_id, $user_id) {
             $new_seq = 1;
         }
         $order_number = $date_prefix . '-' . str_pad($new_seq, 4, '0', STR_PAD_LEFT);
-        // --- MODIFICATION END ---
 
         $delivery_code = $order_type === 'Customer' ? rand(100000, 999999) : null;
         $initial_status = 'Pending Pick';
 
-        $stmt = $conn->prepare("INSERT INTO outbound_orders (warehouse_id, order_number, customer_id, required_ship_date, status, delivery_note, reference_number, delivery_confirmation_code, order_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->bind_param("issssssss", $warehouse_id, $order_number, $customer_id, $required_ship_date, $initial_status, $delivery_note, $reference_number, $delivery_code, $order_type);
+        $stmt = $conn->prepare("INSERT INTO outbound_orders (warehouse_id, order_number, customer_id, customer_address_id, required_ship_date, status, delivery_note, reference_number, delivery_confirmation_code, order_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->bind_param("isiissssss", $warehouse_id, $order_number, $customer_id, $customer_address_id, $required_ship_date, $initial_status, $delivery_note, $reference_number, $delivery_code, $order_type);
 
         if (!$stmt->execute()) {
-             // Check for duplicate entry error specifically
-            if ($conn->errno == 1062) { // 1062 is the MySQL error code for duplicate entry
+            if ($conn->errno == 1062) {
                  throw new Exception('Duplicate entry detected for order number. Please try again.', 409);
             }
             throw new Exception('Failed to create initial outbound order record: ' . $stmt->error, 500);
@@ -351,12 +357,13 @@ function handleUpdateOrder($conn, $warehouse_id, $user_id) {
     $input = json_decode(file_get_contents('php://input'), true);
     $order_id = filter_var($input['order_id'] ?? 0, FILTER_VALIDATE_INT);
     $customer_id = filter_var($input['customer_id'] ?? 0, FILTER_VALIDATE_INT);
+    $customer_address_id = filter_var($input['customer_address_id'] ?? 0, FILTER_VALIDATE_INT);
     $reference_number = sanitize_input($input['reference_number'] ?? null);
     $required_ship_date = sanitize_input($input['required_ship_date'] ?? '');
     $delivery_note = sanitize_input($input['delivery_note'] ?? null);
 
-    if (!$order_id || !$customer_id || empty($required_ship_date)) {
-        sendJsonResponse(['success' => false, 'message' => 'Order ID, Customer, and Required Ship Date are mandatory.'], 400);
+    if (!$order_id || !$customer_id || !$customer_address_id || empty($required_ship_date)) {
+        sendJsonResponse(['success' => false, 'message' => 'Order ID, Customer, Customer Address, and Required Ship Date are mandatory.'], 400);
         return;
     }
 
@@ -378,8 +385,8 @@ function handleUpdateOrder($conn, $warehouse_id, $user_id) {
             throw new Exception("Cannot edit an order with status '{$order['status']}'.");
         }
 
-        $stmt = $conn->prepare("UPDATE outbound_orders SET customer_id = ?, reference_number = ?, required_ship_date = ?, delivery_note = ? WHERE order_id = ?");
-        $stmt->bind_param("isssi", $customer_id, $reference_number, $required_ship_date, $delivery_note, $order_id);
+        $stmt = $conn->prepare("UPDATE outbound_orders SET customer_id = ?, customer_address_id = ?, reference_number = ?, required_ship_date = ?, delivery_note = ? WHERE order_id = ?");
+        $stmt->bind_param("iisssi", $customer_id, $customer_address_id, $reference_number, $required_ship_date, $delivery_note, $order_id);
         
         if (!$stmt->execute()) {
             throw new Exception("Failed to update order details: " . $stmt->error);
@@ -407,10 +414,11 @@ function handleGetPickReport($conn, $warehouse_id) {
         SELECT 
             oo.order_number, oo.reference_number, oo.required_ship_date,
             COALESCE(c.customer_name, 'Scrap Order') as customer_name, 
-            c.address_line1, c.address_line2, c.city,
+            ca.address_line1, ca.address_line2, ca.city,
             w.warehouse_name
         FROM outbound_orders oo
         LEFT JOIN customers c ON oo.customer_id = c.customer_id
+        LEFT JOIN customer_addresses ca ON oo.customer_address_id = ca.address_id
         JOIN warehouses w ON oo.warehouse_id = w.warehouse_id
         WHERE oo.order_id = ? AND oo.warehouse_id = ?
     ");
@@ -453,11 +461,13 @@ function handleGetOutbound($conn, $warehouse_id) {
             SELECT 
                 oo.*, 
                 COALESCE(c.customer_name, 'Scrap Order') as customer_name, 
+                ca.address_line1, ca.address_line2, ca.city, ca.state, ca.zip_code, ca.country,
                 sl.location_code as shipping_area_code,
                 picker.full_name as picker_name,
                 shipper.full_name as shipper_name
             FROM outbound_orders oo 
             LEFT JOIN customers c ON oo.customer_id = c.customer_id 
+            LEFT JOIN customer_addresses ca ON oo.customer_address_id = ca.address_id
             LEFT JOIN warehouse_locations sl ON oo.shipping_area_location_id = sl.location_id
             LEFT JOIN users picker ON oo.picked_by = picker.user_id
             LEFT JOIN users shipper ON oo.shipped_by = shipper.user_id
@@ -524,6 +534,7 @@ function handleGetOutbound($conn, $warehouse_id) {
             SELECT 
                 oo.order_id, oo.order_number, oo.reference_number, oo.status, oo.required_ship_date, oo.tracking_number, 
                 COALESCE(c.customer_name, 'Scrap Order') as customer_name, 
+                CONCAT(ca.address_line1, ', ', ca.city) as delivery_address,
                 sl.location_code as shipping_area_code,
                 GROUP_CONCAT(DISTINCT 
                     CASE
@@ -535,6 +546,7 @@ function handleGetOutbound($conn, $warehouse_id) {
                 ) as assigned_to
             FROM outbound_orders oo 
             LEFT JOIN customers c ON oo.customer_id = c.customer_id
+            LEFT JOIN customer_addresses ca ON oo.customer_address_id = ca.address_id
             LEFT JOIN warehouse_locations sl ON oo.shipping_area_location_id = sl.location_id
             LEFT JOIN outbound_order_assignments ooa ON oo.order_id = ooa.order_id
             LEFT JOIN users u ON ooa.driver_user_id = u.user_id
@@ -641,7 +653,6 @@ function handleCancelOrder($conn, $warehouse_id, $user_id) {
             throw new Exception("Cannot cancel an order that is already {$order['status']}."); 
         }
         
-        // Fetch all pick details, including the pick_id for cleanup
         $stmt_items = $conn->prepare("
             SELECT p.pick_id, p.picked_quantity, p.location_id, p.batch_number, p.dot_code, oi.product_id 
             FROM outbound_item_picks p 
@@ -655,9 +666,7 @@ function handleCancelOrder($conn, $warehouse_id, $user_id) {
         
         $pick_ids = array_column($picked_items, 'pick_id');
 
-        // Only proceed if there are items that were actually picked.
         if (!empty($pick_ids)) {
-            // Return items to inventory
             foreach ($picked_items as $item) {
                 $stmt_update_inv = $conn->prepare("
                     UPDATE inventory 
@@ -679,11 +688,9 @@ function handleCancelOrder($conn, $warehouse_id, $user_id) {
                 $stmt_update_inv->close();
             }
 
-            // Clean up related records (scans, stickers, picks)
             $placeholders = implode(',', array_fill(0, count($pick_ids), '?'));
             $types = str_repeat('i', count($pick_ids));
 
-            // Delete driver scans linked to the stickers of the picks being cancelled
             $stmt_delete_scans = $conn->prepare("
                 DELETE FROM outbound_driver_scans 
                 WHERE sticker_id IN (SELECT sticker_id FROM outbound_pick_stickers WHERE pick_id IN ($placeholders))
@@ -692,26 +699,22 @@ function handleCancelOrder($conn, $warehouse_id, $user_id) {
             $stmt_delete_scans->execute();
             $stmt_delete_scans->close();
 
-            // Delete the pick stickers
             $stmt_delete_stickers = $conn->prepare("DELETE FROM outbound_pick_stickers WHERE pick_id IN ($placeholders)");
             $stmt_delete_stickers->bind_param($types, ...$pick_ids);
             $stmt_delete_stickers->execute();
             $stmt_delete_stickers->close();
             
-            // Delete the item picks
             $stmt_delete_picks = $conn->prepare("DELETE FROM outbound_item_picks WHERE pick_id IN ($placeholders)");
             $stmt_delete_picks->bind_param($types, ...$pick_ids);
             $stmt_delete_picks->execute();
             $stmt_delete_picks->close();
         }
         
-        // Reset picked quantities on the order items
         $stmt_reset_items = $conn->prepare("UPDATE outbound_items SET picked_quantity = 0 WHERE order_id = ?");
         $stmt_reset_items->bind_param("i", $order_id);
         $stmt_reset_items->execute();
         $stmt_reset_items->close();
         
-        // Update the order status to 'Cancelled'
         $stmt_cancel = $conn->prepare("UPDATE outbound_orders SET status = 'Cancelled' WHERE order_id = ?");
         $stmt_cancel->bind_param("i", $order_id);
         $stmt_cancel->execute();
@@ -923,5 +926,3 @@ function updateOutboundItemAndOrderStatus($conn, $order_id, $user_id) {
         $stmt_update_order->close();
     }
 }
-
-?>

@@ -4,6 +4,10 @@
 // MODIFICATION SUMMARY:
 // 1. New action 'get_order_history': Fetches a detailed list of all items a customer has ordered, including the specific DOT code for each item from the original pick. It also calculates the quantity already returned for each item.
 // 2. handleGetCustomerDetails: This function has been simplified. It no longer fetches detailed order and item information, as this is now handled by the new 'get_order_history' action, making the initial load faster.
+// 3. Removed address fields from `customers` table handling.
+// 4. Added new actions and functions to manage multiple customer addresses: `get_addresses`, `add_address`, `update_address`, `delete_address`.
+// 5. `handleGetCustomerDetails` now also fetches all addresses for the customer.
+// 6. `handleDeleteCustomer` now also deletes all associated addresses.
 
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../helpers/auth_helper.php';
@@ -22,18 +26,25 @@ switch ($method) {
         if ($action === 'get_details') {
             handleGetCustomerDetails($conn);
         } elseif ($action === 'get_order_history') {
-            // MODIFICATION: Added new action
             handleGetCustomerOrderHistory($conn);
+        } elseif ($action === 'get_addresses') {
+            handleGetCustomerAddresses($conn);
         } else {
             handleGetCustomers($conn);
         }
         break;
     case 'POST':
+        authorize_user_role(['operator', 'manager']);
         if ($action === 'delete') {
             authorize_user_role(['manager']);
             handleDeleteCustomer($conn);
+        } elseif ($action === 'add_address') {
+            handleAddCustomerAddress($conn);
+        } elseif ($action === 'update_address') {
+            handleUpdateCustomerAddress($conn);
+        } elseif ($action === 'delete_address') {
+            handleDeleteCustomerAddress($conn);
         } else {
-            authorize_user_role(['operator', 'manager']);
             handleCreateCustomer($conn);
         }
         break;
@@ -46,7 +57,6 @@ switch ($method) {
         break;
 }
 
-// MODIFICATION: New function to get detailed order history with DOT codes
 function handleGetCustomerOrderHistory($conn) {
     $customer_id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
     if (!$customer_id) {
@@ -114,12 +124,10 @@ function handleGetCustomerDetails($conn) {
     $stmt_details->close();
 
     if (!$details) {
-        sendJsonResponse(['success' => false, 'message' => 'Customer not found.'], 404);
+        sendJsonResponse(['success' => false, 'message' => 'Customer not found.'], 4404);
         return;
     }
     
-    // MODIFICATION: Simplified this function. No longer fetching all orders and items here.
-    // That logic is moved to the new handleGetCustomerOrderHistory function.
     $stmt_orders = $conn->prepare("SELECT order_id, order_number, status, order_date FROM outbound_orders WHERE customer_id = ? ORDER BY order_date DESC");
     $stmt_orders->bind_param("i", $customer_id);
     $stmt_orders->execute();
@@ -132,10 +140,17 @@ function handleGetCustomerDetails($conn) {
     $returns = $stmt_returns->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt_returns->close();
 
+    $stmt_addresses = $conn->prepare("SELECT * FROM customer_addresses WHERE customer_id = ? ORDER BY is_default DESC, address_id ASC");
+    $stmt_addresses->bind_param("i", $customer_id);
+    $stmt_addresses->execute();
+    $addresses = $stmt_addresses->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt_addresses->close();
+
     sendJsonResponse(['success' => true, 'data' => [
         'details' => $details,
         'orders' => $orders,
-        'returns' => $returns
+        'returns' => $returns,
+        'addresses' => $addresses
     ]]);
 }
 
@@ -147,8 +162,7 @@ function handleGetCustomers($conn) {
             c.customer_name, 
             c.contact_person, 
             c.email, 
-            c.phone, 
-            c.city,
+            c.phone,
             (SELECT COUNT(*) FROM outbound_orders oo WHERE oo.customer_id = c.customer_id) as order_count
         FROM customers c 
         ORDER BY c.customer_name ASC
@@ -169,10 +183,7 @@ function validateCustomerData($input) {
         'customer_name' => 'Customer Name',
         'customer_code' => 'Customer Code',
         'contact_person' => 'Contact Person',
-        'phone' => 'Phone',
-        'address_line1' => 'Address Line 1',
-        'country' => 'Country',
-        'city' => 'City'
+        'phone' => 'Phone'
     ];
 
     foreach ($required_fields as $field => $label) {
@@ -196,21 +207,15 @@ function handleCreateCustomer($conn) {
         return;
     }
 
-    $stmt = $conn->prepare("INSERT INTO customers (customer_code, customer_name, contact_person, email, phone, phone2, address_line1, address_line2, city, state, zip_code, country) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt = $conn->prepare("INSERT INTO customers (customer_code, customer_name, contact_person, email, phone, phone2) VALUES (?, ?, ?, ?, ?, ?)");
     $stmt->bind_param(
-        "ssssssssssss",
+        "ssssss",
         sanitize_input($input['customer_code']),
         sanitize_input($input['customer_name']),
         sanitize_input($input['contact_person']),
         sanitize_input($input['email'] ?? null),
         sanitize_input($input['phone']),
-        sanitize_input($input['phone2'] ?? null),
-        sanitize_input($input['address_line1']),
-        sanitize_input($input['address_line2'] ?? null),
-        sanitize_input($input['city']),
-        sanitize_input($input['state'] ?? null),
-        sanitize_input($input['zip_code'] ?? null),
-        sanitize_input($input['country'])
+        sanitize_input($input['phone2'] ?? null)
     );
 
     if ($stmt->execute()) {
@@ -240,7 +245,7 @@ function handleUpdateCustomer($conn) {
         return;
     }
 
-    $fields = ['customer_code', 'customer_name', 'contact_person', 'email', 'phone', 'phone2', 'address_line1', 'address_line2', 'city', 'state', 'zip_code', 'country'];
+    $fields = ['customer_code', 'customer_name', 'contact_person', 'email', 'phone', 'phone2'];
     $set_clauses = [];
     $bind_params = [];
     $bind_types = "";
@@ -297,17 +302,194 @@ function handleDeleteCustomer($conn) {
         return;
     }
 
-    $stmt = $conn->prepare("DELETE FROM customers WHERE customer_id = ?");
+    $conn->begin_transaction();
+    try {
+        $stmt_delete_addresses = $conn->prepare("DELETE FROM customer_addresses WHERE customer_id = ?");
+        $stmt_delete_addresses->bind_param("i", $customer_id);
+        if (!$stmt_delete_addresses->execute()) {
+            throw new Exception("Failed to delete customer addresses.");
+        }
+        $stmt_delete_addresses->close();
+
+        $stmt = $conn->prepare("DELETE FROM customers WHERE customer_id = ?");
+        $stmt->bind_param("i", $customer_id);
+        if (!$stmt->execute()) {
+            throw new Exception("Failed to delete customer.");
+        }
+        
+        if ($stmt->affected_rows > 0) {
+            $conn->commit();
+            sendJsonResponse(['success' => true, 'message' => 'Customer and all associated addresses deleted successfully.'], 200);
+        } else {
+            $conn->rollback();
+            sendJsonResponse(['success' => false, 'message' => 'Customer not found.'], 404);
+        }
+        $stmt->close();
+    } catch (Exception $e) {
+        $conn->rollback();
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage(), 'error' => $stmt->error ?? ''], 500);
+    }
+}
+
+function handleGetCustomerAddresses($conn) {
+    $customer_id = filter_input(INPUT_GET, 'customer_id', FILTER_VALIDATE_INT);
+    if (!$customer_id) {
+        sendJsonResponse(['success' => false, 'message' => 'Invalid Customer ID.'], 400);
+        return;
+    }
+
+    $stmt = $conn->prepare("SELECT * FROM customer_addresses WHERE customer_id = ? ORDER BY is_default DESC, address_id ASC");
     $stmt->bind_param("i", $customer_id);
+    $stmt->execute();
+    $addresses = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+
+    sendJsonResponse(['success' => true, 'data' => $addresses]);
+}
+
+function validateAddressData($input) {
+    $errors = [];
+    $required_fields = [
+        'address_line1' => 'Address Line 1',
+        'city' => 'City',
+        'country' => 'Country'
+    ];
+
+    foreach ($required_fields as $field => $label) {
+        if (empty(trim($input[$field] ?? ''))) {
+            $errors[] = $label;
+        }
+    }
+
+    if (!empty($errors)) {
+        return "The following fields are required: " . implode(', ', $errors) . '.';
+    }
+    return null;
+}
+
+function handleAddCustomerAddress($conn) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $customer_id = filter_var($input['customer_id'] ?? null, FILTER_VALIDATE_INT);
+    if (!$customer_id) {
+        sendJsonResponse(['success' => false, 'message' => 'Customer ID is required.'], 400);
+        return;
+    }
+
+    $validation_error = validateAddressData($input);
+    if ($validation_error) {
+        sendJsonResponse(['success' => false, 'message' => $validation_error], 400);
+        return;
+    }
+
+    $is_default = isset($input['is_default']) && $input['is_default'] ? 1 : 0;
+
+    $conn->begin_transaction();
+    try {
+        if ($is_default) {
+            $stmt_reset = $conn->prepare("UPDATE customer_addresses SET is_default = 0 WHERE customer_id = ?");
+            $stmt_reset->bind_param("i", $customer_id);
+            $stmt_reset->execute();
+            $stmt_reset->close();
+        }
+
+        $stmt = $conn->prepare("INSERT INTO customer_addresses (customer_id, address_line1, address_line2, city, state, zip_code, country, is_default) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->bind_param(
+            "issssssi",
+            $customer_id,
+            sanitize_input($input['address_line1']),
+            sanitize_input($input['address_line2'] ?? null),
+            sanitize_input($input['city']),
+            sanitize_input($input['state'] ?? null),
+            sanitize_input($input['zip_code'] ?? null),
+            sanitize_input($input['country']),
+            $is_default
+        );
+
+        if ($stmt->execute()) {
+            $conn->commit();
+            sendJsonResponse(['success' => true, 'message' => 'Address added successfully.', 'address_id' => $stmt->insert_id], 201);
+        } else {
+            throw new Exception('Failed to add address.');
+        }
+        $stmt->close();
+    } catch (Exception $e) {
+        $conn->rollback();
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage(), 'error' => $stmt->error ?? ''], 500);
+    }
+}
+
+function handleUpdateCustomerAddress($conn) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $address_id = filter_var($input['address_id'] ?? null, FILTER_VALIDATE_INT);
+    $customer_id = filter_var($input['customer_id'] ?? null, FILTER_VALIDATE_INT);
+    if (!$address_id || !$customer_id) {
+        sendJsonResponse(['success' => false, 'message' => 'Address ID and Customer ID are required.'], 400);
+        return;
+    }
+
+    $validation_error = validateAddressData($input);
+    if ($validation_error) {
+        sendJsonResponse(['success' => false, 'message' => $validation_error], 400);
+        return;
+    }
+
+    $is_default = isset($input['is_default']) && $input['is_default'] ? 1 : 0;
+
+    $conn->begin_transaction();
+    try {
+        if ($is_default) {
+            $stmt_reset = $conn->prepare("UPDATE customer_addresses SET is_default = 0 WHERE customer_id = ? AND address_id != ?");
+            $stmt_reset->bind_param("ii", $customer_id, $address_id);
+            $stmt_reset->execute();
+            $stmt_reset->close();
+        }
+
+        $stmt = $conn->prepare("UPDATE customer_addresses SET address_line1 = ?, address_line2 = ?, city = ?, state = ?, zip_code = ?, country = ?, is_default = ? WHERE address_id = ? AND customer_id = ?");
+        $stmt->bind_param(
+            "ssssssiii",
+            sanitize_input($input['address_line1']),
+            sanitize_input($input['address_line2'] ?? null),
+            sanitize_input($input['city']),
+            sanitize_input($input['state'] ?? null),
+            sanitize_input($input['zip_code'] ?? null),
+            sanitize_input($input['country']),
+            $is_default,
+            $address_id,
+            $customer_id
+        );
+
+        if ($stmt->execute()) {
+            $conn->commit();
+            sendJsonResponse(['success' => true, 'message' => 'Address updated successfully.'], 200);
+        } else {
+            throw new Exception('Failed to update address.');
+        }
+        $stmt->close();
+    } catch (Exception $e) {
+        $conn->rollback();
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage(), 'error' => $stmt->error ?? ''], 500);
+    }
+}
+
+function handleDeleteCustomerAddress($conn) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $address_id = filter_var($input['address_id'] ?? null, FILTER_VALIDATE_INT);
+    if (!$address_id) {
+        sendJsonResponse(['success' => false, 'message' => 'Address ID is required.'], 400);
+        return;
+    }
+
+    $stmt = $conn->prepare("DELETE FROM customer_addresses WHERE address_id = ?");
+    $stmt->bind_param("i", $address_id);
 
     if ($stmt->execute()) {
         if ($stmt->affected_rows > 0) {
-            sendJsonResponse(['success' => true, 'message' => 'Customer deleted successfully.'], 200);
+            sendJsonResponse(['success' => true, 'message' => 'Address deleted successfully.'], 200);
         } else {
-            sendJsonResponse(['success' => false, 'message' => 'Customer not found.'], 404);
+            sendJsonResponse(['success' => false, 'message' => 'Address not found.'], 404);
         }
     } else {
-        sendJsonResponse(['success' => false, 'message' => 'Failed to delete customer.', 'error' => $stmt->error], 500);
+        sendJsonResponse(['success' => false, 'message' => 'Failed to delete address.', 'error' => $stmt->error], 500);
     }
     $stmt->close();
 }

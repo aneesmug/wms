@@ -1,11 +1,9 @@
 <?php
 /*
 * MODIFICATION SUMMARY:
-* 1. `handleGetUserLoginActivity`: This function has been updated to select the new, stored geolocation fields (`city`, `country`, `latitude`, `longitude`) directly from the `user_login_activity` table.
-* 2. The API response now includes all the necessary data for the frontend, eliminating the need for client-side geolocation lookups.
-* 3. Added `preferred_language` to `handleGetUserDetails` so the edit form can be populated correctly.
-* 4. Updated `handleCreateUser` to accept and insert the `preferred_language`.
-* 5. Updated `handleUpdateUser` to accept and update the `preferred_language`.
+* 1. Added a new API action `update_preferred_language` to allow users to change their language preference.
+* 2. This action updates the `preferred_language` in the `users` table and the current session.
+* 3. The new action is whitelisted for authenticated users to call.
 */
 
 // api/users_api.php
@@ -18,7 +16,7 @@ $conn = getDbConnection();
 // --- Main Action Router ---
 $action = sanitize_input($_GET['action'] ?? '');
 
-$self_service_actions = ['get_current_user_profile', 'update_current_user_profile', 'change_own_password'];
+$self_service_actions = ['get_current_user_profile', 'update_current_user_profile', 'change_own_password', 'update_preferred_language'];
 $operational_actions = ['getDrivers'];
 
 if (in_array($action, $self_service_actions)) {
@@ -44,6 +42,7 @@ try {
         case 'update_current_user_profile': handleUpdateCurrentUserProfile($conn); break;
         case 'change_own_password': handleChangeOwnPassword($conn); break;
         case 'getDrivers': handleGetDrivers($conn); break;
+        case 'update_preferred_language': handleUpdatePreferredLanguage($conn); break;
         default:
             sendJsonResponse(['success' => false, 'message' => 'Invalid action specified.'], 400);
             break;
@@ -399,4 +398,37 @@ function handleGetAllWarehouses($conn) {
 
 function handleGetAllRoles() {
     sendJsonResponse(['success' => true, 'roles' => ['manager', 'operator', 'viewer', 'picker', 'driver']]);
+}
+
+/**
+ * Handles updating the user's preferred language.
+ * This is a self-service action available to any authenticated user.
+ */
+function handleUpdatePreferredLanguage($conn) {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $lang_code = sanitize_input($input['lang'] ?? '');
+    $user_id = $_SESSION['user_id'];
+
+    // Validate the provided language code
+    if (empty($lang_code) || !in_array($lang_code, ['en', 'ar'])) {
+        sendJsonResponse(['success' => false, 'message' => 'Invalid language code specified.'], 400);
+        return;
+    }
+
+    try {
+        $stmt = $conn->prepare("UPDATE users SET preferred_language = ? WHERE user_id = ?");
+        $stmt->bind_param("si", $lang_code, $user_id);
+        
+        if ($stmt->execute()) {
+            // Update the session variable immediately to reflect the change
+            $_SESSION['lang'] = $lang_code;
+            sendJsonResponse(['success' => true, 'message' => 'Language updated successfully.']);
+        } else {
+            throw new Exception("Failed to update user's preferred language in the database.");
+        }
+        $stmt->close();
+    } catch (Exception $e) {
+        error_log("Error in handleUpdatePreferredLanguage: " . $e->getMessage());
+        sendJsonResponse(['success' => false, 'message' => 'An internal server error occurred while updating language.'], 500);
+    }
 }

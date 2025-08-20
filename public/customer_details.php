@@ -4,6 +4,8 @@
 * 1. Replaced all hardcoded English text for titles, headers, buttons, and table columns with the `__()` translation function.
 * 2. Added the required script tag in the <head> to load translations with `JSON_UNESCAPED_UNICODE`.
 * 3. The entire page is now fully localizable.
+* 4. Added a new card for "Manage Addresses" which will contain the list of customer addresses and a button to add new ones.
+* 5. The main "Customer Information" card no longer displays a static address.
 */
 require_once __DIR__ . '/helpers/auth_helper.php';
 ?>
@@ -43,17 +45,13 @@ require_once __DIR__ . '/helpers/auth_helper.php';
         <main class="flex-grow-1 p-4 p-md-5">
             <div class="container-fluid">
                 <div class="row g-4">
+                    <!-- Customer Information -->
                     <div class="col-lg-4">
                         <div class="card shadow-sm h-100">
                             <div class="card-header header-primary d-flex justify-content-between align-items-center">
                                 <h5 class="card-title mb-0"><i class="bi bi-person-badge me-2"></i><?php echo __('customer_information'); ?></h5>
                                 <div class="d-flex align-items-center gap-2">
                                     <button id="editCustomerBtn" class="btn btn-outline-light btn-sm"><i class="bi bi-pencil"></i> <?php echo __('edit'); ?></button>
-                                    <div class="card-header-actions">
-                                        <button type="button" class="btn-card-header" data-action="refresh" title="<?php echo __('refresh'); ?>"><i class="bi bi-arrow-counterclockwise"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="maximize" title="<?php echo __('maximize'); ?>"><i class="bi bi-arrows-fullscreen"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="close" title="<?php echo __('close'); ?>"><i class="bi bi-x-lg"></i></button>
-                                    </div>
                                 </div>
                             </div>
                             <div class="card-body" id="customerInfoCard">
@@ -62,18 +60,29 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                         </div>
                     </div>
 
+                    <!-- Manage Addresses -->
+                    <div class="col-lg-8">
+                        <div class="card shadow-sm h-100">
+                            <div class="card-header header-info d-flex justify-content-between align-items-center">
+                                <h5 class="card-title mb-0"><i class="bi bi-geo-alt me-2"></i><?php echo __('manage_addresses'); ?></h5>
+                                <button id="addNewAddressBtn" class="btn btn-light btn-sm"><i class="bi bi-plus-circle"></i> <?php echo __('add_new_address'); ?></button>
+                            </div>
+                            <div class="card-body">
+                                <div id="addressListContainer" class="list-group">
+                                    <!-- Addresses will be loaded here by JavaScript -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-4 mt-1">
+                    <!-- Order/Return History -->
                     <div class="col-lg-8">
                         <div class="card shadow-sm h-100">
                             <div class="card-header header-primary d-flex justify-content-between align-items-center">
                                 <h5 class="card-title mb-0"><i class="bi bi-receipt me-2"></i><?php echo __('order_return_history'); ?></h5>
-                                <div class="d-flex align-items-center gap-2">
-                                    <button id="createReturnBtn" class="btn btn-warning btn-sm"><i class="bi bi-box-arrow-left me-1"></i> <?php echo __('create_return'); ?></button>
-                                    <div class="card-header-actions">
-                                        <button type="button" class="btn-card-header" data-action="refresh" title="<?php echo __('refresh'); ?>"><i class="bi bi-arrow-counterclockwise"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="maximize" title="<?php echo __('maximize'); ?>"><i class="bi bi-arrows-fullscreen"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="close" title="<?php echo __('close'); ?>"><i class="bi bi-x-lg"></i></button>
-                                    </div>
-                                </div>
+                                <button id="createReturnBtn" class="btn btn-warning btn-sm"><i class="bi bi-box-arrow-left me-1"></i> <?php echo __('create_return'); ?></button>
                             </div>
                             <div class="card-body">
                                 <div class="table-responsive">
@@ -93,72 +102,57 @@ require_once __DIR__ . '/helpers/auth_helper.php';
                             </div>
                         </div>
                     </div>
-                </div>
 
-                <div class="row g-4 mt-1">
-                    <div class="col-12">
+                     <!-- Financial Transactions -->
+                    <div class="col-lg-4">
                         <div class="card shadow-sm">
                             <div class="card-header header-warning d-flex justify-content-between align-items-center">
                                 <h5 class="card-title mb-0"><i class="bi bi-cash-coin me-2"></i><?php echo __('financial_transactions'); ?></h5>
-                                <div class="d-flex align-items-center gap-2">
-                                    <div class="card-header-actions">
-                                        <button type="button" class="btn-card-header" data-action="refresh" title="<?php echo __('refresh'); ?>"><i class="bi bi-arrow-counterclockwise"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="maximize" title="<?php echo __('maximize'); ?>"><i class="bi bi-arrows-fullscreen"></i></button>
-                                        <button type="button" class="btn-card-header" data-action="close" title="<?php echo __('close'); ?>"><i class="bi bi-x-lg"></i></button>
-                                    </div>
-                                </div>
                             </div>
                             <div class="card-body">
-                                <div class="row">
-                                    <div class="col-lg-8">
-                                        <h6><?php echo __('transaction_history'); ?></h6>
-                                        <div class="table-responsive">
-                                            <table class="table table-sm table-striped">
-                                                <thead>
-                                                    <tr>
-                                                        <th><?php echo __('date'); ?></th>
-                                                        <th><?php echo __('type'); ?></th>
-                                                        <th><?php echo __('amount'); ?></th>
-                                                        <th><?php echo __('order_ref'); ?></th>
-                                                        <th><?php echo __('notes'); ?></th>
-                                                        <th><?php echo __('created_by'); ?></th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody id="transactionsTableBody"></tbody>
-                                            </table>
-                                        </div>
+                                <h6><?php echo __('add_new_transaction'); ?></h6>
+                                <form id="transactionForm">
+                                    <div class="mb-2">
+                                        <label for="transactionType" class="form-label"><?php echo __('type'); ?></label>
+                                        <select id="transactionType" class="form-select form-select-sm" required>
+                                            <option value="payment"><?php echo __('payment'); ?></option>
+                                            <option value="refund"><?php echo __('refund'); ?></option>
+                                            <option value="credit"><?php echo __('credit'); ?></option>
+                                            <option value="debit"><?php echo __('debit'); ?></option>
+                                        </select>
                                     </div>
-                                    <div class="col-lg-4 border-start" id="addTransactionSection">
-                                        <h6><?php echo __('add_new_transaction'); ?></h6>
-                                        <form id="transactionForm">
-                                            <div class="mb-3">
-                                                <label for="transactionType" class="form-label"><?php echo __('type'); ?></label>
-                                                <select id="transactionType" class="form-select" required>
-                                                    <option value="payment"><?php echo __('payment'); ?></option>
-                                                    <option value="refund"><?php echo __('refund'); ?></option>
-                                                    <option value="credit"><?php echo __('credit'); ?></option>
-                                                    <option value="debit"><?php echo __('debit'); ?></option>
-                                                </select>
-                                            </div>
-                                            <div class="mb-3">
-                                                <label for="transactionAmount" class="form-label"><?php echo __('amount'); ?></label>
-                                                <input type="number" id="transactionAmount" class="form-control" step="0.01" min="0" required>
-                                            </div>
-                                            <div class="mb-3">
-                                                <label for="transactionOrder" class="form-label"><?php echo __('related_order_optional'); ?></label>
-                                                <select id="transactionOrder" class="form-select">
-                                                    <option value=""><?php echo __('none'); ?></option>
-                                                </select>
-                                            </div>
-                                            <div class="mb-3">
-                                                <label for="transactionNotes" class="form-label"><?php echo __('notes'); ?></label>
-                                                <textarea id="transactionNotes" class="form-control" rows="3"></textarea>
-                                            </div>
-                                            <div class="d-grid">
-                                                <button type="submit" id="saveTransactionBtn" class="btn btn-success"><?php echo __('save_transaction'); ?></button>
-                                            </div>
-                                        </form>
+                                    <div class="mb-2">
+                                        <label for="transactionAmount" class="form-label"><?php echo __('amount'); ?></label>
+                                        <input type="number" id="transactionAmount" class="form-control form-control-sm" step="0.01" min="0" required>
                                     </div>
+                                    <div class="mb-2">
+                                        <label for="transactionOrder" class="form-label"><?php echo __('related_order_optional'); ?></label>
+                                        <select id="transactionOrder" class="form-select form-select-sm">
+                                            <option value=""><?php echo __('none'); ?></option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-2">
+                                        <label for="transactionNotes" class="form-label"><?php echo __('notes'); ?></label>
+                                        <textarea id="transactionNotes" class="form-control form-control-sm" rows="2"></textarea>
+                                    </div>
+                                    <div class="d-grid">
+                                        <button type="submit" id="saveTransactionBtn" class="btn btn-success btn-sm"><?php echo __('save_transaction'); ?></button>
+                                    </div>
+                                </form>
+                                <hr>
+                                <h6><?php echo __('transaction_history'); ?></h6>
+                                <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                                    <table class="table table-sm table-striped">
+                                        <thead>
+                                            <tr>
+                                                <th><?php echo __('date'); ?></th>
+                                                <th><?php echo __('type'); ?></th>
+                                                <th><?php echo __('amount'); ?></th>
+                                                <th><?php echo __('notes'); ?></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="transactionsTableBody"></tbody>
+                                    </table>
                                 </div>
                             </div>
                         </div>

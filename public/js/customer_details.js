@@ -1,21 +1,27 @@
 /*
 * MODIFICATION SUMMARY:
-* 1. Replaced all hardcoded English strings in UI elements, alerts, and modals with the `__()` translation function.
-* 2. This includes placeholders, DataTable language settings, SweetAlert2 titles and messages, and error notifications.
-* 3. The entire JavaScript functionality for this page is now fully localizable.
-* 4. Ensured dynamic messages with variables are constructed correctly using translated strings.
+* 1. Replaced all hardcoded English strings with the `__()` translation function for full localization.
+* 2. Implemented full CRUD functionality for customer addresses.
+* 3. `renderCustomerInfo`: No longer displays a static address.
+* 4. New function `renderAddressList`: Fetches and displays all customer addresses in a new dedicated card.
+* 5. New function `showAddressForm`: Displays a SweetAlert2 modal for adding or editing an address.
+* 6. New function `handleDeleteAddress`: Handles the deletion of an address with a confirmation prompt.
+* 7. Event listeners added for "Add New Address", "Edit Address", and "Delete Address" buttons.
+* 8. `showCustomerForm` (for editing customer details) no longer includes address fields.
+* 9. `populateOrdersTable`: Added status maps to assign distinct colors for each order and return status badge, and now translates the status text.
 */
 
 document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Elements ---
     const customerNameHeader = document.getElementById('customerNameHeader');
     const customerInfoCard = document.getElementById('customerInfoCard');
+    const addressListContainer = document.getElementById('addressListContainer');
     const transactionForm = document.getElementById('transactionForm');
     const transactionsTableBody = document.getElementById('transactionsTableBody');
     const transactionOrderSelect = document.getElementById('transactionOrder');
-    const addTransactionSection = document.getElementById('addTransactionSection');
     const editCustomerBtn = document.getElementById('editCustomerBtn');
     const createReturnBtn = document.getElementById('createReturnBtn');
+    const addNewAddressBtn = document.getElementById('addNewAddressBtn');
 
     // --- State & Config ---
     const urlParams = new URLSearchParams(window.location.search);
@@ -34,6 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     if (createReturnBtn) createReturnBtn.addEventListener('click', showCreateReturnSweetAlert);
+    if (addNewAddressBtn) addNewAddressBtn.addEventListener('click', () => showAddressForm(null));
 
 
     initializePage();
@@ -47,9 +54,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const canManage = ['operator', 'manager'].includes(currentWarehouseRole);
-        if (addTransactionSection) addTransactionSection.style.display = canManage ? 'block' : 'none';
         if (editCustomerBtn) editCustomerBtn.style.display = canManage ? 'block' : 'none';
         if (createReturnBtn) createReturnBtn.style.display = canManage ? 'block' : 'none';
+        if (addNewAddressBtn) addNewAddressBtn.style.display = canManage ? 'block' : 'none';
 
         initializeOrdersDataTable();
         await loadCustomerDetails();
@@ -104,8 +111,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetchData(`api/customers_api.php?action=get_details&id=${customerId}`);
             if (response.success) {
                 currentCustomerDetails = response.data.details;
-                const { details, orders, returns } = response.data;
+                const { details, orders, returns, addresses } = response.data;
                 renderCustomerInfo(details);
+                renderAddressList(addresses);
                 populateOrdersTable(orders, returns);
                 populateOrdersDropdown(orders);
             } else {
@@ -119,37 +127,192 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderCustomerInfo(customer) {
         customerNameHeader.textContent = `${customer.customer_name} (${customer.customer_code || __('n_a')})`;
-        let addressHtml = [customer.address_line1, customer.address_line2, customer.city, customer.state, customer.zip_code, customer.country].filter(Boolean).join('<br>');
         customerInfoCard.innerHTML = `
             <p><strong>${__('customer_code')}:</strong> ${customer.customer_code || __('n_a')}</p>
             <p><strong>${__('contact_person')}:</strong> ${customer.contact_person || __('n_a')}</p><hr>
             <p><i class="bi bi-telephone-fill me-2"></i> ${customer.phone || __('n_a')}</p>
             <p><i class="bi bi-phone-fill me-2"></i> ${customer.phone2 || __('n_a')}</p>
-            <p><i class="bi bi-envelope-fill me-2"></i> ${customer.email || __('n_a')}</p><hr>
-            <p><i class="bi bi-geo-alt-fill me-2"></i><strong>${__('address')}:</strong></p>
-            <address>${addressHtml || __('no_address_on_file')}</address>`;
+            <p><i class="bi bi-envelope-fill me-2"></i> ${customer.email || __('n_a')}</p>`;
+    }
+
+    function renderAddressList(addresses) {
+        addressListContainer.innerHTML = '';
+        if (!addresses || addresses.length === 0) {
+            addressListContainer.innerHTML = `<p class="text-muted text-center p-3">${__('no_addresses_found')}</p>`;
+            return;
+        }
+
+        addresses.forEach(address => {
+            const addressHtml = [address.address_line1, address.address_line2, address.city, address.state, address.zip_code, address.country].filter(Boolean).join(', ');
+            const isDefaultBadge = address.is_default == 1 ? `<span class="badge bg-success ms-2">${__('default_address')}</span>` : '';
+            
+            const addressElement = document.createElement('div');
+            addressElement.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+            addressElement.innerHTML = `
+                <div>
+                    <p class="mb-1">${addressHtml}${isDefaultBadge}</p>
+                </div>
+                <div>
+                    <button class="btn btn-sm btn-outline-primary edit-address-btn" title="${__('edit_address')}"><i class="bi bi-pencil"></i></button>
+                    <button class="btn btn-sm btn-outline-danger delete-address-btn ms-2" title="${__('delete')}"><i class="bi bi-trash"></i></button>
+                </div>
+            `;
+            
+            addressElement.querySelector('.edit-address-btn').addEventListener('click', () => showAddressForm(address));
+            addressElement.querySelector('.delete-address-btn').addEventListener('click', () => handleDeleteAddress(address.address_id));
+
+            addressListContainer.appendChild(addressElement);
+        });
+    }
+
+    async function showAddressForm(address) {
+        const isEditing = address !== null;
+        Swal.fire({
+            title: isEditing ? __('edit_address') : __('add_new_address'),
+            html: `
+                <form id="swalAddressForm" class="text-start mt-3">
+                    <div class="row">
+                        <div class="col-12 mb-3"><label for="swal-addressLine1" class="form-label">${__('address_line_1')}*</label><input type="text" id="swal-addressLine1" class="form-control" value="${isEditing ? address.address_line1 || '' : ''}" required></div>
+                        <div class="col-12 mb-3"><label for="swal-addressLine2" class="form-label">${__('address_line_2')}</label><input type="text" id="swal-addressLine2" class="form-control" value="${isEditing ? address.address_line2 || '' : ''}"></div>
+                        <div class="col-md-4 mb-3"><label for="swal-city" class="form-label">${__('city')}*</label><input type="text" id="swal-city" class="form-control" value="${isEditing ? address.city || '' : ''}" required></div>
+                        <div class="col-md-4 mb-3"><label for="swal-state" class="form-label">${__('state')}</label><input type="text" id="swal-state" class="form-control" value="${isEditing ? address.state || '' : ''}"></div>
+                        <div class="col-md-4 mb-3"><label for="swal-zipCode" class="form-label">${__('zip_code')}</label><input type="text" id="swal-zipCode" class="form-control numeric-only" value="${isEditing ? address.zip_code || '' : ''}"></div>
+                        <div class="col-12 mb-3"><label for="swal-country" class="form-label">${__('country')}*</label><input type="text" id="swal-country" class="form-control" value="${isEditing ? address.country || '' : ''}" required></div>
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="swal-isDefault" ${isEditing && address.is_default == 1 ? 'checked' : ''}>
+                                <label class="form-check-label" for="swal-isDefault">${__('set_as_default')}</label>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            `,
+            width: '800px',
+            showCancelButton: true,
+            confirmButtonText: isEditing ? __('save_changes') : __('add_address'),
+            cancelButtonText: __('cancel'),
+            focusConfirm: false,
+            allowOutsideClick: false,
+            preConfirm: () => {
+                const requiredFields = {
+                    'swal-addressLine1': __('address_line_1_required'),
+                    'swal-city': __('city_required'),
+                    'swal-country': __('country_required')
+                };
+                for (const [id, message] of Object.entries(requiredFields)) {
+                    if (!document.getElementById(id).value.trim()) {
+                        Swal.showValidationMessage(message);
+                        return false;
+                    }
+                }
+                return {
+                    customer_id: customerId,
+                    address_id: isEditing ? address.address_id : null,
+                    address_line1: document.getElementById('swal-addressLine1').value,
+                    address_line2: document.getElementById('swal-addressLine2').value,
+                    city: document.getElementById('swal-city').value,
+                    state: document.getElementById('swal-state').value,
+                    zip_code: document.getElementById('swal-zipCode').value,
+                    country: document.getElementById('swal-country').value,
+                    is_default: document.getElementById('swal-isDefault').checked
+                };
+            }
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                const data = result.value;
+                const action = isEditing ? 'update_address' : 'add_address';
+                try {
+                    const apiResult = await fetchData(`api/customers_api.php?action=${action}`, 'POST', data);
+                    if (apiResult?.success) {
+                        Swal.fire(__('success'), apiResult.message, 'success');
+                        await loadCustomerDetails(); // Reload all details to get updated address list
+                    }
+                } catch (error) {
+                    Swal.fire(__('error'), error.message, 'error');
+                }
+            }
+        });
+    }
+
+    async function handleDeleteAddress(addressId) {
+        Swal.fire({
+            title: __('confirm_deletion'),
+            text: __('confirm_delete_address_q'),
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#d33',
+            cancelButtonColor: '#3085d6',
+            confirmButtonText: __('yes_delete_it'),
+            cancelButtonText: __('cancel')
+        }).then(async (result) => {
+            if (result.isConfirmed) {
+                try {
+                    const apiResult = await fetchData('api/customers_api.php?action=delete_address', 'POST', { address_id: addressId });
+                    if (apiResult?.success) {
+                        Swal.fire(__('deleted'), __('address_deleted_successfully'), 'success');
+                        await loadCustomerDetails();
+                    }
+                } catch (error) {
+                    Swal.fire(__('error'), error.message, 'error');
+                }
+            }
+        });
     }
 
     function populateOrdersTable(orders, returns) {
+        const orderStatusMap = {
+            'delivered': 'bg-success',
+            'out for delivery': 'bg-info text-dark',
+            'shipped': 'bg-primary',
+            'assigned': 'bg-orange', // Custom color
+            'ready for pickup': 'bg-purple', // Custom color
+            'picked': 'bg-info text-dark',
+            'partially picked': 'bg-warning text-dark',
+            'new': 'bg-secondary',
+            'pending pick': 'bg-secondary',
+            'cancelled': 'bg-danger',
+            'scrapped': 'bg-dark',
+            'returned': 'bg-dark',
+            'partially returned': 'bg-light text-dark',
+            'delivery failed': 'bg-danger'
+        };
+    
+        const returnStatusMap = {
+            'pending': 'bg-secondary',
+            'approved': 'bg-info text-dark',
+            'processing': 'bg-primary',
+            'completed': 'bg-success',
+            'rejected': 'bg-danger',
+            'cancelled': 'bg-dark'
+        };
+
         const tableData = [];
         orders.forEach(o => {
+            const statusKey = o.status.toLowerCase();
+            const translationKey = statusKey.replace(/ /g, '_');
+            const statusClass = orderStatusMap[statusKey] || 'bg-light text-dark';
             tableData.push({ 
                 id: o.order_id, 
                 number: o.order_number, 
                 type: __('order'), 
-                status: `<span class="badge bg-primary">${o.status}</span>`, 
+                status: `<span class="badge ${statusClass}">${__(translationKey, o.status)}</span>`, 
                 date: new Date(o.order_date).toLocaleDateString(),
                 actions: ''
             });
         });
-        returns.forEach(r => tableData.push({ 
-            id: r.return_id, 
-            number: r.return_number, 
-            type: __('return'), 
-            status: `<span class="badge bg-warning text-dark">${r.status}</span>`, 
-            date: new Date(r.created_at).toLocaleDateString(),
-            actions: ''
-        }));
+        returns.forEach(r => {
+            const statusKey = r.status.toLowerCase();
+            const translationKey = statusKey.replace(/ /g, '_');
+            const statusClass = returnStatusMap[statusKey] || 'bg-warning text-dark';
+            tableData.push({ 
+                id: r.return_id, 
+                number: r.return_number, 
+                type: __('return'), 
+                status: `<span class="badge ${statusClass}">${__(translationKey, r.status)}</span>`, 
+                date: new Date(r.created_at).toLocaleDateString(),
+                actions: ''
+            });
+        });
         ordersTable.clear().rows.add(tableData).draw();
     }
 
@@ -349,12 +512,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="col-md-6 mb-3"><label for="swal-email" class="form-label">${__('email')}</label><input type="email" id="swal-email" class="form-control email-validation" value="${customer.email || ''}"></div>
                         <div class="col-md-6 mb-3"><label for="swal-phone" class="form-label">${__('phone')}*</label><input type="tel" id="swal-phone" class="form-control saudi-mobile-number" value="${customer.phone || ''}" required></div>
                         <div class="col-md-6 mb-3"><label for="swal-phone2" class="form-label">${__('alt_phone')}</label><input type="tel" id="swal-phone2" class="form-control numeric-only" value="${customer.phone2 || ''}"></div>
-                        <div class="col-12 mb-3"><label for="swal-addressLine1" class="form-label">${__('address_line_1')}*</label><input type="text" id="swal-addressLine1" class="form-control" value="${customer.address_line1 || ''}" required></div>
-                        <div class="col-12 mb-3"><label for="swal-addressLine2" class="form-label">${__('address_line_2')}</label><input type="text" id="swal-addressLine2" class="form-control" value="${customer.address_line2 || ''}"></div>
-                        <div class="col-md-4 mb-3"><label for="swal-city" class="form-label">${__('city')}*</label><input type="text" id="swal-city" class="form-control" value="${customer.city || ''}" required></div>
-                        <div class="col-md-4 mb-3"><label for="swal-state" class="form-label">${__('state')}</label><input type="text" id="swal-state" class="form-control" value="${customer.state || ''}"></div>
-                        <div class="col-md-4 mb-3"><label for="swal-zipCode" class="form-label">${__('zip_code')}</label><input type="text" id="swal-zipCode" class="form-control numeric-only" value="${customer.zip_code || ''}"></div>
-                        <div class="col-12 mb-3"><label for="swal-country" class="form-label">${__('country')}*</label><input type="text" id="swal-country" class="form-control" value="${customer.country || ''}" required></div>
                     </div>
                 </form>`,
             width: '70%', 
@@ -364,7 +521,7 @@ document.addEventListener('DOMContentLoaded', () => {
             focusConfirm: false, 
             allowOutsideClick: false,
             preConfirm: () => {
-                const requiredFields = {'swal-customerName': __('customer_name'),'swal-customerCode': __('customer_code'),'swal-contactPerson': __('contact_person'),'swal-phone': __('phone'),'swal-addressLine1': __('address_line_1'),'swal-city': __('city'),'swal-country': __('country')};
+                const requiredFields = {'swal-customerName': __('customer_name'),'swal-customerCode': __('customer_code'),'swal-contactPerson': __('contact_person'),'swal-phone': __('phone')};
                 const missingFields = [];
                 for (const [id, name] of Object.entries(requiredFields)) {
                     if (!document.getElementById(id).value.trim()) missingFields.push(name);
@@ -380,13 +537,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     contact_person: document.getElementById('swal-contactPerson').value,
                     email: document.getElementById('swal-email').value,
                     phone: document.getElementById('swal-phone').value,
-                    phone2: document.getElementById('swal-phone2').value,
-                    address_line1: document.getElementById('swal-addressLine1').value,
-                    address_line2: document.getElementById('swal-addressLine2').value,
-                    city: document.getElementById('swal-city').value,
-                    state: document.getElementById('swal-state').value,
-                    zip_code: document.getElementById('swal-zipCode').value,
-                    country: document.getElementById('swal-country').value,
+                    phone2: document.getElementById('swal-phone2').value
                 };
             }
         }).then(async (result) => {
