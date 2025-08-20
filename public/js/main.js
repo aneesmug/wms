@@ -1,8 +1,9 @@
 /*
 * MODIFICATION SUMMARY:
-* 1. Added an event listener to handle clicks on the new language switcher.
-* 2. When a new language is selected, it calls the `update_preferred_language` API endpoint.
-* 3. Upon a successful API response, it displays a confirmation message and reloads the page to apply the language change.
+* 1. Moved `populateWarehouseSelector` from dashboard.js into this global script to allow warehouse switching from any page.
+* 2. The function now runs on DOMContentLoaded for any page containing a '#warehouseSelector' element.
+* 3. It fetches the user's available warehouses, populates the dropdown, and sets the currently active one.
+* 4. An event listener is attached to handle changes, calling the existing `setCurrentWarehouse` function to update the session and reload the page.
 */
 
 // public/js/main.js
@@ -217,6 +218,61 @@ function updateUserInfoDisplay(authStatus) {
         elements.imageMobile.src = profileImageUrl;
         elements.imageMobile.onerror = () => { elements.imageMobile.src = defaultImagePath; };
     }
+}
+
+/**
+ * NEW FUNCTION: Populates the warehouse selector dropdown if it exists on the page.
+ */
+async function populateWarehouseSelector() {
+    const selector = document.getElementById('warehouseSelector');
+    if (!selector) {
+        // No selector on this page, so do nothing.
+        return;
+    }
+
+    const warehouseData = await fetchData('api/auth.php?action=get_user_warehouses');
+    if (!warehouseData || !warehouseData.success || !warehouseData.warehouses) {
+        selector.style.display = 'none'; // Hide if there's an error or no warehouses
+        return;
+    }
+
+    const warehouses = warehouseData.warehouses;
+    const currentWarehouseId = localStorage.getItem('current_warehouse_id');
+
+    selector.innerHTML = ''; // Clear existing options
+
+    if (warehouses.length === 0) {
+         selector.style.display = 'none'; // Hide if user has no warehouses
+         return;
+    }
+
+    warehouses.forEach(wh => {
+        const option = document.createElement('option');
+        option.value = wh.warehouse_id;
+        option.textContent = wh.warehouse_name;
+        if (wh.warehouse_id == currentWarehouseId) {
+            option.selected = true;
+        }
+        selector.appendChild(option);
+    });
+
+    selector.addEventListener('change', async (event) => {
+        const selectedId = event.target.value;
+        const selectedWarehouse = warehouses.find(w => w.warehouse_id == selectedId);
+        if (selectedWarehouse) {
+            // Show a loading indicator before reloading
+             Swal.fire({
+                title: __('switching_warehouse'),
+                text: `${__('please_wait')}...`,
+                allowOutsideClick: false,
+                didOpen: () => {
+                    Swal.showLoading();
+                }
+            });
+            await setCurrentWarehouse(selectedId, selectedWarehouse.warehouse_name);
+            // setCurrentWarehouse reloads the page, so no need for further action.
+        }
+    });
 }
 
 
@@ -450,38 +506,33 @@ function setupCommonEventListeners() {
     setupInputValidations();
 
     // Language Switcher Logic
-    document.body.addEventListener('click', async (event) => {
-        const langLink = event.target.closest('[data-lang]');
-        if (!langLink) return;
+    const langToggleButton = document.getElementById('language-toggle-btn');
+    if (langToggleButton) {
+        langToggleButton.addEventListener('click', async (event) => {
+            event.preventDefault();
+            const selectedLang = langToggleButton.dataset.lang;
+            
+            const result = await fetchData('api/users_api.php?action=update_preferred_language', 'POST', { lang: selectedLang });
 
-        event.preventDefault();
-        const selectedLang = langLink.dataset.lang;
-        const currentLang = document.documentElement.lang;
+            if (result && result.success) {
+                const message = selectedLang === 'ar' 
+                    ? 'تم تحديث اللغة. سيتم تحديث الصفحة...' 
+                    : 'Language updated. The page will now refresh...';
 
-        if (selectedLang === currentLang) {
-            return; // Do nothing if already selected
-        }
+                const Toast = Swal.mixin({
+                    toast: true,
+                    position: 'top-end',
+                    showConfirmButton: false,
+                    timer: 2000,
+                    timerProgressBar: true,
+                });
 
-        const result = await fetchData('api/users_api.php?action=update_preferred_language', 'POST', { lang: selectedLang });
-
-        if (result && result.success) {
-            const message = selectedLang === 'ar' 
-                ? 'تم تحديث اللغة. سيتم تحديث الصفحة...' 
-                : 'Language updated. The page will now refresh...';
-
-            const Toast = Swal.mixin({
-                toast: true,
-                position: 'top-end',
-                showConfirmButton: false,
-                timer: 2000,
-                timerProgressBar: true,
-            });
-
-            await Toast.fire({ icon: 'success', title: message });
-            window.location.reload();
-        }
-        // Error case is handled by fetchData which shows a message.
-    });
+                await Toast.fire({ icon: 'success', title: message });
+                window.location.reload();
+            }
+            // Error case is handled by fetchData which shows a message.
+        });
+    }
 
     // Card Actions (Refresh, Maximize, Close)
     document.body.addEventListener('click', function(event) {
@@ -515,6 +566,7 @@ function setupCommonEventListeners() {
 document.addEventListener('DOMContentLoaded', () => {
     enforceAuthentication();
     setupCommonEventListeners();
+    populateWarehouseSelector(); // Call the new global function
     const isProtectedPage = !window.location.pathname.endsWith('/') && !window.location.pathname.endsWith('index.php');
     if (isProtectedPage) {
         startInactivityTimer();
