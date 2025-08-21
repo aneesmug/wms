@@ -33,6 +33,7 @@ if (!isset($_SESSION['user_id'])) {
     <?php if (($_SESSION['lang'] ?? 'en') === 'ar'): ?>
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
     <?php endif; ?>
+    <script> window.lang = <?php echo json_encode($translations, JSON_UNESCAPED_UNICODE); ?>; </script>
 </head>
 <body class="bg-light">
     <div id="content">

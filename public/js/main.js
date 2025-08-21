@@ -4,9 +4,13 @@
 * 2. The function now runs on DOMContentLoaded for any page containing a '#warehouseSelector' element.
 * 3. It fetches the user's available warehouses, populates the dropdown, and sets the currently active one.
 * 4. An event listener is attached to handle changes, calling the existing `setCurrentWarehouse` function to update the session and reload the page.
+* 5. CRITICAL FIX: Moved the `startInactivityTimer()` call into the `enforceAuthentication` function. It now only runs after a user is confirmed to be authenticated, preventing the lock screen from appearing on the login page after logout.
+* 6. NETWORK ERROR FIX: Added a global `isReloading` flag. This is set to true right before the page reloads (e.g., after changing a warehouse). The `fetchData` function's error handler now checks this flag and will not show a "Network error" message if the error was caused by an intentional page reload, preventing false positive error alerts.
 */
 
 // public/js/main.js
+
+let isReloading = false; // Flag to prevent false network errors on reload
 
 // --- Global Translation Function ---
 // This function relies on a 'lang' object being defined in the global scope,
@@ -130,6 +134,7 @@ function startInactivityTimer() {
 // --- Authentication and State Management Functions ---
 
 function redirectToLogin() {
+    isReloading = true; // Prevent errors on redirect
     localStorage.clear();
     window.location.href = 'index.php';
 }
@@ -152,6 +157,7 @@ async function setCurrentWarehouse(id, name) {
         localStorage.setItem('current_warehouse_id', id);
         localStorage.setItem('current_warehouse_name', name);
         localStorage.setItem('current_warehouse_role', result.role);
+        isReloading = true;
         window.location.reload();
         return true;
     }
@@ -320,6 +326,9 @@ async function fetchData(url, method = 'GET', data = null) {
         }
         return result;
     } catch (error) {
+        if (isReloading) {
+            return null; // Suppress error message if a reload is in progress
+        }
         console.error('Network or parsing error:', error);
         showMessageBox(__('network_error'), 'error');
         return null;
@@ -473,6 +482,9 @@ async function enforceAuthentication() {
             return;
         }
 
+        // If authenticated, start the inactivity timer.
+        startInactivityTimer();
+
         if (authStatus.session_locked) {
             showLockScreen();
             return;
@@ -528,6 +540,7 @@ function setupCommonEventListeners() {
                 });
 
                 await Toast.fire({ icon: 'success', title: message });
+                isReloading = true;
                 window.location.reload();
             }
             // Error case is handled by fetchData which shows a message.
@@ -546,6 +559,7 @@ function setupCommonEventListeners() {
 
         switch (action) {
             case 'refresh':
+                isReloading = true;
                 location.reload();
                 break;
             case 'maximize':
@@ -567,8 +581,4 @@ document.addEventListener('DOMContentLoaded', () => {
     enforceAuthentication();
     setupCommonEventListeners();
     populateWarehouseSelector(); // Call the new global function
-    const isProtectedPage = !window.location.pathname.endsWith('/') && !window.location.pathname.endsWith('index.php');
-    if (isProtectedPage) {
-        startInactivityTimer();
-    }
 });

@@ -1,3 +1,10 @@
+/*
+* MODIFICATION SUMMARY:
+* 1. CRITICAL FIX: Added `enforceBoundary: true` to the Croppie options to prevent the image from being moved outside the crop area.
+* 2. ROBUST FIX FOR ALL IMAGE SIZES: Replaced the previous image loading logic with a more reliable method. The code now uses the promise returned by `croppie.bind()` to wait for the image to be fully processed before setting the initial zoom. This guarantees that every image (both large and small) starts perfectly fitted within the crop area, resolving all zoom-related issues.
+* 3. Added `enableExif: true` to correctly orient photos taken on mobile devices.
+* 4. Explicitly enabled `mouseWheelZoom: true` and `showZoomer: true` for a better and more consistent user experience.
+*/
 document.addEventListener('DOMContentLoaded', () => {
     // --- Form & Element Selectors ---
     const profileForm = document.getElementById('profileForm');
@@ -22,7 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Display roles
             userRolesList.innerHTML = '';
             if (user.is_global_admin) {
-                userRolesList.innerHTML = '<li class="list-group-item"><strong>Global Admin</strong> (All Access)</li>';
+                userRolesList.innerHTML = '<li class="list-group-item"><strong>'+ __('global_admin') +'</strong> ('+ __('all_access') +')</li>';
             } else if (user.warehouse_roles && user.warehouse_roles.length > 0) {
                 user.warehouse_roles.forEach(role => {
                     const li = document.createElement('li');
@@ -43,17 +50,34 @@ document.addEventListener('DOMContentLoaded', () => {
         const reader = new FileReader();
         reader.onload = (event) => {
             Swal.fire({
-                title: 'Crop Your Image',
+                title: __('crop_your_image'),
                 html: `<div id="croppie-editor-container" style="width:100%; height:400px;"></div>`,
                 showCancelButton: true,
-                confirmButtonText: 'Crop & Save',
+                cancelButtonText: __('cancel'),
+                confirmButtonText: __('crop_and_save'),
+                allowOutsideClick: false,
                 didOpen: () => {
                     const editor = Swal.getPopup().querySelector('#croppie-editor-container');
                     croppieInstance = new Croppie(editor, {
                         viewport: { width: 200, height: 200, type: 'circle' },
                         boundary: { width: 300, height: 300 },
+                        enforceBoundary: true,
+                        enableExif: true,
+                        mouseWheelZoom: true,
+                        showZoomer: true
                     });
-                    croppieInstance.bind({ url: event.target.result });
+
+                    // Bind the image and use the returned promise to set the initial zoom.
+                    // This is the most reliable way to ensure the image is ready.
+                    croppieInstance.bind({ url: event.target.result }).then(() => {
+                        // This code runs after Croppie has fully processed the image
+                        // and calculated the correct minimum zoom level to fit the boundary.
+                        const slider = Swal.getPopup().querySelector('.cr-slider');
+                        if (slider) {
+                            const minZoom = parseFloat(slider.getAttribute('min'));
+                            croppieInstance.setZoom(minZoom);
+                        }
+                    });
                 },
                 willClose: () => {
                     croppieInstance.destroy();

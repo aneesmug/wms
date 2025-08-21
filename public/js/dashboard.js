@@ -27,8 +27,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             return; 
         }
 
-        await populateWarehouseSelector();
-
         await setupQuickActionsVisibility();
 
         const currentWarehouseId = localStorage.getItem('current_warehouse_id');
@@ -43,41 +41,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     // --- Data Loading Functions ---
-
-    const populateWarehouseSelector = async () => {
-        if (!warehouseSelector) return;
-
-        const result = await fetchData('api/auth.php?action=get_user_warehouses');
-        
-        warehouseSelector.innerHTML = '<option value="">Select a Warehouse...</option>';
-        
-        if (result && result.success && result.warehouses.length > 0) {
-            result.warehouses.forEach(wh => {
-                const option = document.createElement('option');
-                option.value = wh.warehouse_id;
-                option.textContent = wh.warehouse_name;
-                warehouseSelector.appendChild(option);
-            });
-
-            const storedWarehouseId = localStorage.getItem('current_warehouse_id');
-
-            if (result.warehouses.length === 1) {
-                const singleWarehouse = result.warehouses[0];
-                if (storedWarehouseId != singleWarehouse.warehouse_id) {
-                    await setCurrentWarehouse(singleWarehouse.warehouse_id, singleWarehouse.warehouse_name);
-                } else {
-                    warehouseSelector.value = storedWarehouseId;
-                }
-            } else {
-                if (storedWarehouseId) {
-                    warehouseSelector.value = storedWarehouseId;
-                }
-            }
-        } else {
-            warehouseSelector.innerHTML = '<option value="">No warehouses assigned</option>';
-            warehouseSelector.disabled = true;
-        }
-    };
 
     const loadDashboardData = async () => {
         await loadDashboardSummary();
